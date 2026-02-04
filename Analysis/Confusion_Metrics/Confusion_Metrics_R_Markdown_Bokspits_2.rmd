@@ -1,0 +1,129 @@
+---
+title: "Confusion Metrics"
+author: "Glenn Slade"
+date: "02/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Bokspits 1 Survey Area
+## Random Forest Classification - Accuracy Assessment
+## 5 Bands
+
+This script explores in more detail the accuracy assessment results derived from the random forest classification carried out with the SKlearn machine learning package in Python.
+This script uses the diffeR package in R and explores the alternatives to using kappa for confusion matrix accuracy assessment and calculates confusion matrix metrics as per Pontius Jr., R.G., Millones, M. 2011. Death to Kappa: birth of quantity disagreement and allocation disagreement for accuracy assessment. International Journal of Remote Sensing 32 (15), 4407-4429.
+Information about precision, recall, f1_score calculations can be found at http://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_fscore_support.html
+
+
+```{r include = FALSE, warning = FALSE}
+## Libraries
+library(viridis)
+library(tidyverse)
+library(lubridate)
+library(RColorBrewer)
+library(ggplot2)
+library(MASS)
+library(splines)
+library(gridExtra)
+library(DescTools)
+library(sf)
+library(writexl)
+library(cowplot)
+library (dplyr)
+library(writexl)
+library(diffeR)
+
+```
+
+```{r}
+Confusion1 <- read.csv("E:/Glenn/Botswana/RF/Python/Bokspits_2/Bokspits_2_RF_conf_matrix.csv")
+Base_results <- read.csv("E:/Glenn/Botswana/RF/Python/Bokspits_2/Bokspits_2_RF_Summary.txt", header = FALSE)
+Importance <- read.csv("E:/Glenn/Botswana/RF/Python/Bokspits_2/Bokspits_2_RF_Importance.txt")
+
+# Prepare data table for diffeR package 
+
+Confusion4 <- subset(Confusion1, select = -c(row_0,All) )#removes unwanted columns from original Python output
+Confusion3 <- Confusion4[-c(9),]#removes the last totals row
+Confusion2 <- as.matrix(Confusion3) #converts table into matrix
+
+
+```
+
+
+The landcover type codes are as follows 
+1= Prosopis
+2= Bare Ground
+3= Dry Grass, leaf litter
+4= Gnidia
+5= Camel Thorn
+6= Rhigosom Trichotomom
+
+The Standard Precision, Recall F1 Score and Kappa calculations for the Randon Mofrest Classification are:
+```{r}
+print (Base_results)
+print (Confusion1)
+print (Confusion4)
+print(Confusion3)
+print (Confusion2)
+```
+
+The Band Selection Importance Scores for the Random Forest Classification are
+```{r}
+print (Importance)
+```
+Band 1 = Blue
+Band 2 = Green
+Band 3 = Red 
+Band 4 = Red_Edge
+Band 5 = NIR
+Band 6 = CHM (Canopy Height Model)
+
+We can now calculate quantity, exchange and shift components of difference, as well as the overall difference, at the category level from a contingency table derived from the crosstabulation between a comparison variables and a reference variable.
+The basics difference assessment is as follows:
+
+```{r}
+diffTablej(Confusion2, digits = 2, analysis = "error")
+
+```
+
+We can then calculate a stacked barplot showing for each category the quantity, exchange and shift
+components of difference between the comparison map/variable and the reference map/variable.
+
+```{r}
+categoryComponentsPlot (ctmatrix=Confusion2)
+
+```
+
+We can then calculate exchange and overall difference metrics
+
+```{r}
+exchangeDij(Confusion2)
+exchangeDj(Confusion2)
+overallAllocD(Confusion2)
+overallComponentsPlot(ctmatrix=Confusion2)
+overallDiff(Confusion2)
+overallDiffCatj(Confusion2)
+overallExchangeD(Confusion2)
+overallQtyD(Confusion2)
+overallShiftD(Confusion2)
+overallSourcesPlot(ctmatrix=Confusion2) 
+quantityDj(Confusion2)
+```
+
+We can then calculate shift difference at the category level from a contingency table derived
+from the crosstabulation between comparison variable and reference variable. Shift refers to the difference remaining after subtracting quantity difference and exchange from the overall difference
+
+```{r}
+shiftDj(Confusion2)
+
+```
+
+And then produce a stacked bar plot showing the ommission and commission components for each category
+```{r}
+categorySourcesPlot(ctmatrix=Confusion2)
+
+```
+

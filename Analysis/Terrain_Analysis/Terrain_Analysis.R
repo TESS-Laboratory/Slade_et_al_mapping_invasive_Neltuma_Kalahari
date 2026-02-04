@@ -1,0 +1,257 @@
+#Script for Terrain Analysis of Raster DTM derived from Drone Image Data
+#Source data is DTM produced with Pix4D software
+
+#Libraries
+
+library(terra)
+library(lubridate)
+library(RColorBrewer)
+library(ggplot2)
+library(MASS)
+library(splines)
+library(rgeos)
+library(tidyverse)
+library(viridis)
+library(gridExtra)
+library(DescTools)
+library(sf)
+library(exactextractr)
+library(writexl) 
+
+#----1. Terrain analysis Bokspits 1 survey area----
+#Import shape file data
+
+Bokspits_1_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Bokspits_1', layer = "Bokspits_1_clip")
+Bokspits_1_clip <- vect(Bokspits_1_clipper)
+
+#Import raster DTM File
+Bokspits_1_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Bokspits_1_MS_RGB/3_dsm_ortho/extras/dtm//Bokspits_1_MS_RGB_dtm.tif")
+
+plot(Bokspits_1_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Bokspits_1_DTM_slope <- terrain(Bokspits_1_DTM,'slope', unit='degrees')
+plot(Bokspits_1_DTM_slope)
+
+Bokspits_1_DTM_aspect <- terrain(Bokspits_1_DTM,'aspect', unit='degrees')
+plot(Bokspits_1_DTM_aspect)
+
+Bokspits_1_DTM_roughness <- terrain(Bokspits_1_DTM,'roughness')
+plot(Bokspits_1_DTM_roughness)
+
+Bokspits_1_DTM_flowdir <- terrain(Bokspits_1_DTM,'flowdir')
+plot(Bokspits_1_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Bokspits_1_Stack_Terrain <- c(Bokspits_1_DTM_slope,Bokspits_1_DTM_aspect,Bokspits_1_DTM_roughness,Bokspits_1_DTM_flowdir ) 
+Bokspits_1_Stack_TerrainCr <- crop(Bokspits_1_Stack_Terrain,Bokspits_1_clip )
+Bokspits_1_Stack_TerrainCrop <- mask(Bokspits_1_Stack_TerrainCr,Bokspits_1_clip )
+plot(Bokspits_1_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Bokspits_1_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Bokspits_1_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----2. Terrain analysis Bokspits 2----
+
+
+Bokspits_2_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Bokspits_2', layer = "Bokspits_2_clip")
+Bokspits_2_clip <- vect(Bokspits_2_clipper)
+
+#Import raster DTM File
+Bokspits_2_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Bokspits_2_MS_RGB/3_dsm_ortho/extras/dtm//Bokspits_2_MS_RGB_dtm.tif")
+
+plot(Bokspits_2_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Bokspits_2_DTM_slope <- terrain(Bokspits_2_DTM,'slope', unit='degrees')
+plot(Bokspits_2_DTM_slope)
+
+Bokspits_2_DTM_aspect <- terrain(Bokspits_2_DTM,'aspect', unit='degrees')
+plot(Bokspits_2_DTM_aspect)
+
+Bokspits_2_DTM_roughness <- terrain(Bokspits_2_DTM,'roughness')
+plot(Bokspits_2_DTM_roughness)
+
+Bokspits_2_DTM_flowdir <- terrain(Bokspits_2_DTM,'flowdir')
+plot(Bokspits_2_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Bokspits_2_Stack_Terrain <- c(Bokspits_2_DTM_slope,Bokspits_2_DTM_aspect,Bokspits_2_DTM_roughness,Bokspits_2_DTM_flowdir ) 
+Bokspits_2_Stack_TerrainCr <- crop(Bokspits_2_Stack_Terrain,Bokspits_2_clip )
+Bokspits_2_Stack_TerrainCrop <- mask(Bokspits_2_Stack_TerrainCr,Bokspits_2_clip )
+plot(Bokspits_2_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Bokspits_2_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Bokspits_2_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----3. Terrain analysis Bokspits 3----
+
+
+Bokspits_3_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Bokspits_3', layer = "Bokspits_3_clip")
+Bokspits_3_clip <- vect(Bokspits_3_clipper)
+
+#Import raster DTM File
+Bokspits_3_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Bokspits_3_MS_RGB/3_dsm_ortho/extras/dtm//Bokspits_3_MS_RGB_dtm.tif")
+
+plot(Bokspits_3_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Bokspits_3_DTM_slope <- terrain(Bokspits_3_DTM,'slope', unit='degrees')
+plot(Bokspits_3_DTM_slope)
+
+Bokspits_3_DTM_aspect <- terrain(Bokspits_3_DTM,'aspect', unit='degrees')
+plot(Bokspits_3_DTM_aspect)
+
+Bokspits_3_DTM_roughness <- terrain(Bokspits_3_DTM,'roughness')
+plot(Bokspits_3_DTM_roughness)
+
+Bokspits_3_DTM_flowdir <- terrain(Bokspits_3_DTM,'flowdir')
+plot(Bokspits_3_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Bokspits_3_Stack_Terrain <- c(Bokspits_3_DTM_slope,Bokspits_3_DTM_aspect,Bokspits_3_DTM_roughness,Bokspits_3_DTM_flowdir ) 
+Bokspits_3_Stack_TerrainCr <- crop(Bokspits_3_Stack_Terrain,Bokspits_3_clip )
+Bokspits_3_Stack_TerrainCrop <- mask(Bokspits_3_Stack_TerrainCr,Bokspits_3_clip )
+plot(Bokspits_3_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Bokspits_3_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Bokspits_3_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----4. Terrain analysis Struizendam 1 survey area----
+#Import shape file data
+
+Struizendam_1_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Struizendam_1', layer = "Struizendam_1_clip")
+Struizendam_1_clip <- vect(Struizendam_1_clipper)
+
+#Import raster DTM File
+Struizendam_1_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Struizendam_1_MS_RGB/3_dsm_ortho/extras/dtm//Struizendam_1_MS_RGB_dtm.tif")
+
+plot(Struizendam_1_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Struizendam_1_DTM_slope <- terrain(Struizendam_1_DTM,'slope', unit='degrees')
+plot(Struizendam_1_DTM_slope)
+
+Struizendam_1_DTM_aspect <- terrain(Struizendam_1_DTM,'aspect', unit='degrees')
+plot(Struizendam_1_DTM_aspect)
+
+Struizendam_1_DTM_roughness <- terrain(Struizendam_1_DTM,'roughness')
+plot(Struizendam_1_DTM_roughness)
+
+Struizendam_1_DTM_flowdir <- terrain(Struizendam_1_DTM,'flowdir')
+plot(Struizendam_1_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Struizendam_1_Stack_Terrain <- c(Struizendam_1_DTM_slope,Struizendam_1_DTM_aspect,Struizendam_1_DTM_roughness,Struizendam_1_DTM_flowdir ) 
+Struizendam_1_Stack_TerrainCr <- crop(Struizendam_1_Stack_Terrain,Struizendam_1_clip )
+Struizendam_1_Stack_TerrainCrop <- mask(Struizendam_1_Stack_TerrainCr,Struizendam_1_clip )
+plot(Struizendam_1_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Struizendam_1_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Struizendam_1_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----5. Terrain analysis Struizendam 2----
+
+
+Struizendam_2_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Struizendam_2', layer = "Struizendam_2_clip")
+Struizendam_2_clip <- vect(Struizendam_2_clipper)
+
+#Import raster DTM File
+Struizendam_2_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Struizendam_2_MS_RGB/3_dsm_ortho/extras/dtm//Struizendam_2_MS_RGB_dtm.tif")
+
+plot(Struizendam_2_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Struizendam_2_DTM_slope <- terrain(Struizendam_2_DTM,'slope', unit='degrees')
+plot(Struizendam_2_DTM_slope)
+
+Struizendam_2_DTM_aspect <- terrain(Struizendam_2_DTM,'aspect', unit='degrees')
+plot(Struizendam_2_DTM_aspect)
+
+Struizendam_2_DTM_roughness <- terrain(Struizendam_2_DTM,'roughness')
+plot(Struizendam_2_DTM_roughness)
+
+Struizendam_2_DTM_flowdir <- terrain(Struizendam_2_DTM,'flowdir')
+plot(Struizendam_2_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Struizendam_2_Stack_Terrain <- c(Struizendam_2_DTM_slope,Struizendam_2_DTM_aspect,Struizendam_2_DTM_roughness,Struizendam_2_DTM_flowdir ) 
+Struizendam_2_Stack_TerrainCr <- crop(Struizendam_2_Stack_Terrain,Struizendam_2_clip )
+Struizendam_2_Stack_TerrainCrop <- mask(Struizendam_2_Stack_TerrainCr,Struizendam_2_clip )
+plot(Struizendam_2_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Struizendam_2_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Struizendam_2_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----6. Terrain analysis Struizendam 3----
+
+
+Struizendam_3_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Struizendam_3', layer = "Struizendam_3_clip")
+Struizendam_3_clip <- vect(Struizendam_3_clipper)
+
+#Import raster DTM File
+Struizendam_3_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Struizendam_3_MS_RGB/3_dsm_ortho/extras/dtm//Struizendam_3_MS_RGB_dtm.tif")
+
+plot(Struizendam_3_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Struizendam_3_DTM_slope <- terrain(Struizendam_3_DTM,'slope', unit='degrees')
+plot(Struizendam_3_DTM_slope)
+
+Struizendam_3_DTM_aspect <- terrain(Struizendam_3_DTM,'aspect', unit='degrees')
+plot(Struizendam_3_DTM_aspect)
+
+Struizendam_3_DTM_roughness <- terrain(Struizendam_3_DTM,'roughness')
+plot(Struizendam_3_DTM_roughness)
+
+Struizendam_3_DTM_flowdir <- terrain(Struizendam_3_DTM,'flowdir')
+plot(Struizendam_3_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Struizendam_3_Stack_Terrain <- c(Struizendam_3_DTM_slope,Struizendam_3_DTM_aspect,Struizendam_3_DTM_roughness,Struizendam_3_DTM_flowdir ) 
+Struizendam_3_Stack_TerrainCr <- crop(Struizendam_3_Stack_Terrain,Struizendam_3_clip )
+Struizendam_3_Stack_TerrainCrop <- mask(Struizendam_3_Stack_TerrainCr,Struizendam_3_clip )
+plot(Struizendam_3_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Struizendam_3_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Struizendam_3_Stack_TerrainCrop.tif", overwrite=TRUE)
+
+#----7. Terrain analysis Struizendam 4----
+
+
+Struizendam_4_clipper <- read_sf(dsn = 'E:/Glenn/Botswana/Final_Drone_Survey_Data/Struizendam_4', layer = "Struizendam_4_clip")
+Struizendam_4_clip <- vect(Struizendam_4_clipper)
+
+#Import raster DTM File
+Struizendam_4_DTM <-  rast("E:/Glenn/Botswana/Pix4d/Struizendam_4_MS_RGB/3_dsm_ortho/extras/dtm//Struizendam_4_MS_RGB_dtm.tif")
+
+plot(Struizendam_4_DTM)
+
+#Terrain Analysis
+#terrain(x, opt='slope', unit='radians', neighbors=8, filename='', ...) - NB This is from the original documentation but it doesnt work - need to omit opt=
+Struizendam_4_DTM_slope <- terrain(Struizendam_4_DTM,'slope', unit='degrees')
+plot(Struizendam_4_DTM_slope)
+
+Struizendam_4_DTM_aspect <- terrain(Struizendam_4_DTM,'aspect', unit='degrees')
+plot(Struizendam_4_DTM_aspect)
+
+Struizendam_4_DTM_roughness <- terrain(Struizendam_4_DTM,'roughness')
+plot(Struizendam_4_DTM_roughness)
+
+Struizendam_4_DTM_flowdir <- terrain(Struizendam_4_DTM,'flowdir')
+plot(Struizendam_4_DTM_flowdir)
+# Make image stack of terrain analysis layers cropped to study area boundary
+Struizendam_4_Stack_Terrain <- c(Struizendam_4_DTM_slope,Struizendam_4_DTM_aspect,Struizendam_4_DTM_roughness,Struizendam_4_DTM_flowdir ) 
+Struizendam_4_Stack_TerrainCr <- crop(Struizendam_4_Stack_Terrain,Struizendam_4_clip )
+Struizendam_4_Stack_TerrainCrop <- mask(Struizendam_4_Stack_TerrainCr,Struizendam_4_clip )
+plot(Struizendam_4_Stack_TerrainCrop)
+
+#Write tif file
+
+writeRaster(Struizendam_4_Stack_TerrainCrop,"E:/Glenn/Botswana/ReflStacks/Struizendam_4_Stack_TerrainCrop.tif", overwrite=TRUE)
