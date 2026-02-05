@@ -7,6 +7,8 @@ A static version of this repo is archived on Zenodo at [![DOI](https://zenodo.or
 This repository contains R code for processing, analysing and visualising multispectral drone, satellite and field data for the study of the 
 distribution and spread of the  alien invasive plant species Neltuma (Prosopis / Mesquite).
 
+This project was part of the Oppenheimer Programme in African Landscape Systems (OPALS) (https://opals-exeter.org/) 
+
 The drone surveys are situated close to the settlements of Bokspits and Struizendam.
 
 This is published in: 
