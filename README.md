@@ -14,7 +14,7 @@ The drone surveys are situated close to the settlements of Bokspits and Struizen
 This is published in: 
 To be added
 
-Contact: gs558@Exeter.ac.uk
+Contact: gs558@Exeter.ac.uk and/or a.cunliffe@exeter.ac.uk
 
 This repo contains the following scripts:
 To be added
@@ -23,5 +23,4 @@ Data:
 To be added
 
 
-
-To be added 
+The ground-observed data for training and validation are in /Analysis/input_data
