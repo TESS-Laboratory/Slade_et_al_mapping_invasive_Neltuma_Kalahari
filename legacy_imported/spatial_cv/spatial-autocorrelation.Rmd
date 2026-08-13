@@ -1,0 +1,185 @@
+---
+title: "Spatial Autocorrelation in Machine Learning."
+output: html_document
+---
+
+<!--
+IMPORTED - not part of the original published archive.
+
+  source repo   Glenn-Prosopis-ML
+  source path   spatial-autocorrelation.Rmd
+  ref           master @ 6d9def5
+  sha256        3295dfc503a8f2c2109b4d7ac063971c3b88f1ddcd7d9abdf31d45a264dc554d
+
+  why           The ONLY place in any repository where spcv_block appears.
+                Compares random / block / kmeans / disc resampling and calls
+                autoplot(show_blocks = TRUE) - exactly the figure Reviewer 1
+                asked for at L239-242. Likely seeded the manuscript's
+                "spatial block cross-validation" wording, though it runs on
+                Bokspits_1 only, on a 5x-aggregated cube, with an untuned
+                randomForest at 6 folds x 3 repeats - NOT the configuration
+                whose accuracies the manuscript reports.
+
+Content below is VERBATIM. It expects to run from the Glenn-Prosopis-ML
+project root (data_in/, data_out/, R/). See refactor-findings.md.
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Why we should be careful when evaluating model performance...
+
+This notebook provides a brief example of why we should take care when building
+machine learning (ML) models with a spatial dimension. And, specifically, why
+we must be careful when we evalutate model performance.
+
+*Do not use spatial location as a predictor variable (unless you
+have a very good reason). This will bring out any spatial pattern in the predictions
+and will be reflected in predictions in novel/untrained areas.*
+
+
+Here we use Glenn's Prosopis dataset at the Boxspits 1 site. It is a great example
+of Land Use Classification and is a great illustration of the potential issue.
+
+firstly, let's read in the raster data cube -  note there are lots of bands which
+we will use as predictors.
+```{r read-n-rescale}
+invisible(lapply(list.files("R", full.names = TRUE, recursive = TRUE), source))
+
+input_ras_cube <- rast("data_out/Bokspits_1/Bokspits_1_stack.tif") |> 
+  aggregate(5,  filename="data_out/Bokspits_1/Bokspits_1_stack_agg h.tif", overwrite=TRUE)  # reduce resolution for the example.
+
+pnts <- vect("data_in/Bokspits_1/Bokspits_1_Field_data_points_All_b30.shp")
+
+terra::plotRGB(input_ras_cube[[c(3,2,1)]], scale=0.6, smooth=TRUE, axes=FALSE)
+points(centroids(pnts), col="cyan", cex=0.5)
+
+plot(input_ras_cube, col=grDevices::hcl.colors(50, palette = "Sunset"))
+
+```
+
+Much of the next bit for generating the training dataframe is hidden in the 
+`build_ml_df` function but don't worry. Essentially, Glenn labelled the ground 
+cover at numerous locations and we then covert the are of these locals (30 cm 
+disk) to raster and extract coincident values from the raster cube.
+
+Let's also make some predictions using a random forest model - as you can see, 
+there appears to be good separation of different land cover features...
+
+```{r build-ml-df-predict}
+
+v <- build_ml_df(cube = input_ras_cube,
+                 site_name = "Bokspits_1",
+                 df_type="grid")
+
+task <- build_task(v, site_name="Bokspits_1")
+
+head(task$data())
+
+
+rf_lrnr <- lrn("classif.randomForest")
+
+rf_lrnr$train(task)
+
+preds <- terra::predict(input_ras_cube, rf_lrnr, na.rm=TRUE, cores=4)
+
+plot(preds, col=rev(brewer.pal(6, name="Dark2")))
+
+```
+
+But how accurate is the model?? The way we evaluate this with ML models is to 
+use resampling. i.e, split the data into training and testing sets, train the 
+model with the train portion and then test on the reduced portion. Ideally, we
+do this multiple times, in this case we use 6 folds, therefore the data is trained
+and tested 6 times (repeated CV is a good idea for a more thorough evaluation).
+
+
+This is the standard approach for cross validation - simple random splitting of 
+the data. This is fine, and even preferred, if your data have no underlying autocorrelation 
+structure such as time or space. However, let's think about why this might be a
+problem... If things closer to each other are more likely to be similar, then 
+training the model and testing on neighbours is more likely to give an optimistic 
+evaluation score. When we apply this model to new unseen areas, we are very likely
+overestimating model accuracy.
+
+```{r random-cv}
+rand_cv <- mlr3::rsmp("cv", folds=6)
+
+autoplot(rand_cv, task=task, fold_id=1:4)
+```
+
+
+So what can we do? Well, we can explicitly consider the autocorrelation strucure
+in the resampling approach. In this case we are just thinking about spatial 
+autocorrelation but the same applies for temporal - we shouldn't test and train 
+on neighbouring or repeated points from differing time periods.
+
+The simplest approach is the Block CV method. overlay a grid and use this to 
+split the dataset.
+
+
+```{r}
+block_cv <- mlr3::rsmp("spcv_block", folds = 6, range = 100)
+autoplot(block_cv, task=task, fold_id=1:4,show_blocks = TRUE)
+
+```
+
+Many other methods exist also, for example:
+
+Spatial clustering using kmeans...
+
+```{r}
+spcv <- mlr3::rsmp("spcv_coords", folds = 6)
+autoplot(spcv, task=task, fold_id=1:4)
+
+```
+
+
+spatial clustering with buffered/disk seperation...
+
+```{r}
+spcv_buff <- mlr3::rsmp("spcv_disc", folds = 6, radius=50, buffer=50)
+autoplot(spcv_buff, task=task, fold_id=1:4)
+
+```
+
+Let's look at what this means for model accuracy... quite a big difference. In fact,
+depending on the data, this can be much more extreme. 
+Note that the random CV is more optimistic than the other approaches. It's a 
+good idea to put some thought into your resampling regime - this will be dependent 
+on a number of factors including how much training data you have and how it is
+distributed spatially.
+
+```{r}
+
+resample_results <- function(res_type, res_plan){
+  rs <- ml_resample(.task = task,.learner = rf_lrnr,
+                     spcv_plan = res_plan, .folds = 6, .repeats = 3)
+  message(res_type)
+  print(rs$aggregate(c(msr("classif.acc"),
+                    msr("classif.ce"))))
+  tibble({{res_type}} := rs$score(msr("classif.acc"))$classif.acc)
+}
+
+
+name_list <- c("Random CV", "Block CV", "Coordinate-based k-means", "Spatial 'disc' resampling")
+rs_list <- c(rand_cv, block_cv, spcv, spcv_buff)
+
+all_resamps <- purrr::map2(name_list, rs_list, ~resample_results(.x, .y)) |> 
+  purrr::list_cbind() 
+
+all_resamps |> 
+  tidyr::pivot_longer(everything())|> 
+  dplyr::mutate(name = forcats::fct_relevel(name, name_list)) |> 
+  ggplot() +
+  aes(x = name, y = value, fill=name) +
+  geom_violin(trim = TRUE, alpha=0.8) +
+  geom_boxplot(fill=NA, width=0.2)+
+  geom_jitter(height = 0, width = 0.1) +
+  scale_fill_brewer(palette="Set2")+
+  theme_linedraw() +
+  guides(fill="none") +
+  labs(x="Resampling Type", y= "Rerported Accuracy")
+  
+```
