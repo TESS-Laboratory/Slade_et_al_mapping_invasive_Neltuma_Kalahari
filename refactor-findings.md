@@ -118,7 +118,7 @@ leaves no trace. Two consequences:
 
 | # | Defect | Impact | Status |
 |---|---|---|---|
-| 4.1 | `build_ml_df()` reads the class lookup with `col_names=` but no `skip = 1`, so the header row is ingested as data and `Type` becomes character | Silently corrupts the join between field points and class labels | CONFIRMED |
+| 4.1 | **CORRECTED, see 8.2.** `build_ml_df()` reads the class lookup with `col_names=` and no `skip = 1`. This was *correct* against the original headerless file. It became a fault only when the lookup gained a header row in commit `567696e` | Silently corrupts the join between field points and class labels, but as a regression from data curation, not a latent bug | CONFIRMED |
 | 4.2 | `benchmark_analysis.R` assigns `df_master <- df` instead of `bind_rows` at the start of every survey block | Only the last survey area (Struizendam_4) survives into `bench_master.xlsx`. Fixed in the `Neltuma_Mlr3_Pipeline/scripts/` copy; still broken in `Analysis/MLR_analysis/` | CONFIRMED |
 | 4.3 | `Development_test/run_choices*.R` pass `test_scale = "FALSE"` as a **string**; `tune_lrnr` gates on `isTRUE()`, and `isTRUE("TRUE")` is `FALSE` | Scale and PCA branches never activate, even in the variants whose config says `"TRUE"`. That family is not comparable to the `Shortcuts` family, which passes real logicals | CONFIRMED |
 | 4.4 | `Development_test/run_choices*.R` use `rsmp("cv")`, with the spatial line commented out directly above | Those runs are non-spatial CV despite sitting alongside spatial ones | CONFIRMED |
@@ -216,6 +216,64 @@ are vestigial.
 
 ---
 
+## 8. Class scheme
+
+Standardised into [`inst/config/classes.json`](inst/config/classes.json), with
+accessors in [`R/classes.R`](R/classes.R). This supersedes
+`Neltuma_Mlr3_Pipeline/data_in/Veg_type_lookup_list.xlsx`, which must not be read
+directly. Action item 2 closed.
+
+**8.1 CONFIRMED. What Andy's correction changed.** Commit `567696e`
+(2026-08-10) did two things to the lookup, both correct:
+
+- Added a header row (`Class_Number`, `Class_Name`, `Class_Description`). The
+  original file had none; its first row was class 1.
+- Replaced colloquial names with accepted binomials: Prosopis to *Neltuma*,
+  Bare Sand to Bare Ground, Gnidia to *Gnidia polycephala*, Camel Thorn to
+  *Vachellia erioloba*, Rig Trig to *Rhigozum trichotomum*, Acacia Melifera to
+  *Senegalia mellifera*, Blue Bush to *Diospyros lycioides*, Shepherds Tree to
+  *Boscia albitrunca*, Candle Bush to *Vachellia hebeclada*. Class 13's
+  description gained "Mostly *Stipagrostis amabilis*", which is what licenses
+  Tables S3 and S4 calling it by the binomial.
+
+All superseded names are preserved as `aliases` in `classes.json` so legacy
+outputs can still be migrated.
+
+**8.2 CONFIRMED. The correction silently breaks the current code.**
+`build_ml_df()` calls
+`read_xlsx(lookup_file, col_names = c("Type", "Class", "Description"))`.
+Supplying `col_names` declares the file has **no header**. That was true of the
+original file and false of the corrected one. Running the pipeline as it stands
+against the lookup on `main` ingests the header as data row 1, coerces `Type` to
+character, and breaks the join against the numeric `Type` in the field
+shapefiles. `R/classes.R::assert_not_legacy_lookup()` guards this path.
+
+**[ANDY] 8.3.** The corrected class names do not fully agree with Tables S3 and
+S4, so the manuscript needs updating either way:
+
+| Lookup (corrected, authoritative) | Table S3 / S4 | Action |
+|---|---|---|
+| `Short Grass` (3) | `Grass` | Pick one. Table S3 also names the assemblage |
+| `Tall Dune Grass` (13) | `Stipagrostis amabilis` | The binomial is better and the corrected description now supports it |
+| `Calcrete` (8) | absent; Table S3 folds calcrete into Bare Ground | Decide whether Bare Ground includes calcrete |
+| `Diospyros lycioides` (9) | absent | Never classified. Drop from the lookup or note as unused |
+| `Other` (11) | absent | Excluded by its own description |
+| absent | `Mixed woody cover` | Satellite-only class with no code. **UNRESOLVED**, most likely code 6 under the simple scheme, must be confirmed against archived training sets |
+
+**8.4 CONFIRMED.** Class code `53` appears as `frac_53` in the Sentinel-2 purity
+filters and balanced-sample counts, with no entry in any lookup. Origin unknown.
+Recorded under `unresolved_codes` in `classes.json`.
+
+**8.5 CONFIRMED.** Under the `simple` four-class scheme, code 6 no longer means
+*Rhigozum trichotomum*; it means any woody vegetation that is not *Neltuma*
+(codes 5 and 7 are recoded into it). Any output that mixes the field and simple
+schemes without relabelling is wrong. `class_labels(simple = TRUE)` handles this.
+
+**8.6.** Using `label_md` everywhere prevents recurrence of the `Rhigosum`
+misspelling Reviewer 1 flagged across Figures 3, 8, S1 to S8, S10 and S11.
+
+---
+
 ## Changelog
 
 - **2026-08-13** Phase 0.1 to 0.3. Cross-repo audit; recovered and reconstructed
@@ -226,3 +284,7 @@ are vestigial.
   server handover guide. Section 7 added. Phase 0.4 folded into
   `audit/source-recovery-map.md` and `legacy_imported/README.md` rather than
   written as a third overlapping document.
+- **2026-08-14** Phase 1.4. Class scheme standardised to
+  `inst/config/classes.json` with accessors in `R/classes.R`. Section 8 added.
+  **Finding 4.1 corrected**: the lookup-reading fault is a regression introduced
+  by commit `567696e` adding a header row, not a pre-existing bug.
