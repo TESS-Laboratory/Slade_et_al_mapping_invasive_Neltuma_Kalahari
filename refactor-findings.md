@@ -187,9 +187,42 @@ Each needs a pipeline output, not just prose.
 
 ---
 
+## 7. Data collation
+
+66 required inputs are catalogued in
+[`inst/manifest/data_manifest.tsv`](inst/manifest/data_manifest.tsv), with a
+dependency-free discovery script at
+[`tools/discover-inputs.sh`](tools/discover-inputs.sh) and a server handover
+guide at [`docs/data-collation.md`](docs/data-collation.md).
+
+Of the 66 entries, only 4 are in this repository. The rest sit on a Windows
+external drive we do not have, across five assumed project roots. Roughly a
+quarter are re-downloadable from Zenodo `10.5281/zenodo.18506271`; the satellite
+scenes, every vector layer, the co-registered mosaics, the hexagonal grids and
+all intermediate result workbooks are not archived anywhere.
+
+Highest-value entries to locate, because they block the most:
+
+| # | id | Why |
+|---|---|---|
+| 1 | `bench_workbooks`, `confusion_workbooks` | Every reported accuracy figure was read from these 64 workbooks. Without them, no headline number can be checked against its own source |
+| 2 | `wv2_corrected_16m` | Co-registration reference for the entire satellite arm. No script produces it |
+| 3 | `drone_chm` | Required by every Drone+CHM stack. No script produces it |
+| 4 | `wv2_train_points_combined` | The field-only baseline behind the 6.1% improvement claim |
+
+**7.1 CONFIRMED.** Two rainfall workbooks ship in `Analysis/Data/` and are
+referenced by no script in any repository. Either an analysis is missing or they
+are vestigial.
+
+---
+
 ## Changelog
 
 - **2026-08-13** Phase 0.1 to 0.3. Cross-repo audit; recovered and reconstructed
   the missing pipeline functions; imported 23 orphaned scripts into
   `legacy_imported/`. Findings 1.1 to 1.8, 2.1 to 2.8, 3.1 to 3.2, 4.1 to 4.13
   recorded.
+- **2026-08-14** Phase 1.3. Data manifest (66 entries), discovery script and
+  server handover guide. Section 7 added. Phase 0.4 folded into
+  `audit/source-recovery-map.md` and `legacy_imported/README.md` rather than
+  written as a third overlapping document.
