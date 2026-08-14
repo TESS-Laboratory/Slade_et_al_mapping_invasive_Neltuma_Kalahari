@@ -40,7 +40,9 @@ vignettes/*.pdf
 .Renviron
 
 # pkgdown site
-docs/
+# (was `docs/` for pkgdown; this project is not a package and uses docs/ for
+# project documentation, so ignore only a pkgdown build if one ever appears)
+docs/pkgdown/
 
 # translation temp files
 po/*~
