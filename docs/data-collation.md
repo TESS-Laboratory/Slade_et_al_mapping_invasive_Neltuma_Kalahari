@@ -1,6 +1,10 @@
-# Data collation: server handover
+# Data collation
 
 How to find the analysis inputs on the machine where the original work was run.
+
+> Detail document. The entry point is
+> [`docs/server-handover.md`](server-handover.md), which sequences this alongside
+> the environment setup and pipeline work.
 
 **Goal.** Establish, for each of the 66 manifest entries, whether the data still
 exists, where, and how much of it. The output is a report you bring back here; it

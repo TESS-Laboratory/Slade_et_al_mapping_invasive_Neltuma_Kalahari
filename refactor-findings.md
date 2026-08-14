@@ -11,6 +11,9 @@ about what the manuscript should say, not a coding decision.
 
 **Branch:** `refactor-v2.0`. `main` untouched.
 
+**Continuing on the server?** Start at
+[`docs/server-handover.md`](docs/server-handover.md).
+
 ---
 
 ## 0. Headline
@@ -297,6 +300,11 @@ misspelling Reviewer 1 flagged across Figures 3, 8, S1 to S8, S10 and S11.
   server handover guide. Section 7 added. Phase 0.4 folded into
   `audit/source-recovery-map.md` and `legacy_imported/README.md` rather than
   written as a third overlapping document.
+- **2026-08-14** Work handed off to the analysis server. Entry point
+  `docs/server-handover.md`, covering data discovery, the uvr environment and the
+  targets scaffold. Manifest switched to CSV with a `type` column: 25 of 66
+  entries are true inputs, 41 are derived, 6 are derived with no producer and so
+  behave as inputs. Sections 7.2 and 7.3 added.
 - **2026-08-14** Phase 1.4. Class scheme standardised to
   `inst/config/classes.json` with accessors in `R/classes.R`. Section 8 added.
   **Finding 4.1 corrected**: the lookup-reading fault is a regression introduced
