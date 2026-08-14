@@ -190,7 +190,7 @@ Each needs a pipeline output, not just prose.
 ## 7. Data collation
 
 66 required inputs are catalogued in
-[`inst/manifest/data_manifest.tsv`](inst/manifest/data_manifest.tsv), with a
+[`inst/manifest/data_manifest.csv`](inst/manifest/data_manifest.csv), with a
 dependency-free discovery script at
 [`tools/discover-inputs.sh`](tools/discover-inputs.sh) and a server handover
 guide at [`docs/data-collation.md`](docs/data-collation.md).
@@ -200,6 +200,19 @@ external drive we do not have, across five assumed project roots. Roughly a
 quarter are re-downloadable from Zenodo `10.5281/zenodo.18506271`; the satellite
 scenes, every vector layer, the co-registered mosaics, the hexagonal grids and
 all intermediate result workbooks are not archived anywhere.
+
+**7.2 CONFIRMED.** Only **25 of the 66 entries are true inputs**. The other 41
+are derived, meaning the pipeline produces them or could. That materially reduces
+what has to be recovered: a missing derived file is usually acceptable because we
+rebuild it, and rebuilding is preferable anyway since it brings the product under
+the pipeline's control.
+
+**7.3 CONFIRMED. Six entries are derived in principle but have no producer
+anywhere in the codebase, so they behave as inputs:** `drone_chm`,
+`wv2_corrected_16m`, `wv2_train_points_combined`, `planet_grid_95`, `cover_all`,
+`cover_resolution_simple`. Only `drone_chm` has a plausible rebuild path (DSM
+minus DTM), which is why both Pix4D elevation products are on the manifest even
+though no surviving script reads the DSM.
 
 Highest-value entries to locate, because they block the most:
 

@@ -2,7 +2,7 @@
 #
 # discover-inputs.sh - locate the analysis inputs on a machine.
 #
-# Reads inst/manifest/data_manifest.tsv, indexes one or more search roots, and
+# Reads inst/manifest/data_manifest.csv, indexes one or more search roots, and
 # reports which manifest entries were found, how many, and where.
 #
 # Dependencies: bash, find, awk. Nothing else. No R, no network.
@@ -25,7 +25,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST="$REPO_ROOT/inst/manifest/data_manifest.tsv"
+MANIFEST="$REPO_ROOT/inst/manifest/data_manifest.csv"
 
 OUTDIR="./discovery"
 REUSE_INDEX=""
@@ -91,10 +91,38 @@ expand_braces() {
   fi
 }
 
+# --------------------------------------- normalise CSV to an internal TSV
+# The manifest is RFC4180 CSV (quoted, may contain commas). Everything
+# downstream is simpler on TSV, and no field contains a tab.
+MTSV="$OUTDIR/.manifest.tsv"
+awk '
+function csvsplit(str, arr,   n, i, c, field, inq) {
+  n = 0; field = ""; inq = 0
+  for (i = 1; i <= length(str); i++) {
+    c = substr(str, i, 1)
+    if (inq) {
+      if (c == "\"") {
+        if (substr(str, i+1, 1) == "\"") { field = field "\""; i++ } else inq = 0
+      } else field = field c
+    } else {
+      if (c == "\"") inq = 1
+      else if (c == ",") { arr[++n] = field; field = "" }
+      else field = field c
+    }
+  }
+  arr[++n] = field
+  return n
+}
+{ n = csvsplit($0, f)
+  out = f[1]
+  for (i = 2; i <= n; i++) out = out "\t" f[i]
+  print out }
+' "$MANIFEST" > "$MTSV"
+
 PATTERNS="$OUTDIR/.patterns.tsv"
 : > "$PATTERNS"
 # skip header; emit one line per (id, expanded glob)
-tail -n +2 "$MANIFEST" | while IFS=$'\t' read -r id group sensor kind glob n hint avail req notes; do
+tail -n +2 "$MTSV" | while IFS=$'\t' read -r id type group sensor kind glob n hint avail prod req notes; do
   [ -z "${id:-}" ] && continue
   while IFS= read -r g; do
     printf '%s\t%s\n' "$id" "$g" >> "$PATTERNS"
@@ -155,7 +183,7 @@ BEGIN {
     if (nsample[p[1]]++ < 3) example[p[1]] = example[p[1]] (example[p[1]]=="" ? "" : " ; ") p[2]
   }
   close(paths)
-  print "id\tgroup\tavailability\texpected\tfound\tstatus\texample_paths" > tsv
+  print "id\ttype\tgroup\tavailability\texpected\tfound\tstatus\texample_paths" > tsv
   print "# Input discovery report" > md
   print "" > md
   print "- host: " host > md
@@ -164,17 +192,18 @@ BEGIN {
 }
 NR == 1 { next }
 {
-  id=$1; group=$2; kind=$4; glob=$5; expn=$6; hint=$7; avail=$8; req=$9; note=$10
+  id=$1; type=$2; group=$3; glob=$6; expn=$7; hint=$8; avail=$9; prod=$10; req=$11
   f = (id in found) ? found[id] : 0
   if (f == 0)            st = "MISSING"
   else if (expn+0 == 0)  st = "FOUND"
   else if (f >= expn+0)  st = "OK"
   else                   st = "PARTIAL"
-  printf "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", id, group, avail, expn, f, st, example[id] > tsv
+  printf "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", id, type, group, avail, expn, f, st, example[id] > tsv
   order[++n] = id
-  R_group[id]=group; R_glob[id]=glob; R_exp[id]=expn; R_found[id]=f; R_st[id]=st
-  R_avail[id]=avail; R_hint[id]=hint; R_note[id]=note; R_req[id]=req; R_ex[id]=example[id]
-  tot[st]++
+  R_type[id]=type; R_group[id]=group; R_glob[id]=glob; R_exp[id]=expn
+  R_found[id]=f; R_st[id]=st; R_avail[id]=avail; R_hint[id]=hint; R_prod[id]=prod
+  R_req[id]=req; R_ex[id]=example[id]
+  tot[st]++; tot2[st "/" type]++
 }
 END {
   print "## Summary" > md
@@ -185,13 +214,24 @@ END {
   print "" > md
   print "`OK` found at least the expected count. `PARTIAL` found some. `MISSING` found none." > md
   print "" > md
-  print "## Still missing" > md
+  print "## Missing INPUTS - must be sourced, cannot be rebuilt" > md
   print "" > md
   print "| id | group | availability | expected | original location hint | needed for |" > md
   print "|---|---|---|---|---|---|" > md
   for (i = 1; i <= n; i++) { id = order[i]
-    if (R_st[id] == "MISSING")
+    if (R_st[id] == "MISSING" && R_type[id] == "input")
       print "| `" id "` | " R_group[id] " | " R_avail[id] " | " R_exp[id] " | `" R_hint[id] "` | " R_req[id] " |" > md }
+  print "" > md
+  print "## Missing DERIVED - rebuildable if their own inputs are found" > md
+  print "" > md
+  print "| id | expected | produced by | needed for |" > md
+  print "|---|---|---|---|" > md
+  for (i = 1; i <= n; i++) { id = order[i]
+    if (R_st[id] == "MISSING" && R_type[id] == "derived")
+      print "| `" id "` | " R_exp[id] " | " R_prod[id] " | " R_req[id] " |" > md }
+  print "" > md
+  print "Entries whose `produced by` reads NO PRODUCER FOUND cannot be rebuilt" > md
+  print "from anything in the codebase. Treat those as inputs." > md
   print "" > md
   print "## Partially found" > md
   print "" > md
@@ -209,9 +249,9 @@ END {
     if (R_st[id] == "OK" || R_st[id] == "FOUND")
       print "| `" id "` | " R_exp[id] " | " R_found[id] " | " R_ex[id] " |" > md }
 }
-' "$MANIFEST"
+' "$MTSV"
 
-rm -f "$OUTDIR/.patterns.tsv" "$OUTDIR/.counts.raw" "$OUTDIR/.counts.tsv"
+rm -f "$MTSV" "$OUTDIR/.patterns.tsv" "$OUTDIR/.counts.raw" "$OUTDIR/.counts.tsv"
 
 echo
 echo "wrote:"
@@ -219,4 +259,4 @@ echo "  $REPORT_MD"
 echo "  $REPORT_TSV"
 echo "  $OUTDIR/found-paths.tsv"
 echo
-awk -F'\t' 'NR>1{c[$6]++} END{for (s in c) printf "  %-8s %d\n", s, c[s]}' "$REPORT_TSV"
+awk -F'\t' 'NR>1{c[$7]++; d[$7"/"$2]++} END{for (s in c) printf "  %-8s %d\n", s, c[s]; print ""; for (k in d) printf "  %-18s %d\n", k, d[k]}' "$REPORT_TSV"

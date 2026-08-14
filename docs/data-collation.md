@@ -168,15 +168,48 @@ Send back `discovery-$(hostname).tar.gz`. From `found-paths.tsv` we will:
 3. Decide, per lost entry, whether to rebuild it, substitute it, or drop the
    analysis that depends on it.
 
-Manifest fields, for reference:
+Manifest fields, for reference (`inst/manifest/data_manifest.csv`):
 
 | Field | Meaning |
 |---|---|
 | `id` | Stable key, used by the pipeline |
+| `type` | `input` or `derived`. See below |
 | `group` | `drone_raw`, `drone_derived`, `satellite_raw`, `satellite_derived`, `vector`, `ground`, `classification`, `training_set`, `results`, `context` |
+| `sensor` | `drone`, `wv2`, `planet`, `s2`, `landsat`, `multi`, `na` |
+| `kind` | `raster`, `vector`, `table` |
 | `filename_glob` | Basename pattern. `{a,b}` alternation supported |
 | `expected_count` | How many files should exist. `0` means unknown |
 | `original_location_hint` | Where it lived on the E: drive |
-| `availability` | `in_repo`, `zenodo`, `derivable`, `external`, `unknown`, `unknown_lost` |
+| `availability` | `in_repo`, `zenodo`, `external`, `not_located`, `unknown`, `unknown_lost` |
+| `produced_by` | For derived entries, what makes them |
 | `required_for` | What breaks without it |
 | `notes` | Caveats, inconsistencies, open questions |
+
+## input vs derived
+
+**41 of the 66 entries are `derived`**: the pipeline produces them, or could, from
+other manifest entries. Only **25 are true `input`s** that must be obtained
+externally.
+
+This matters for the scan. A missing `input` has to be found or re-acquired. A
+missing `derived` file is usually fine, because we can rebuild it once its own
+inputs are located, and rebuilding is preferable anyway since it puts the product
+under the pipeline's control. Finding derived files is still valuable: they let us
+check the rebuild against what the paper actually used.
+
+**Six entries are marked `derived` but their `produced_by` reads
+`NO PRODUCER FOUND`. Treat those as inputs.** Nothing in the codebase can
+regenerate them:
+
+| id | needed for |
+|---|---|
+| `drone_chm` | every Drone+CHM predictor stack |
+| `wv2_corrected_16m` | co-registration reference for the whole satellite arm |
+| `wv2_train_points_combined` | the field-only baseline behind the 6.1% claim |
+| `planet_grid_95` | a drone-vs-Planet comparison script |
+| `cover_all` | Fig 5 combined panel |
+| `cover_resolution_simple` | Fig 5 density and line panels |
+
+`drone_chm` is the one exception with a plausible rebuild path: DSM minus DTM, if
+`drone_pix4d_dsm` and `drone_pix4d_dtm` are found. That is why both Pix4D
+elevation products are on the list even though no current script reads the DSM.
