@@ -52,4 +52,8 @@ rsconnect/
 
 # discovery scan output (machine-specific, do not commit)
 discovery/
+discovery-project/
 file-index.txt
+
+# mirrored input data (machine-specific, tracked via inst/manifest/, not git)
+data-in/

@@ -115,6 +115,42 @@ leaves no trace. Two consequences:
 | Fig S8 (drone PCA) | `prcomp`/`ggbiplot` exist for WV2 and Planet only, both with magic column indices. |
 | §2.6 co-occurrence, 63% of *V. erioloba* (n=192) | Hardcoded `geom_text(label = "63%")` and `label = "27%"` annotations in `Analysis/Eco_Analysis/Camel_thorn.R`, plotted from a hand-edited `temp.xlsx`. Note 63 + 27 = 90, not 100. |
 
+### 3.3 `build_ml_df` recovered from the console history, and it disagrees with the repo copy
+
+The server scan found `Glenn-Prosopis-ML/.Rhistory`, into which Glen had pasted
+whole function bodies rather than only calls. Lines 30 to 98 contain
+**`build_ml_df` complete with its roxygen block**.
+
+It is not the same function as the one already on this branch in
+`Neltuma_Mlr3_Pipeline/R/build_ml_df.R`. Two differences change behaviour:
+
+| | Repo copy | Console-history copy |
+|---|---|---|
+| `df_type` default | `"grid"` | `"point"` |
+| Response variable | `Class = as.factor(Class)` | `Type = factor(Type, levels = unique(Type))`, preceded by `dplyr::arrange(Type)` |
+
+The second is not cosmetic: **the two versions model different response
+variables**, and the history copy fixes factor level order by sorted first
+appearance where the repo copy takes alphabetical order from `as.factor`. Any
+reproduction built on the repo copy trains against a different target than the
+console session did.
+
+Which one produced the reported numbers is **OPEN**. It is settleable without
+guesswork: the surviving `*ML_in_point_level.rds` files carry the column names,
+so reading one shows whether `Type` or `Class` was the modelled response.
+
+The recovery does **not** rescue the five `build_ml_df_*` satellite variants.
+The history calls `build_ml_df_WV2e(cube = x, site_name = "WV2e", df_type = "points")`
+but never defines it. Note `"points"`, plural, which matches neither branch of
+the recovered function's `if/else` — so the variants took a different
+`df_type` vocabulary, further evidence they are genuinely separate
+implementations rather than thin wrappers. The placeholders stand.
+
+The history also confirms the tuning setup independently of the scripts:
+`rsmp("spcv_coords", folds = 20)`, `tnr("random_search")`, and xgboost / SVM /
+ranger / a stacked ensemble benchmarked against an untuned ranger baseline. That
+corroborates findings 1.1 and 1.4.
+
 ---
 
 ## 4. Code defects worth recording
@@ -134,6 +170,7 @@ leaves no trace. Two consequences:
 | 4.11 | `legacy_imported/preprocessing/Majority_filter.R` line 58: `focal(WV2_Prosopis w=9, ...)` missing a comma | Script does not parse. Pre-existing, faithfully preserved on import | CONFIRMED |
 | 4.12 | `slade-prosopis:theme_fancy.R` is an Rmd chunk saved with a `.R` extension | Does not parse standalone. The copies embedded in the analysis scripts are fine | CONFIRMED |
 | 4.13 | Archived and unavailable packages: `rgeos` (16+ files), `rgdal` (5), `xlsx` (Java), `ggbiplot`/`bbplot` (GitHub-only), `library(read_xl)` (not a package). `windowsFonts()`/`windowsFont()` in 15+ scripts hard-fails on Linux | Nothing runs on current R without cleanup | CONFIRMED |
+| 4.14 | `build_ml_df` writes `paste0(site_name, "ML_in_Point_level.rds")` with a capital P, but all six surviving files on the server are lowercase `ML_in_point_level.rds`, and every read site uses lowercase | Silent on Windows, hard failure on Linux. Must be normalised during the port, independently of which `build_ml_df` copy wins (see 3.3) | CONFIRMED |
 
 ---
 
@@ -230,6 +267,122 @@ Highest-value entries to locate, because they block the most:
 referenced by no script in any repository. Either an analysis is missing or they
 are vestigial.
 
+### 7.4 The data was found. Server scan, 2026-08-16
+
+Run on `TESS` / `10.164.88.16`. The machine has two filesystems, `/` and `/raid`;
+no NAS mounts and no Samba shares, so `/raid` was the only candidate. Three
+Neltuma project trees survive in `/raid/home/gs558` (Glen Slade), all of them git
+repositories:
+
+| Tree | Files | Contents |
+|---|---|---|
+| `Glenn-Prosopis-ML` | 1,066 | **The data root.** `data_in/` (528) and `data_out/` (281) |
+| `MLR3_pipeline` | 370 | Pipeline code plus a Bokspits_1-only data subset |
+| `slade-prosopis` | 258 | The unarchived analysis repo |
+
+Outcome against the 66 manifest entries: **23 found, 9 partial, 34 missing.**
+
+Two traps in the scan itself, recorded so the numbers are not misread:
+
+- An `E:` directory in Glen's home raised hopes of the lost `E:/Glenn/Botswana/`
+  tree. It holds 5 Metashape files and nothing else.
+- `Reproducibility/` and `share/` in the same home belong to a **different
+  project** (LAZ point clouds, 64-plot CHMs, GCP surveys). Their `*_chm.tif`
+  files collide case-insensitively with the manifest's `*_CHM.tif` glob and
+  inflated `drone_chm` from 7 matches to 4,707. Rescoped to the three real trees,
+  every entry count is stable. **The discovery script matches on filename only**;
+  on a shared machine that needs a scoped index, not a whole-filesystem one.
+
+**7.5 RESOLVED. `drone_chm` does not exist as a standalone product.** Its 7
+matches are the same files as `drone_refl_stack_chm` — the CHM is a *band inside*
+`*_Refl_StackCrop_CHM.tif`. Since `drone_pix4d_dsm` and `drone_pix4d_dtm` are
+both absent from the machine, the DSM-minus-DTM rebuild path assumed in §7.3 and
+in `docs/data-collation.md` has no inputs. The CHM can only be extracted from the
+stacks that already exist. Supersedes the rebuild note in 7.3.
+
+**7.6 RESOLVED. `wv2_raw_order3` is not a real delivery.** The ESA archive
+contains exactly two orders, `050132961020_01` and `050132961010_01`. The ID
+`050132273010_01_P002`, which appears only as band names in
+`WV2_training_points_extract.R`, is nowhere in it. Its acquisition stamp
+`21OCT19084820` is *identical to order 1*, so it is a stale reference to an
+earlier delivery of the same scene, not a third acquisition. Manifest entry
+flipped to `unknown_lost` with the reasoning recorded.
+
+**7.7 The headline recovery: every accuracy workbook survived.** 49
+`bench_workbooks` and 76 `confusion_workbooks`, against 32 expected each. Every
+reported accuracy figure can now be checked against the file it was read from,
+rather than only recomputed. The excess is informative in itself: it includes an
+**eighth site, `Dinaka`**, absent from the manuscript's seven, and 7 Landsat runs
+at multiple purity thresholds.
+
+**7.8 The Landsat arm was run.** 7 LS8 bench workbooks and 7 LS8 classification
+rasters exist. Whether it belongs in the paper remains Andy's call (open question
+6.3), but "not reported" no longer implies "not done".
+
+**7.9 Confirmed absent from the entire machine.** No hex grid of any kind, and no
+QGIS project (`.qgz`/`.qgs`) either — so Fig 8, Table 1 and the invasion-phase
+geometry cannot be recovered here, and 3.2's "produced outside R" finding stands
+with no surviving artefact. Also absent: all four Pix4D raw products, any
+Sentinel-2 `.SAFE` or `*T34JDR*` scene, `wv2_classification_rf`,
+`wv2_train_points_combined`, the settlement and road buffers, and the cover
+tables. 27 entries were flipped to `unknown_lost`.
+
+One candidate worth verifying: `slade-prosopis/output_data/WV2_train_point_extracted.csv`
+may be `wv2_train_points_combined` under a different name. Unconfirmed.
+
+**7.10 Open question 6.4 was not settled by the histories.** The home-directory
+`.Rhistory` belongs to the other project entirely. `slade-prosopis/.Rhistory` is
+empty. `Glenn-Prosopis-ML/.Rhistory` is substantial but contains no
+`equal_class_size` reference, so which training rung each satellite run consumed
+is still unknown. Its real value was 3.3. Two `.RData` files (165 MB and 261 MB)
+hold live session state and were **deliberately not opened** — the risk of
+reasoning from an undocumented session snapshot outweighs the chance it answers
+6.4.
+
+### 7.11 Where the data now lives
+
+Mirrored into a gitignored `data-in/` in this repository, sensor-then-location,
+by [`tools/mirror-inputs.sh`](tools/mirror-inputs.sh):
+
+```
+data-in/
+  drone/{site}/       aoi.* field_points.* refl_stack.tif
+                      refl_stack_chm.tif ndvi/savi/msavi/msavi2/mtvi.tif
+  wv2/raw/{order}_01/ {order}_01_P001_MUL/  {order}_01_P001_PAN/  GIS_FILES/
+  wv2|s2|planet/grids/{site}.*
+  shared/veg_type_lookup.xlsx
+  provenance.csv
+```
+
+198 files for the drone arm and grids, ~47 GB. Raw deliveries keep their Maxar
+directory names: `Mosaic_tiles.R` globs those literal paths, and the order ID is
+the ESA licence provenance record. `provenance.csv` records source path, byte
+size and mtime for every mirrored file.
+
+The raw WorldView-2 data came **not** from this machine but from a SharePoint
+archive, and is the one genuinely irreplaceable input that the server never had.
+Verified against the manifest on arrival:
+
+| Product | Tiles | Pixel | Bands | CRS |
+|---|---|---|---|---|
+| Order 1 MUL `050132961020` | 15 (R1–R5 × C1–C3) | 1.6 m | 4, UInt16 | EPSG:32734 |
+| Order 2 MUL `050132961010` | 4 (R1–R4 × C1) | 2.0 m | 4, UInt16 | EPSG:32734 |
+| PAN, both orders | 19 | 0.4 m | 1, UInt16 | EPSG:32734 |
+
+Both MUL counts match `expected_count` exactly.
+
+**7.12 Two data facts the manifest did not record.** The 19 panchromatic tiles
+shipped with both orders and were never catalogued; added as `wv2_raw_pan`. No
+code reads them, so pan-sharpening was available and appears not to have been
+used. Separately, **the MUL product is 4-band, not WorldView-2's native 8**. That
+is consistent with the `_1`…`_4` band-name suffixes in
+`WV2_training_points_extract.R`, but it should be checked against whatever §2
+claims about the WV2 predictor set. **[ANDY]**
+
+**7.13 A CRS gap.** `WV2/WV2_clip.shp` ships with no `.prj` sidecar, so the AOI
+that every WV2 mask and area figure depends on has no declared CRS. Bears on the
+unresolved 445 vs 450 km² discrepancy.
+
 ---
 
 ## 8. Class scheme
@@ -309,3 +462,19 @@ misspelling Reviewer 1 flagged across Figures 3, 8, S1 to S8, S10 and S11.
   `inst/config/classes.json` with accessors in `R/classes.R`. Section 8 added.
   **Finding 4.1 corrected**: the lookup-reading fault is a regression introduced
   by commit `567696e` adding a header row, not a pre-existing bug.
+- **2026-08-16** Step 1 of the server handover completed. The data was located on
+  `TESS` in `/raid/home/gs558`: 23 of 66 manifest entries found, 9 partial, 34
+  missing. Sections 7.4 to 7.13 added; 27 entries flipped to `unknown_lost`; a
+  `resolved_path` column added to the manifest, with 34 entries resolved. Two
+  manifest rows added for data that shipped but was never catalogued
+  (`wv2_raw_pan`, `veg_type_lookup`). Inputs mirrored into a gitignored
+  `data-in/` by the new `tools/mirror-inputs.sh`; raw WorldView-2 supplied
+  separately from SharePoint and verified against expected tile counts, pixel
+  size, band count and CRS.
+  **Open question 6.3 advanced**: the Landsat arm was run (7.8). **Open question
+  on `wv2_raw_order3` closed**: not a real delivery (7.6). **Open question 6.4
+  not settled** — the console histories carry no training-rung evidence (7.10).
+  New findings 3.3 (`build_ml_df` recovered from `.Rhistory` and disagreeing with
+  the repo copy) and 4.14 (filename casing). **Finding 7.3 partially superseded**:
+  `drone_chm`'s DSM-minus-DTM rebuild path has no inputs, because the CHM is a
+  band inside the stack and both Pix4D elevation products are gone (7.5).
