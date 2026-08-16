@@ -1,0 +1,89 @@
+# Single source of truth for resampling, tuning and the compute budget.
+# Closes action item 4.
+#
+# Every value here is what the ORIGINAL code did, recovered from the scripts and
+# corroborated by Glenn-Prosopis-ML/.Rhistory (finding 3.3). Where the manuscript
+# says something different, the divergence is recorded rather than silently
+# reconciled - see refactor-findings.md section 1.
+#
+# Consumed by R/config.R. Nothing else may hardcode these numbers.
+
+seed: 5446   # covers tuning and final resampling. NOTE: the balanced class
+             # sampling in the extract scripts calls sample() unseeded, so exact
+             # training sets are unrecoverable. Reproduction targets statistical
+             # equivalence, not bit-identity.
+
+tuning:
+  resampling: spcv_coords
+  folds: 20
+  tuner: random_search
+  # term_evals ranges 10-50 across the original scripts, and the superseded
+  # ML-pipeline.R defaults to 5. Finding 1.8: the real budget was never stated.
+  # Pin it here and report it in the methods.
+  term_evals: 50
+
+final:
+  resampling: repeated_spcv_coords
+  folds: 10
+  repeats: 10
+  # 10 x 10 = 100 iterations. The manuscript says "200-iteration spatial block
+  # cross-validation" in section 2.5, section 2.6 and the Fig 4 and 6 captions.
+  # 200 appears nowhere in any repository. Finding 1.1.
+  iterations: 100
+
+# Finding 1.2: spcv_coords is k-means clustering of coordinates (Brenning 2012),
+# NOT blocking. The manuscript's "spatial block cross-validation" wording most
+# likely came from spatial-autocorrelation.Rmd, which is the only file in any
+# repository using spcv_block and is a teaching notebook, not the pipeline.
+# Section 5.1 recommends promoting a real block CV to a pipeline target so the
+# claim can either be substantiated or corrected.
+block_cv:
+  enabled: false          # set true to run the R1 spatial-block comparison
+  resampling: spcv_block
+  folds: 4
+  range: null             # metres. Derive from legacy_imported/variogram/
+                          # rather than guessing. Required if enabled.
+
+learners:
+  - id: xgboost
+    backend: classif.xgboost
+    tuned: true
+    filter: importance      # filter.frac tuned over 0.1-1
+  - id: svm
+    backend: classif.svm
+    tuned: true
+    tuning_space: classif.svm.rbv2
+    type: C-classification
+  - id: ranger
+    backend: classif.ranger
+    tuned: true
+    filter: importance
+  - id: ensemble
+    backend: stacked
+    tuned: true
+    # Finding 4.9: in the original, ens_rf wraps the SVM learner and ens_svm
+    # wraps ranger. Cosmetic, but learner_id output was misleading. Fixed here.
+  - id: ranger_untuned
+    backend: classif.ranger
+    tuned: false
+    role: baseline
+
+# Action item 3, and the foundation for the conformal work. Retain BOTH hard
+# and probability outputs everywhere; the original never set this.
+predict_type: prob
+
+profile:
+  # A 'fast' pass must exercise the whole graph end to end on reduced budgets
+  # before any real compute is committed.
+  fast:
+    term_evals: 5
+    tuning_folds: 3
+    final_folds: 3
+    final_repeats: 1
+    sites: [bokspits_1]
+  full:
+    term_evals: 50
+    tuning_folds: 20
+    final_folds: 10
+    final_repeats: 10
+    sites: all

@@ -171,6 +171,7 @@ corroborates findings 1.1 and 1.4.
 | 4.12 | `slade-prosopis:theme_fancy.R` is an Rmd chunk saved with a `.R` extension | Does not parse standalone. The copies embedded in the analysis scripts are fine | CONFIRMED |
 | 4.13 | Archived and unavailable packages: `rgeos` (16+ files), `rgdal` (5), `xlsx` (Java), `ggbiplot`/`bbplot` (GitHub-only), `library(read_xl)` (not a package). `windowsFonts()`/`windowsFont()` in 15+ scripts hard-fails on Linux | Nothing runs on current R without cleanup | CONFIRMED |
 | 4.14 | `build_ml_df` writes `paste0(site_name, "ML_in_Point_level.rds")` with a capital P, but all six surviving files on the server are lowercase `ML_in_point_level.rds`, and every read site uses lowercase | Silent on Windows, hard failure on Linux. Must be normalised during the port, independently of which `build_ml_df` copy wins (see 3.3) | CONFIRMED |
+| 4.15 | The `*_Field_data_points_All_b30` layers are **Polygon** geometry, not points — `_b30` is a 30 cm buffer | Any port that assumes point geometry silently changes the extraction: `build_ml_df` depends on `exact_extract(fun = "mean")` over the buffer, then `st_centroid()`. Mirrored as `field_points.*`, keeping the upstream name; the geometry is recorded in the manifest | CONFIRMED |
 
 ---
 
@@ -382,6 +383,28 @@ claims about the WV2 predictor set. **[ANDY]**
 **7.13 A CRS gap.** `WV2/WV2_clip.shp` ships with no `.prj` sidecar, so the AOI
 that every WV2 mask and area figure depends on has no declared CRS. Bears on the
 unresolved 445 vs 450 km² discrepancy.
+
+**7.14 The CHM band is mislabelled `dsm` throughout.** Band 6 of
+`*_Refl_StackCrop_CHM.tif` carries the description `<site>_MS_RGB_dsm`, and
+`DRONE_STACK_BANDS` in `build_cube_variants.R` faithfully calls it `dsm`. The
+values are *not* a DSM: they range −0.52 to 14.18 m at Bokspits_1 and −0.54 to
+9.48 m at Struizendam_1, which is height above ground, not elevation above
+datum. So the data is a genuine CHM and the label is inherited from the Pix4D
+DSM file it was differenced from. Harmless as long as it is understood, actively
+dangerous if someone later "fixes" the pipeline to treat that band as elevation.
+Recorded explicitly in `inst/config/stacks.csv`. Refines 7.5: the differencing
+happened upstream in Pix4D, which is why no script in any repository performs it.
+
+**7.15 Finding 2.6 re-verified against the mirror, and one thing added.** Counting
+features directly out of `data-in/` reproduces 136, 180, 222, 136, 146, 154, 82 =
+**1,056**, independently confirming 2.6 and confirming the mirror preserved every
+record. Open question 6.5 is therefore not something the scan can close: the data
+side is settled and always was, and the missing 32 must be accounted for on the
+manuscript side. **[ANDY]**
+
+What *is* new: these layers are **POLYGON** geometry despite `points` in their
+filename. The `_b30` suffix is a 30 cm buffer, which is why `build_ml_df` extracts
+with `exact_extract(fun = "mean")` before taking centroids. See finding 4.15.
 
 ---
 

@@ -1,0 +1,5 @@
+tag,n_bands,bands,source,notes
+5,5,blue|green|red|red_edge|nir,refl_stack.tif,The five Pix4D reflectance bands. Band 4 is written "red edge" with a space in the source file.
+5_CHM,6,blue|green|red|red_edge|nir|chm,refl_stack_chm.tif,"Band 6 is the canopy height model. It is LABELLED ""<site>_MS_RGB_dsm"" in the source file and ""dsm"" in DRONE_STACK_BANDS, but the values are height above ground (range -0.5 to 14.2 m), not absolute elevation. The differencing happened upstream in Pix4D; no script in any repository does it."
+5_CHM_NDVI,7,blue|green|red|red_edge|nir|chm|ndvi,refl_stack_chm.tif + ndvi.tif,NDVI joined from the separate per-site VI raster.
+5_CHM_ALLVI,11,blue|green|red|red_edge|nir|chm|msavi|msavi2|mtvi|ndvi|savi,refl_stack_chm.tif + VI rasters,"See finding 4.10: the raster named MSAVI implements Qi et al. (1994) MSAVI2, and MTVI implements Haboudane MTVI2. The names are wrong but the products are internally consistent, so do NOT regenerate them under these names."
