@@ -32,9 +32,32 @@ export UVR_NO_BINARY=1
 # default is conservative. Override before sourcing if you need more.
 export MAKEFLAGS="${MAKEFLAGS:--j16}"
 
+# Rendering toolchain. Quarto 1.10.18 is installed system-wide and bundles its
+# own pandoc, so no separate pandoc package is needed.
+#
+# Two problems this solves:
+#
+# 1. rstudio-server ships its own Quarto (1.8.25) at
+#    /usr/lib/rstudio-server/bin/quarto/bin, which sits EARLIER in PATH than the
+#    /usr/local/bin symlink the .deb creates. Without the prepend below, `quarto`
+#    silently means 1.8.25.
+#
+# 2. rmarkdown/knitr find pandoc via RSTUDIO_PANDOC, which Positron sets to its
+#    own bundled copy under ~/.positron-server/bin/<build-hash>/... That path
+#    breaks on the next IDE update and is never set in a batch Rscript or
+#    targets run - which is exactly the case that has to work.
+if [ -x /opt/quarto/bin/quarto ]; then
+  export PATH="/opt/quarto/bin:${PATH}"
+  export RSTUDIO_PANDOC="/opt/quarto/bin/tools/x86_64"
+  export QUARTO_PANDOC="${RSTUDIO_PANDOC}/pandoc"
+fi
+
 if [ -f .uvr/activate ]; then
   # shellcheck disable=SC1091
   . .uvr/activate
 fi
 
 echo "uvr: source builds forced (UVR_NO_BINARY=1), MAKEFLAGS=${MAKEFLAGS}"
+if [ -x /opt/quarto/bin/quarto ]; then
+  echo "uvr: quarto $(/opt/quarto/bin/quarto --version), pandoc via RSTUDIO_PANDOC"
+fi

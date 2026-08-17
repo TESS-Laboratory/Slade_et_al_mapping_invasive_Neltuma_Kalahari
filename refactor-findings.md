@@ -632,11 +632,49 @@ and no-ops straight over a broken binary. A bad install must be evicted with
 `rm -rf .uvr/library/<pkg>` first. Worth knowing before debugging a rebuild that
 never happened.
 
-**9.4 Two dev headers are missing and need root.** `libcurl4-openssl-dev` and
-`libtiff-dev`. Neither blocks the spatial stack, but the first blocks `curl` →
-`httr`/`gh` and anything fetching over the network. Everything else the stack
-needs is present, including `udunits2`, `sqlite3`, `zstd`, `lz4`, `openssl`,
-`libxml2`, `netcdf` and the font and image libraries.
+**9.4 WITHDRAWN — nothing was missing, and the check was wrong.** This entry
+originally claimed `libcurl4-openssl-dev` and `libtiff-dev` were absent and
+needed root. Both were installed the whole time:
+
+```
+ii  libcurl4-openssl-dev:amd64   8.5.0-2ubuntu10.11
+ii  libtiff-dev:amd64            4.5.1+git230720-4ubuntu2.5
+```
+
+The check tested for `/usr/include/curl/curl.h` and `/usr/include/tiff.h`.
+Ubuntu installs both under the multiarch prefix `/usr/include/x86_64-linux-gnu/`,
+so the probe missed them. **No system-level installation was needed for any part
+of this environment.**
+
+The lesson generalises, and is why 9.1 held up while this did not: 9.1 was
+established by `ldd` against a real load failure, whereas this was inferred from
+guessed paths. Interrogate the build system, never the filesystem —
+`pkg-config --modversion`, `pkg-config --cflags`, `curl-config`, `gdal-config`,
+`dpkg -l` — because those are what a package's own `configure` consults. An
+unversioned `libfoo.so` in `ldconfig -p` is a further tell, since that symlink
+ships only in the `-dev` package. Procedure recorded in `docs/environment.md`.
+
+**9.4a CONFIRMED, and it is the real rendering problem.** The genuine issue was
+never a missing library but an unreachable one. `rmarkdown` locates pandoc via
+`RSTUDIO_PANDOC`, which Positron sets to its own bundled copy under
+`~/.positron-server/bin/<build-hash>/quarto/bin/tools/x86_64`. That works in an
+interactive session, breaks whenever the IDE updates its build hash, and is
+**never set in a batch `Rscript` or `targets` run** — which is the only case that
+matters for the pipeline. Measured directly:
+
+| Context | `rmarkdown::pandoc_available()` |
+|---|---|
+| batch R, IDE variables stripped | **FALSE** |
+| after `source tools/uvr-env.sh` | **TRUE**, pandoc 3.10 |
+
+Resolved by installing Quarto 1.10.18 system-wide from the upstream `.deb` — it
+bundles pandoc 3.10, so no separate `pandoc` package is needed — and pointing
+`RSTUDIO_PANDOC` at `/opt/quarto/bin/tools/x86_64` in `tools/uvr-env.sh`.
+
+Note also that `rstudio-server` ships Quarto 1.8.25 at
+`/usr/lib/rstudio-server/bin/quarto/bin`, which precedes `/usr/local/bin` in
+`PATH`, so the `.deb`'s symlink does not win and a bare `quarto --version` still
+reports the old build. `tools/uvr-env.sh` prepends `/opt/quarto/bin`.
 
 **9.5 This constrains the Docker work.** The base image must either carry a GDAL
 whose soname matches the binaries it installs, or adopt the same source-build

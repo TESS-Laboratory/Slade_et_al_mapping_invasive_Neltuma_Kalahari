@@ -151,8 +151,14 @@ find / -type f -name '*T34JDR*' 2>/dev/null                        # Sentinel-2 
 > fails to load. **Source builds must be forced** — `source tools/uvr-env.sh`
 > before any `uvr` command. Findings 9.1 to 9.3.
 >
-> The system libraries were already present and no admin was needed. Two unrelated
-> headers are missing and do need root (finding 9.4).
+> **Every system library was already present and no admin was needed** for the R
+> environment — including `libcurl4-openssl-dev` and `libtiff-dev`, which an
+> earlier revision of this note wrongly reported as missing (finding 9.4).
+>
+> One root install was made, and for a different reason: **Quarto 1.10.18**, so
+> that `knitr`/`rmarkdown` can find pandoc in batch runs rather than only inside
+> an IDE session (finding 9.4a). It bundles pandoc 3.10; no separate `pandoc`
+> package is needed.
 >
 > Two departures from the recipe below, both deliberate: R is **not** pinned —
 > the server has 4.6.0, not the 4.6.1 named here, and pinning forces a full

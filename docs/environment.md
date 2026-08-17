@@ -139,20 +139,60 @@ Present and sufficient (no admin needed):
 
 Also verified present, since source builds need the headers rather than just the
 runtimes: `udunits2`, `sqlite3`, `zstd`, `lz4`, `openssl`, `libxml2`, `netcdf`,
-`fontconfig`, `freetype2`, `png`, `jpeg`.
+`fontconfig`, `freetype2`, `png`, `jpeg`, `libcurl`, `libtiff`.
 
-### Missing, needs root
+**Nothing is missing. No system-level installation was required for any of this.**
 
-Not required by the spatial stack, but both will block packages we are likely to
-reach for later:
+### How to check, and how not to
 
-```bash
-sudo apt-get install libcurl4-openssl-dev libtiff-dev
+An earlier revision of this document claimed `libcurl4-openssl-dev` and
+`libtiff-dev` were absent. They were not — both were installed the whole time.
+The check was wrong: it tested for `/usr/include/curl/curl.h` and
+`/usr/include/tiff.h`, but Ubuntu puts them under the multiarch prefix:
+
+```
+/usr/include/x86_64-linux-gnu/curl/curl.h
+/usr/include/x86_64-linux-gnu/tiff.h
 ```
 
-`libcurl` is needed by `curl` → `httr`/`gh` and anything fetching over the
-network; `libtiff` by several imaging packages. Worth doing in one go rather
-than discovering them one failed build at a time.
+Never probe fixed `/usr/include` paths. Ask the same tool the package's own
+`configure` will ask:
+
+```bash
+pkg-config --modversion libcurl libtiff-4    # 8.5.0, 4.5.1
+pkg-config --cflags     libcurl libtiff-4    # -I/usr/include/x86_64-linux-gnu
+curl-config --cflags
+gdal-config --cflags
+dpkg -l | grep -E 'libcurl4?-dev|libtiff-dev'
+```
+
+The presence of an unversioned `libcurl.so` / `libtiff.so` in `ldconfig -p` is
+also a reliable tell, since those symlinks ship only in the `-dev` package.
+
+## Rendering: Quarto
+
+Quarto **1.10.18** is installed system-wide from the upstream `.deb`, bundling
+its own pandoc. No separate `pandoc` package is needed or wanted.
+
+```
+/opt/quarto/bin/quarto                 1.10.18
+/opt/quarto/bin/tools/x86_64/pandoc    pandoc 3.10
+```
+
+Two traps, both handled by `tools/uvr-env.sh`:
+
+**It does not win on `PATH`.** `rstudio-server` ships its own Quarto at
+`/usr/lib/rstudio-server/bin/quarto/bin`, which sits *earlier* in `PATH` than
+`/usr/local/bin` where the `.deb` symlinks. A bare `quarto --version` therefore
+still reports 1.8.25. The project prepends `/opt/quarto/bin` so `quarto` means
+1.10.18 here regardless.
+
+**`knitr`/`rmarkdown` only find pandoc inside an IDE.** `rmarkdown` locates it
+through `RSTUDIO_PANDOC`, which Positron sets to its *own* bundled copy under
+`~/.positron-server/bin/<build-hash>/quarto/bin/tools/x86_64`. That works
+interactively, dies on the next IDE update, and is never set in a batch
+`Rscript` or `targets` run — which is the case that matters. `tools/uvr-env.sh`
+points it at the system Quarto instead.
 
 ### One warning that can be ignored
 
