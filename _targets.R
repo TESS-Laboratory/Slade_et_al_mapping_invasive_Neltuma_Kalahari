@@ -16,6 +16,55 @@
 library(targets)
 library(tarchetypes)
 
+# ---------------------------------------------------------------------------
+# COMPUTE PROFILES
+#
+# Two crew controllers, so a target declares what kind of compute it needs:
+#
+#   "general"  cheap, numerous, IO-bound: config, validation, cubes, training
+#              tables. Many workers, no internal parallelism.
+#   "ml"       benchmarking. Fewer crew workers, each free to spawn futures via
+#              NELTUMA_FUTURE, so mlr3 can parallelise inside a single task.
+#
+# Sizing. Total work is fixed, so wall time is bounded by cores used, not by the
+# split - but the two axes do not convert cores to throughput equally well. Crew
+# across independent targets is embarrassingly parallel; future inside one task
+# pays coordination overhead that grows with worker count. So prefer crew where
+# there are many targets, and future where there are few.
+#
+# With 28 benchmark targets, ML_WORKERS x FUTURE ~ 56 keeps the box busy without
+# oversubscribing. With only a handful of targets (the fast profile, or later the
+# landscape predictions) drop ML_WORKERS and raise FUTURE instead - one worker
+# with 50 futures is the right shape when there is nothing to run alongside.
+# MEASURED, 2026-08-17, not assumed. Future parallelism inside a benchmark buys
+# NOTHING on this workload: a nested resample of tuned ranger on bokspits_3 took
+# 248.8s with future disabled and 250.5s with 4 workers - 0.99x, i.e. 25%
+# efficiency. The mlr3 book predicts exactly this when individual iterations are
+# short, and ours are milliseconds. So futures stay at 1 and every core goes to
+# crew, which parallelises independent targets at ~100% efficiency. Finding 7.24.
+#
+# Consequence: with 28 benchmark targets, 28 ML workers is the ceiling this graph
+# shape can use. Splitting bench per learner would give 140 targets and let the
+# whole machine work - see 7.24.
+GENERAL_WORKERS <- as.integer(Sys.getenv("NELTUMA_WORKERS", "16"))
+ML_WORKERS      <- as.integer(Sys.getenv("NELTUMA_ML_WORKERS", "28"))
+FUTURE_WORKERS  <- as.integer(Sys.getenv("NELTUMA_FUTURE", "1"))
+
+if (ML_WORKERS * FUTURE_WORKERS > 64L) {
+  warning("ML_WORKERS x NELTUMA_FUTURE = ", ML_WORKERS * FUTURE_WORKERS,
+          " exceeds the 64 cores on this machine.", call. = FALSE)
+}
+
+controller_general <- crew::crew_controller_local(
+  name = "general", workers = GENERAL_WORKERS, seconds_idle = 60
+)
+controller_ml <- crew::crew_controller_local(
+  name = "ml", workers = ML_WORKERS, seconds_idle = 300
+)
+
+# Targets ask for the ml controller explicitly; everything else gets general.
+ml_resources <- tar_resources(crew = tar_resources_crew(controller = "ml"))
+
 tar_option_set(
   packages = c(
     "terra", "sf", "exactextractr",
@@ -24,17 +73,8 @@ tar_option_set(
     "dplyr", "tidyr", "purrr", "jsonlite", "yaml"
   ),
   format = "qs",
-  # crew keeps the long model fits off the main process. The 28 benchmark targets
-  # are independent, so this parallelises across them almost perfectly.
-  #
-  # 30 of the machine's 64 cores by default. One worker really is one core here:
-  # mlr3learners sets ranger num.threads = 1 and xgboost nthread = 1, so there is
-  # no hidden nested parallelism to oversubscribe. Raise with NELTUMA_WORKERS if
-  # the box is free; drop it if anyone else is using it.
-  controller = crew::crew_controller_local(
-    workers = as.integer(Sys.getenv("NELTUMA_WORKERS", "30")),
-    seconds_idle = 60
-  ),
+  controller = crew::crew_controller_group(controller_general, controller_ml),
+  resources = tar_resources(crew = tar_resources_crew(controller = "general")),
   # A terra SpatRaster is a pointer to an open GDAL dataset and does not survive
   # being serialised into the store and read back in another process. Rasters
   # therefore move between targets as file paths, never as objects.
@@ -56,6 +96,7 @@ tar_source()
 PROFILE <- active_profile()
 SITES   <- site_ids(PROFILE)
 TAGS    <- read_stacks()$tag
+LEARNER_IDS <- vapply(read_resampling()$learners, function(x) x$id, character(1))
 
 # Per-site input paths, checks, and eventually cubes and models. tar_map is used
 # in preference to dynamic branching because the sites are known up front: it
@@ -135,10 +176,25 @@ per_cube <- tar_map(
   tar_target(training_drops, training_split$summary),
   tar_target(training_check, validate_training_table(training, site, sites = sites)),
 
-  # ---- models ------------------------------------------------------------
-  tar_target(task, make_task(training, site, tag, sites = sites)),
-  tar_target(bench, run_benchmark(task, resampling)),
-  tar_target(bench_tidy, tidy_benchmark(bench, site, tag))
+  # The task is built here; fitting happens in per_fit below, one target per
+  # learner, so crew schedules 140 units instead of 28.
+  tar_target(task, make_task(training, site, tag, sites = sites))
+)
+
+# One fit per (site, stack, learner): 7 x 4 x 5 = 140 independent targets, which
+# is what lets crew use the whole machine at ~100% efficiency instead of leaning
+# on future's ~55% (finding 7.24). Each fit references its task target by symbol
+# - the standard pattern for chaining tar_map blocks.
+fit_grid <- expand.grid(site = SITES, tag = TAGS, learner_id = LEARNER_IDS,
+                        stringsAsFactors = FALSE)
+fit_grid$task_sym <- rlang::syms(paste0("task_", fit_grid$site, "_", fit_grid$tag))
+
+per_fit <- tar_map(
+  values = fit_grid[, c("site", "tag", "learner_id", "task_sym")],
+  names = c("site", "tag", "learner_id"),
+  tar_target(fit, run_resample(task_sym, learner_id, resampling),
+             resources = ml_resources),
+  tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
 )
 
 list(
@@ -203,5 +259,10 @@ list(
   tar_combine(cube_index,     per_cube[["cube_info"]],     command = rbind(!!!.x)),
   tar_combine(training_index, per_cube[["training_check"]], command = rbind(!!!.x)),
   tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x)),
-  tar_combine(bench_index, per_cube[["bench_tidy"]], command = rbind(!!!.x))
+  per_fit,
+  tar_combine(score_index, per_fit[["fit_tidy"]], command = rbind(!!!.x)),
+
+  # Best learner per site x stack, with the margin over the runner-up and a
+  # clear_win flag so wins inside the noise are not silently promoted.
+  tar_target(best_models, select_best(score_index))
 )

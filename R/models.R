@@ -199,87 +199,107 @@ future_workers <- function() {
 
 #' Jobs grouped into one future task
 #'
-#' The mlr3 book: "Aim for chunks with a runtime of at least several seconds, so
-#' that the parallelization overhead remains reasonable." A single fit here takes
-#' milliseconds, so a chunk size of 1 - the mlr3 default - would spend far more
-#' time dispatching than computing.
+#' MEASURED, and the default is deliberately 1.
+#'
+#' The mlr3 book advises grouping jobs so each chunk runs for several seconds,
+#' which is right for bare resampling iterations that take milliseconds. It is
+#' WRONG at this level of the nesting: each job here is one outer iteration,
+#' which contains a complete tuning call (5 folds x 50 evals) and runs for
+#' seconds already. Chunking them just serialises the outer loop.
+#'
+#' Setting this to 10 against a 5-iteration outer loop produced exactly one
+#' chunk and made an 8-worker run indistinguishable from sequential - which was
+#' briefly mistaken for future parallelism not working at all. It works: 4.37x
+#' at 8 workers, with multicore and multisession within 1% of each other.
 #'
 #' @return integer chunk size
 exec_chunk_size <- function() {
-  as.integer(Sys.getenv("NELTUMA_CHUNK", "50"))
+  as.integer(Sys.getenv("NELTUMA_CHUNK", "1"))
 }
 
 
-#' Benchmark the configured learners on one task
+#' Resample one learner on one task
 #'
-#' Uses the final resampling from resampling.yml. The seed is set here so a
-#' repeated run reproduces; note that the original's balanced sampling called
-#' `sample()` unseeded, so exact training sets are unrecoverable and the target
-#' is statistical equivalence, not bit-identity.
+#' One (site, stack, learner) combination per target, replacing the
+#' mlr3 benchmark() wrapper. benchmark() was only grouping independent resamples
+#' inside one process; splitting them gives crew 140 schedulable units instead
+#' of 28, which parallelises at ~100% efficiency instead of relying on futures
+#' at ~55% (finding 7.24).
 #'
 #' @param task a TaskClassifST
+#' @param learner_id one id from resampling.yml
 #' @param cfg the resolved resampling config
-#' @return a BenchmarkResult
-run_benchmark <- function(task, cfg) {
-  # Keep one worker to roughly one core. data.table defaults to half the
-  # machine's cores (32 of 64 here) and spawns a pool that size, but the pool
-  # SLEEPS when idle - it does not hold 32 runnable threads - so this is a tidy
-  # -up, not a fix for contention. Measured: one benchmark process sat at a
-  # single running thread with 64 sleeping. Pinning to 1 removes a variable from
-  # the timings and avoids 30 workers each carrying a pool they never use, on
-  # tables of 82-222 rows. ranger and xgboost are already single-threaded in
-  # mlr3learners.
+#' @return a ResampleResult
+run_resample <- function(task, learner_id, cfg) {
+  # Keep one worker to roughly one core; see finding 7.24.
   data.table::setDTthreads(1L)
 
   fw <- future_workers()
   if (fw > 1L) {
     options(mlr3.exec_chunk_size = exec_chunk_size())
-    old_plan <- future::plan(future::multisession, workers = fw)
+    backend <- if (future::supportsMulticore()) future::multicore else future::multisession
+    old_plan <- future::plan(backend, workers = fw)
     on.exit(future::plan(old_plan), add = TRUE)
   }
 
-  set.seed(cfg$seed)
-  learners <- make_learners(cfg)
+  spec <- Filter(function(x) identical(x$id, learner_id), cfg$learners)
+  if (length(spec) != 1L) {
+    stop("No learner '", learner_id, "' in resampling.yml.", call. = FALSE)
+  }
+  learner <- make_learner(spec[[1]], cfg)
+
   resampling <- if (identical(cfg$final$resampling, "repeated_spcv_coords")) {
     mlr3::rsmp("repeated_spcv_coords", folds = cfg$final$folds,
                repeats = cfg$final$repeats)
   } else {
     mlr3::rsmp(cfg$final$resampling, folds = cfg$final$folds)
   }
-  design <- mlr3::benchmark_grid(task, unname(learners), resampling)
-  mlr3::benchmark(design, store_models = FALSE)
+
+  # Same seed for every learner, so all learners on a task see identical outer
+  # splits and their scores are paired, not merely comparable.
+  set.seed(cfg$seed)
+  mlr3::resample(task, learner, resampling, store_models = FALSE)
 }
 
 
-#' Tidy the benchmark result
+#' Tidy one resample result
 #'
-#' Both accuracy and classification error, plus the spread across resampling
-#' iterations - the manuscript reports a single mean, and the spread is what
-#' Reviewer 1's uncertainty question actually needs.
+#' Mean, error and the spread across iterations - the manuscript reports single
+#' figures, and the spread is what Reviewer 1's uncertainty question needs.
 #'
-#' @param bmr a BenchmarkResult
+#' @param rr a ResampleResult
 #' @param site site id
 #' @param tag stack tag
-#' @return data.frame, one row per learner
-tidy_benchmark <- function(bmr, site, tag) {
-  agg <- bmr$aggregate(list(mlr3::msr("classif.acc"), mlr3::msr("classif.ce")))
-  sc  <- bmr$score(mlr3::msr("classif.acc"))
-  spread <- stats::aggregate(classif.acc ~ learner_id, data = sc,
-                             FUN = function(z) c(sd = stats::sd(z),
-                                                 min = min(z), max = max(z)))
-  sp <- data.frame(learner_id = spread$learner_id,
-                   acc_sd = spread$classif.acc[, "sd"],
-                   acc_min = spread$classif.acc[, "min"],
-                   acc_max = spread$classif.acc[, "max"],
-                   stringsAsFactors = FALSE)
-
-  out <- data.frame(
-    site = site, tag = tag,
-    learner_id = agg$learner_id,
-    classif.acc = agg$classif.acc,
-    classif.ce = agg$classif.ce,
-    n_iters = agg$iters,
+#' @param learner_id the configured learner id
+#' @return one-row data.frame
+tidy_resample <- function(rr, site, tag, learner_id) {
+  sc <- rr$score(mlr3::msr("classif.acc"))$classif.acc
+  data.frame(
+    site = site, tag = tag, learner = learner_id,
+    classif.acc = mean(sc), classif.ce = 1 - mean(sc),
+    acc_sd = stats::sd(sc), acc_min = min(sc), acc_max = max(sc),
+    n_iters = length(sc),
     stringsAsFactors = FALSE
   )
-  merge(out, sp, by = "learner_id", all.x = TRUE)
+}
+
+
+#' Best learner per site and stack
+#'
+#' Selection by mean accuracy, with the runner-up gap reported so a "best" that
+#' won by less than the noise is visible as such rather than silently promoted.
+#'
+#' @param scores combined rows from `tidy_resample()`
+#' @return one row per site x tag
+select_best <- function(scores) {
+  do.call(rbind, lapply(split(scores, paste(scores$site, scores$tag)), function(g) {
+    g <- g[order(-g$classif.acc), , drop = FALSE]
+    out <- g[1, , drop = FALSE]
+    out$runner_up <- if (nrow(g) > 1) g$learner[2] else NA_character_
+    out$margin <- if (nrow(g) > 1) g$classif.acc[1] - g$classif.acc[2] else NA_real_
+    # A win inside one standard deviation of the winner's own iterations is a
+    # coin flip, and should be read as "no clear winner".
+    out$clear_win <- !is.na(out$margin) & out$margin > out$acc_sd
+    out
+  }))
 }
