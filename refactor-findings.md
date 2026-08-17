@@ -65,9 +65,10 @@ needs either a text correction or a re-run. See §5 for the recommended route.
 | 2.4 | "34.6% of Neltuma plants ... liable to be classified as V. erioloba or other woody" | From Table S10: of 24,456 drone-*Neltuma* cells, 9,085 (**37.2%**) are not *Neltuma* in WV2, of which 5,333 (**21.8%**) are specifically *V. erioloba* or other woody. Neither is 34.6%. | CONFIRMED |
 | 2.5 | Table S10 grand total | Printed as 32,056, which is the *Neltuma* row total. Column totals sum to **639,377**. | CONFIRMED |
 | 2.6 | Table S4 total training observations = 1,024 | The seven shipped shapefiles hold 136+180+222+136+146+154+82 = **1,056** records. The 32-record difference is unexplained. | CONFIRMED |
-| 2.7 | Table S7 training-pixel selection | Code disagrees for every sensor. WV2: table says 280 at 95%, code says 30 at 99% (also 280 and 500 at 85% and 95% in other script versions). Planet: table says 200 at 85%, code says 400 at 85% (and 280/270/47 elsewhere). S2: table says 100 at 65%, code says 60 with thresholds of 0.75, 0.55 and 0.65 in the same script. | CONFIRMED |
+| 2.7 | Table S7 training-pixel selection | Code disagrees for every sensor. WV2: table says 280 at 95%, code says 30 at 99% (also 280 and 500 at 85% and 95% in other script versions). Planet: table says 200 at 85%, code says 400 at 85% (and 280/270/47 elsewhere). S2: table says 100 at 65%, code says 60 with thresholds of 0.75, 0.55 and 0.65 in the same script. | **RESOLVED, see 7.18 / 7.19.** The archived runs settle it: thresholds 95/85/65 in Table S7 are all correct; the class sizes 280/200/100 are all wrong and were 400/400/60. |
 | 2.8 | §2.4: threshold yielding ">= 100 pixels per class" | Inconsistent with Table S7's per-sensor 280/200/100. | CONFIRMED |
 | 2.9 | §3: WV2 "SVM and ensemble models ... mean accuracies of **75.9%** and **75.1%**" | The headline 75.8% reproduces exactly (`400_95_WV2e` ensemble = 0.7579), but these two per-learner figures appear in **no** surviving workbook. That run gives SVM 0.7556 and ensemble 0.7579 — so the text also has the ranking inverted, crediting SVM with the higher score when the ensemble scored higher. Not a swap either: 0.759 and 0.751 occur nowhere across any WV2 benchmark. | CONFIRMED, new |
+| 2.10 | Pixel size of PlanetScope | The manuscript gives **3 m** in the Abstract (L20) and §2 (L198) and in Table S7, but **4 m** in the Figure 7 caption (L369). One of them is wrong; PlanetScope surface reflectance is delivered at 3 m. | CONFIRMED, new |
 
 **2.3 and 2.4 are the two numbers R2 asked to be promoted to the Abstract and
 Conclusions.** Neither is computed anywhere in R, and neither reproduces from the
@@ -296,7 +297,7 @@ targets.
 | 6.1 | Do Figure 8 and Table 1 derive from the **Random Forest** product (`RF_WV2_all_train_val_combined_b30_additional_WV2_merged_mosaic.tif`, what the hex extraction reads) while Figure 6C reports the **mlr3 SVM/ensemble** product? If so the paper mixes two classifications without saying so, and R2's objection lands on a number that does not describe the map it defends. | **[ANDY]** |
 | 6.2 | Were `frac_*` sub-pixel cover columns predictors or filters in the satellite models? Changes what "cross-scale calibration" means. | **[ANDY]** |
 | 6.3 | Is the Landsat arm in scope? It is not reported in the manuscript, appearing only as an optional fourth panel of the Fig 5 script and as a caution in the discussion. | **[ANDY]** |
-| 6.4 | Which of the five training-set rungs did each satellite run consume? Determines whether Table S7 or the code is right. | **ANSWERED for WV2** (400 @ 95%), narrowed to two candidates each for Planet and S2 — see 7.18. Remainder **[ANDY]** |
+| 6.4 | ~~Which of the five training-set rungs did each satellite run consume?~~ | **CLOSED.** WV2 400@95, Planet 400@85, S2 60@65 — see 7.18 and 7.19. Table S7's thresholds are right, its class sizes are wrong. Manuscript correction **[ANDY]** |
 | 6.5 | What accounts for 1,056 shapefile records vs 1,024 in Table S4? | Hugh |
 | 6.6 | Should §2.6 be rewritten to describe the modal focal filter that was actually run, or should the sieve-and-nearest-neighbour analysis be implemented as described? | **[ANDY]** |
 
@@ -623,9 +624,59 @@ and 70.3% (§3, Figure 7) do not correspond to any surviving benchmark: the S2
 runs aggregate to 0.86-0.93 and the Planet runs to 0.78-0.83. Those figures are
 almost certainly a different evaluation — accuracy against the drone reference
 rather than internal resampling — so they identify nothing about the training
-rung. For those two sensors the archive narrows 6.4 to two candidates each
-(Planet 30@90 or 400@85; S2 60@65 or 100@65) but does not decide between them.
-**[ANDY]**
+rung. For those two sensors the manuscript's own accuracy figures decide nothing.
+They are settled instead by 7.19, on evidence rather than preference.
+
+### 7.19 All three sensors settled. `sensors.csv` written, 2.7 closed
+
+**Decision, 2026-08-17 [HUGH]: choose from the data alone.** "Follow the code" is
+not a usable rule here, because the code is what contradicts itself in 2.7 — it
+offers several values per sensor with nothing to arbitrate between them. The
+archive does arbitrate.
+
+**The discriminator is the learner graph.** The benchmark workbooks record the
+full `mlr3` pipeline as the learner id, and the archive splits cleanly into two
+architectures:
+
+| Family | Learner graph | Runs |
+|---|---|---|
+| **A** | `scale_branch…pca…pre_unbranch` | WV2 400@95, Planet 400@85, Planet 30@90, S2 60@65 |
+| **B** | `nop…` | S2 100@65, Planet 400@85-clean |
+
+The WV2 run that demonstrably produced the reported 75.8% (7.18) is **family A**.
+The reported satellite results therefore come from family A's pipeline, and the
+correct configuration for each sensor is family A's run:
+
+- **Sentinel-2 is decided outright.** Family A contains exactly one S2 run,
+  `60 @ 65%`. The competing `100 @ 65%` — the one that corroborates Table S7 — is
+  family B, a different architecture, written three weeks later. Table S7's S2
+  class size describes a real run, but not the reported one.
+- **PlanetScope is decided by time.** Family A holds both candidates, written the
+  same afternoon: `30 @ 90%` at 14:25 and `400 @ 85%` at 18:32. The later is the
+  refinement, and its 85% threshold is the one Table S7 reports.
+
+**Result, now in [`inst/config/sensors.csv`](inst/config/sensors.csv):**
+
+| Sensor | Purity threshold | Class size | vs Table S7 |
+|---|---|---|---|
+| WV2 | 95% | **400** | threshold right, size wrong (280) |
+| PlanetScope | 85% | **400** | threshold right, size wrong (200) |
+| Sentinel-2 | 65% | **60** | threshold right, size wrong (100) |
+
+**Table S7's threshold row is entirely correct and its class-size row is entirely
+wrong.** That is a single, clean correction to make to the manuscript rather than
+three unrelated ones. **[ANDY]**
+
+**One weaker link, recorded rather than smoothed over.** WV2 and S2 are read
+directly off exactly balanced confusion column sums (4000 = 400 × 10;
+600 = 60 × 10). Planet's are *not* balanced (4450–4650), so its 400 rests on the
+filename convention plus family membership plus the timestamp, not on the
+arithmetic. It is the least certain of the three, and the imbalance itself is
+unexplained — worth revisiting if the Planet arm is re-run.
+
+**Action item 5 closed.** All four config files now exist and validate:
+`sites.csv` (7 × 14), `stacks.csv` (4 × 5), `sensors.csv` (3 × 8),
+`resampling.yml` (7 keys).
 
 ---
 
@@ -859,3 +910,20 @@ the omission is a decision rather than an oversight.
   Sections 5.3 and 5.4 record the CHM and file-format decisions; finding 7.5 is
   corrected in place and the earlier proposal to derive the CHM from DSM minus
   DTM is withdrawn.
+- **2026-08-17** **Open question 6.4 closed and finding 2.7 resolved.**
+  `inst/config/sensors.csv` written from the archive rather than from either the
+  table or the code, closing **action item 5** — all four config files now exist
+  and validate. The discriminator is the learner graph recorded in each benchmark
+  workbook: the archive splits into a `scale_branch/pca` family and a `nop`
+  family, and the WV2 run that demonstrably produced the reported 75.8% belongs
+  to the former, so the reported satellite results are that family's (7.19).
+  That decides Sentinel-2 outright — family A holds exactly one S2 run, 60@65,
+  while the 100@65 run that would have corroborated Table S7 belongs to the other
+  architecture — and PlanetScope by timestamp, 400@85 being the later of two runs
+  written the same afternoon. **Table S7's purity thresholds (95/85/65) are all
+  correct and its class sizes (280/200/100) are all wrong**, the true values being
+  400/400/60: one clean correction rather than three. Planet is flagged as the
+  weakest of the three, since its confusion column sums are not balanced and its
+  class size rests on convention and timestamp rather than arithmetic. New finding
+  **2.10**: the manuscript gives PlanetScope as 3 m in the Abstract, §2 and Table
+  S7 but 4 m in the Figure 7 caption.
