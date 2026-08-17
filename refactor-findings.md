@@ -46,7 +46,7 @@ Imported reference code in [`legacy_imported/`](legacy_imported/).
 | 1.4 | "benchmarking models ... with Bayesian optimisation" (§2.5) | `tnr("random_search")` in every production script. `tnr("mbo")` appears only in the `run.R` demo, for xgboost only. | CONFIRMED |
 | 1.5 | "robust uncertainty estimation" (§2.6); abstract implies uncertainty assessment | Only the spread of accuracy across resampling iterations. `predict_type` is never set to `"prob"`. No probability surface, no per-pixel uncertainty. R1 asked directly whether an uncertainty layer was produced; the answer is no. | CONFIRMED |
 | 1.6 | "denoising final drone classifications using the **sieve filter** in terra ... converting classified patches >1 m² to polygons, and analysing nearest-neighbour distances ... using sf" (§2.6) | No `sieve()`, no `as.polygons(dissolve = TRUE)`, no `st_nearest*` anywhere in any repository. The only surviving filter is `legacy_imported/preprocessing/Majority_filter.R`, which applies `terra::focal(w = 25, fun = "modal")` to drone classifications and `w = 9` to WV2. **A modal focal smoother is not a sieve filter**: sieve removes connected patches below a size threshold, focal-modal is a moving-window majority. The described method was never implemented. | CONFIRMED |
-| 1.7 | "a minimum of 20 observations per class in each drone survey area" (§2.2) | Table S4 contradicts this in the same document: *V. erioloba* = 2 in Bokspits 1, *Boscia* = 14, *Stipagrostis* = 10, and many zeros. | CONFIRMED |
+| 1.7 | "a minimum of 20 observations per class in each drone survey area" (§2.2) | Table S4 contradicts this in the same document, and **the pipeline now recomputes it from the field layers: 8 of 41 site-class combinations fall below 20**. Worst is *V. erioloba* at Struizendam 4 with **n = 2**. Also *Stipagrostis amabilis* n=10 and *S. mellifera* n=16 at Bokspits 2, *Boscia albitrunca* n=14 at Struizendam 3, *V. erioloba* n=14 at Struizendam 1. See 7.21. | CONFIRMED, recomputed |
 | 1.8 | Hyperparameter tuning budget not stated | `term_evals` ranges 10 to 50 across scripts, and the superseded `ML-pipeline.R` defaults to 5. Needs documenting whatever the final answer is. | CONFIRMED |
 
 **[ANDY] 1.9.** Items 1.1 to 1.4 all point the same way: the methods section
@@ -727,6 +727,49 @@ unexplained — worth revisiting if the Planet arm is re-run.
 `sites.csv` (7 × 14), `stacks.csv` (4 × 5), `sensors.csv` (3 × 8),
 `resampling.yml` (7 keys).
 
+### 7.21 The training tables reproduce the original's class sets exactly
+
+The strongest reproduction evidence so far. `R/training.R` ports `build_ml_df`
+per finding 3.3 — areal mean via `exact_extract` over the buffered field
+polygons, centroids for coordinates, response `Type` as an ordered factor — and
+the per-site class sets it produces match the archived confusion matrices at
+**all seven sites**, code for code:
+
+| Site | n | Reconstructed | Archived confusion |
+|---|---|---|---|
+| bokspits_1 | 136 | 1,2,3,4,5,6 | 1,2,3,4,5,6 |
+| bokspits_2 | 180 | 1,2,3,4,5,6,7,13 | 1,2,3,4,5,6,7,13 |
+| bokspits_3 | 222 | 1,2,3,4,5,6,7 | 1,2,3,4,5,6,7 |
+| struizendam_1 | 136 | 1,2,3,5,6 | 1,2,3,5,6 |
+| struizendam_2 | 146 | 1,2,3,5,6 | 1,2,3,5,6 |
+| struizendam_3 | 154 | 1,2,3,6,7,10 | 1,2,3,6,7,10 |
+| struizendam_4 | 82 | 1,2,5,6 | 1,2,5,6 |
+
+Row counts equal `n_field_features` exactly and **no row is dropped for
+incompleteness** — 4,224 rows across 7 sites x 4 stacks, zero NA. So the training
+data going into the models is demonstrably the data that went into the originals,
+independently of any manuscript claim.
+
+**Finding 1.7 recomputed, and it is worse than Table S4 suggests.** The
+manuscript claims "a minimum of 20 observations per class in each drone survey
+area". Counting from the field layers, **8 of 41 site-class combinations fall
+below 20**, at every one of the seven sites:
+
+| Site | Under 20 |
+|---|---|
+| bokspits_1 | Short Grass n=19 |
+| bokspits_2 | *Senegalia mellifera* n=16, *Stipagrostis amabilis* n=10 |
+| bokspits_3 | *S. mellifera* n=18 |
+| struizendam_1 | *Vachellia erioloba* n=14 |
+| struizendam_2 | *V. erioloba* n=19 |
+| struizendam_3 | *Boscia albitrunca* n=14 |
+| struizendam_4 | ***V. erioloba* n=2** |
+
+Two observations cannot support a per-class accuracy estimate under any
+resampling scheme, and *V. erioloba* is the class the manuscript's central
+confusion claim depends on (2.4). The §2.2 sentence needs correcting, and the
+per-class accuracies for these combinations need a stated caveat. **[ANDY]**
+
 ---
 
 ## 8. Class scheme
@@ -1048,3 +1091,14 @@ manifest, lockfile and library in agreement.
   field `Type` code, matching the `.Rhistory` copy of `build_ml_df` rather than
   the repo copy. **Finding 9.8 closed**: `uvr.lock` now carries `tarchetypes`.
   Pipeline at 132 targets, 0 errors.
+- **2026-08-17** Training tables. `R/training.R` ports `build_ml_df` on the
+  settled reading of 3.3. New finding **7.21**, the strongest reproduction
+  evidence so far: the reconstructed per-site class sets match the archived
+  confusion matrices at **all seven sites**, code for code, with row counts equal
+  to `n_field_features` and **zero** rows lost to incompleteness (4,224 rows over
+  7 sites x 4 stacks). The training data entering the models is demonstrably the
+  data that entered the originals. **Finding 1.7 recomputed and strengthened**:
+  8 of 41 site-class combinations fall below the "minimum of 20 observations per
+  class" claimed in §2.2, at every site, the worst being *V. erioloba* at
+  Struizendam 4 with **n = 2** — a class the central confusion claim in 2.4
+  depends on. **[ANDY]** Pipeline at 172 targets, 0 errors.

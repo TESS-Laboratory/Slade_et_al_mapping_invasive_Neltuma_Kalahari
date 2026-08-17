@@ -99,6 +99,7 @@ cube_grid <- expand.grid(site = SITES, tag = TAGS, stringsAsFactors = FALSE)
 # inside `stacks$tag`, which silently becomes stacks$"5_CHM_NDVI" -> NULL. Any
 # `$<symbol>` accessor inside a tar_map command is a trap for the same reason.
 cube_grid$n_bands <- read_stacks()$n_bands[match(cube_grid$tag, TAGS)]
+cube_grid$field_path <- file.path("data-in/drone", cube_grid$site, "field_points.shp")
 
 per_cube <- tar_map(
   values = cube_grid,
@@ -112,7 +113,22 @@ per_cube <- tar_map(
     format = "file"
   ),
   tar_target(cube_info, assert_cube_grid(cube, site, tag,
-                                         expect_bands = n_bands, sites = sites))
+                                         expect_bands = n_bands, sites = sites)),
+
+  # Training table: areal mean over the buffered field polygons, response = Type.
+  # Depends on inputs_validated, which carries the shapefile file-tracking, so a
+  # changed .dbf or .prj propagates here.
+  tar_target(
+    training_raw,
+    {
+      inputs_validated
+      build_training_table(cube, field_path, site, tag, classes = classes)
+    }
+  ),
+  tar_target(training_split, drop_incomplete(training_raw)),
+  tar_target(training,       training_split$data),
+  tar_target(training_drops, training_split$summary),
+  tar_target(training_check, validate_training_table(training, site, sites = sites))
 )
 
 list(
@@ -174,5 +190,7 @@ list(
   # ---- predictor cubes -----------------------------------------------------
 
   per_cube,
-  tar_combine(cube_index, per_cube[["cube_info"]], command = rbind(!!!.x))
+  tar_combine(cube_index,     per_cube[["cube_info"]],     command = rbind(!!!.x)),
+  tar_combine(training_index, per_cube[["training_check"]], command = rbind(!!!.x)),
+  tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x))
 )
