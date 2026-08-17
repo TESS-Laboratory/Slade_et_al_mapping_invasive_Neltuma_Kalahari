@@ -809,6 +809,60 @@ folds — then the elaborate graph is not earning its place, which is worth know
 before defending it to a reviewer. The baseline exists in `resampling.yml`
 precisely to make that answerable.
 
+### 7.23 The tuning search space was almost entirely inert. Redesigned
+
+**Decision, 2026-08-17 [HUGH]: stop reproducing the original tuning design.**
+Auditing it element by element, against the installed package defaults rather
+than from memory, found a search space that tuned preprocessing which cannot
+affect these learners while tuning no learner hyperparameter at all.
+
+| Element | Verdict | Evidence |
+|---|---|---|
+| `scale` / `no.scale` branch | inert for **every** learner | ranger and xgboost split on thresholds, so any monotone per-feature transform leaves the model unchanged. `classif.svm` leaves `scale` unset, so e1071's own `scale = TRUE` applies and SVM already standardises internally — `po("scale")` scales twice. |
+| `pca` / `nop` branch | inert for SVM, harmful for trees | `po("pca")` defaults to `rank. = NULL`, keeping **all** components: a centred orthogonal rotation, not reduction. Orthogonal rotation preserves distances, so it is a mathematical no-op for linear and RBF SVM. For trees it perturbs splits with no principled benefit, and destroys the feature importance we want to report. |
+| `importance.filter.frac` 0.1–1 | destructive floor, doubles cost | `filter.frac` is the fraction **kept**: at 0.1 it keeps **one** feature of 6, or one of 11. With deliberately chosen bands and 82–222 observations there is nothing to select away, and the filter trains an extra ranger on every evaluation purely to rank features. |
+| svm `tolerance` 1e-4–2 | not a capacity parameter | the optimiser's stopping criterion. Affects convergence, not the hypothesis space. |
+
+Strip those and **ranger and xgboost have nothing left being tuned** — which is
+the explanation for the observation in 7.22 that the untuned baseline matched
+every tuned learner. The pipeline was elaborate exactly where it could not
+matter, and absent where it could.
+
+It also explains the tuning archive. Measured on bokspits_3 at the original
+budget, the 50 evaluated configurations gave **mean 0.884, sd 0.068, min 0.608,
+max 0.946**. An sd of 6.8 accuracy points across configurations that are largely
+equivalent *by construction* is not a response surface being explored, it is
+noise being sampled — and a non-nested workflow reports its maximum, 0.946.
+
+**The redesign.** Real hyperparameters via `mlr3tuningspaces`:
+
+| Learner | Now tunes |
+|---|---|
+| ranger | `mtry.ratio`, `num.trees`, `replace`, `sample.fraction` |
+| xgboost | `eta`, `max_depth`, `nrounds`, `subsample`, `colsample_bytree`, `colsample_bylevel`, `alpha`, `lambda` |
+| svm | `cost`, `kernel`, `gamma`, `degree` — `lts("classif.svm.rbv2")` minus `tolerance` |
+
+Inner resampling drops from 20 folds to **5**: inner CV only has to rank
+configurations against one another, not produce a publishable estimate, and 20
+folds on 82–222 observations is ~4–11 observations per fold. Final evaluation is
+unchanged at `repeated_spcv_coords` 10 × 10.
+
+Cost falls from 1,000 fits per tuning call to **250**, and dropping the filter
+removes a second ranger fit per evaluation — together roughly **8×**, taking a
+fully nested run from ~900 CPU-hours to ~110, or 2–4 hours wall.
+
+**What this costs us, stated plainly.** Our learner ids no longer match the
+archived ones, so the structural evidence in 7.22 is spent. The analysis *shape*
+is still reproduced — per site, per predictor stack, five learner slots, spatial
+CV, the same benchmark structure — but the tuning design is now ours. The
+probabilistic and conformal treatment is deferred to the next refactor;
+`predict_type = "prob"` is already in place as its foundation.
+
+One fix needed on the way: `colsample_bylevel` and its neighbours declare a
+dependency on `booster == "gbtree"`, which is xgboost's own default but is left
+unset by mlr3, so the dependency cannot be verified and tuning aborts. Set
+explicitly in `make_learner()`.
+
 ---
 
 ## 8. Class scheme

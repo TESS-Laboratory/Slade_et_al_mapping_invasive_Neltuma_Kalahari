@@ -1,34 +1,28 @@
 #' Tasks, learners and benchmarking
 #'
-#' The learner graph is reconstructed from the learner ids recorded in the
-#' archived benchmark workbooks, which spell the pipeline out in full:
+#' Driven entirely from inst/config/resampling.yml. Nothing here hardcodes a
+#' fold count, repeat count, tuner or budget.
 #'
-#'   scale_branch.scale.no.scale.scale_unbranch.
-#'   pre_branch.pca.nop.pre_unbranch.
-#'   importance.classif.xgboost
+#' THIS IS NO LONGER A REPRODUCTION OF THE ORIGINAL TUNING DESIGN.
 #'
-#' That is: a tuned branch between scaling and not scaling, a tuned branch
-#' between PCA and passthrough, an importance filter, then the learner. The SVM
-#' id carries no `importance` token, so SVM is unfiltered. The ensemble id
+#' Deliberate decision, 2026-08-17 [HUGH]. The archived learner ids describe a
+#' graph - a scale/no-scale branch, a pca/passthrough branch and an importance
+#' filter - which an element-by-element audit found to be inert: it tuned
+#' preprocessing that cannot affect these learners, and tuned no learner
+#' hyperparameter at all (finding 7.23). The graph is therefore gone, and the
+#' learners tune real hyperparameters instead.
 #'
-#'   ens_xgb.ens_rf.ens_svm.ens_nop.ens_union.master_rf
+#' The analysis SHAPE is still reproduced: per site, per predictor stack, the
+#' same five learner slots, spatial cross-validation, the same benchmark
+#' structure. Consequence to be aware of: our learner ids no longer match the
+#' archived ones, so the structural evidence in finding 7.22 is spent.
 #'
-#' is a stack of cross-validated base learners plus a passthrough, unioned and
-#' fed to a random-forest master.
+#' The ensemble is kept, because stacking is a real modelling choice rather than
+#' an inert one. `ens_rf` now wraps ranger and `ens_svm` wraps svm; the original
+#' had them swapped (finding 4.9).
 #'
-#' Everything numeric comes from inst/config/resampling.yml. Nothing here
-#' hardcodes a fold count, repeat count, tuner or budget.
-#'
-#' TWO DELIBERATE DEPARTURES
-#'
-#' predict_type is "prob" everywhere (action item 3). The original never set it,
-#' which is why no uncertainty surface exists (finding 1.5) and why the conformal
-#' work has nothing to build on. Hard class labels remain available from the
-#' probabilities, so this loses nothing.
-#'
-#' In the original ensemble, `ens_rf` wrapped the SVM and `ens_svm` wrapped
-#' ranger (finding 4.9). The labels are corrected here. Cosmetic for the fitted
-#' model, but the original made learner_id output actively misleading.
+#' predict_type is "prob" everywhere (action item 3), which is the foundation the
+#' conformal work deferred to the next refactor will need.
 
 
 #' Build a spatial classification task
@@ -59,81 +53,22 @@ make_task <- function(df, site, tag, sites = read_sites()) {
 }
 
 
-#' The shared preprocessing graph
+#' Trimmed SVM search space
 #'
-#' scale-or-not and PCA-or-not, both as tuned branches, exactly as the archived
-#' learner ids describe.
+#' `lts("classif.svm.rbv2")` minus `tolerance`, which is the optimiser's stopping
+#' criterion rather than a capacity parameter - tuning it buys numerical noise.
+#' Dependencies are kept: gamma applies only to polynomial and radial kernels,
+#' degree only to polynomial. Written out rather than merged programmatically so
+#' the space a reviewer reads is the space that runs.
 #'
-#' @param with_filter add the importance filter stage
-#' @return a Graph
-preproc_graph <- function(with_filter = TRUE) {
-  g <-
-    mlr3pipelines::po("branch", options = c("scale", "no.scale"), id = "scale_branch") %>>%
-    mlr3pipelines::gunion(list(
-      mlr3pipelines::po("scale"),
-      mlr3pipelines::po("nop", id = "no.scale")
-    )) %>>%
-    mlr3pipelines::po("unbranch", options = c("scale", "no.scale"), id = "scale_unbranch") %>>%
-    mlr3pipelines::po("branch", options = c("pca", "nop"), id = "pre_branch") %>>%
-    mlr3pipelines::gunion(list(
-      mlr3pipelines::po("pca"),
-      mlr3pipelines::po("nop")
-    )) %>>%
-    mlr3pipelines::po("unbranch", options = c("pca", "nop"), id = "pre_unbranch")
-
-  if (with_filter) {
-    g <- g %>>% mlr3pipelines::po(
-      "filter",
-      filter = mlr3filters::flt("importance",
-                                learner = mlr3::lrn("classif.ranger",
-                                                    importance = "impurity")),
-      id = "importance"
-    )
-  }
-  g
-}
-
-
-#' Search space for a learner specification
-#'
-#' The branch choices are always tuned. `filter.frac` is tuned over 0.1-1 where
-#' a filter is present, per resampling.yml. Learner hyperparameters come from
-#' mlr3tuningspaces where a space is named.
-#'
-#' @param spec one learner entry from resampling.yml
-#' @return a paradox::ParamSet, or NULL if nothing to tune
-search_space_for <- function(spec) {
-  if (!is.null(spec$tuning_space) && identical(spec$tuning_space, "classif.svm.rbv2")) {
-    # Transcribed from lts("classif.svm.rbv2")$values, with the dependencies the
-    # flat space would otherwise lose: gamma applies only to polynomial and
-    # radial kernels, degree only to polynomial. Written out rather than merged
-    # programmatically so the space a reviewer sees is the space that runs.
-    return(paradox::ps(
-      scale_branch.selection = paradox::p_fct(c("scale", "no.scale")),
-      pre_branch.selection   = paradox::p_fct(c("pca", "nop")),
-      classif.svm.kernel     = paradox::p_fct(c("linear", "polynomial", "radial")),
-      classif.svm.cost       = paradox::p_dbl(1e-4, 1e3, logscale = TRUE),
-      classif.svm.tolerance  = paradox::p_dbl(1e-4, 2, logscale = TRUE),
-      classif.svm.gamma      = paradox::p_dbl(1e-4, 1e3, logscale = TRUE,
-                                              depends = classif.svm.kernel %in%
-                                                c("polynomial", "radial")),
-      classif.svm.degree     = paradox::p_int(2, 5,
-                                              depends = classif.svm.kernel ==
-                                                "polynomial")
-    ))
-  }
-
-  if (!is.null(spec$filter)) {
-    return(paradox::ps(
-      scale_branch.selection = paradox::p_fct(c("scale", "no.scale")),
-      pre_branch.selection   = paradox::p_fct(c("pca", "nop")),
-      importance.filter.frac = paradox::p_dbl(0.1, 1)
-    ))
-  }
-
+#' @return a paradox::ParamSet
+svm_search_space <- function() {
   paradox::ps(
-    scale_branch.selection = paradox::p_fct(c("scale", "no.scale")),
-    pre_branch.selection   = paradox::p_fct(c("pca", "nop"))
+    cost      = paradox::p_dbl(1e-4, 1e3, logscale = TRUE),
+    kernel    = paradox::p_fct(c("linear", "polynomial", "radial")),
+    gamma     = paradox::p_dbl(1e-4, 1e3, logscale = TRUE,
+                               depends = kernel %in% c("polynomial", "radial")),
+    degree    = paradox::p_int(2, 5, depends = kernel == "polynomial")
   )
 }
 
@@ -142,10 +77,11 @@ search_space_for <- function(spec) {
 #'
 #' @param spec one entry from `resampling.yml$learners`
 #' @param cfg the resolved resampling config
-#' @param task_id used only for messages
 #' @return a Learner, wrapped in an AutoTuner when the spec is tuned
 make_learner <- function(spec, cfg) {
   pt <- cfg$predict_type
+
+  if (identical(spec$id, "ensemble")) return(ensemble_learner(cfg))
 
   base <- switch(
     spec$id,
@@ -156,33 +92,50 @@ make_learner <- function(spec, cfg) {
                                id = "ranger.untuned"),
     svm            = mlr3::lrn("classif.svm", predict_type = pt,
                                type = "C-classification"),
-    ensemble       = NULL,
     stop("Unknown learner id '", spec$id, "' in resampling.yml.", call. = FALSE)
   )
 
-  if (identical(spec$id, "ensemble")) return(ensemble_learner(cfg))
-
   if (!isTRUE(spec$tuned)) {
-    # Baseline: no graph, no tuning. Its whole purpose is to show what the
-    # elaborate pipeline is worth relative to a bare learner.
-    return(mlr3::as_learner(base))
+    # Baseline: no tuning. Now genuinely informative - with a search space that
+    # has real leverage, a tuned learner that cannot beat this is saying
+    # something about the data rather than about the search.
+    return(base)
   }
 
-  graph <- preproc_graph(with_filter = !is.null(spec$filter)) %>>% base
-  gl <- mlr3::as_learner(graph)
-  gl$predict_type <- pt
+  ss <- if (identical(spec$tuning_space, "svm_trimmed")) {
+    svm_search_space()
+  } else {
+    # lts() sets to_tune() tokens on the learner; auto_tuner infers the space.
+    base <- mlr3tuningspaces::lts(spec$tuning_space)$get_learner()
+    base$predict_type <- pt
+    if (identical(spec$id, "ranger")) {
+      base$param_set$set_values(importance = "impurity")
+    }
+    if (identical(spec$id, "xgboost")) {
+      # colsample_bylevel and friends declare a dependency on booster == "gbtree".
+      # xgboost's own default IS gbtree, but mlr3 leaves the value unset, so the
+      # dependency cannot be verified and tuning aborts. Set it explicitly.
+      base$param_set$set_values(booster = "gbtree")
+    }
+    NULL
+  }
 
-  ss <- search_space_for(spec)
+  # batch_size per the mlr3 book: batch_size x inner resampling iterations should
+  # be at least the number of future workers, or the last batch leaves workers
+  # idle.
+  fw <- future_workers()
+  batch <- max(1L, ceiling(fw / max(1L, cfg$tuning$folds)))
 
-  mlr3tuning::auto_tuner(
-    tuner = mlr3tuning::tnr(cfg$tuning$tuner),
-    learner = gl,
+  args <- list(
+    tuner = mlr3tuning::tnr(cfg$tuning$tuner, batch_size = batch),
+    learner = base,
     resampling = mlr3::rsmp(cfg$tuning$resampling, folds = cfg$tuning$folds),
     measure = mlr3::msr("classif.ce"),
-    search_space = ss,
     terminator = mlr3tuning::trm("evals", n_evals = cfg$tuning$term_evals),
     store_models = FALSE
   )
+  if (!is.null(ss)) args$search_space <- ss
+  do.call(mlr3tuning::auto_tuner, args)
 }
 
 
@@ -226,6 +179,37 @@ make_learners <- function(cfg) {
 }
 
 
+#' Number of future workers for in-task parallelism
+#'
+#' mlr3 parallelises `benchmark()` over the flattened set of (learner,
+#' resampling iteration, tuning evaluation) jobs. That is a second level of
+#' parallelism on top of crew, which parallelises across targets, so the product
+#' of the two must stay within the machine.
+#'
+#' Whether it helps at all is an empirical question, not an obvious win: the mlr3
+#' book advises against parallelising when individual iterations are short, and
+#' these tasks are 82-222 rows, so a single fit runs in milliseconds. See
+#' `mlr3.exec_chunk_size` below.
+#'
+#' @return integer worker count; 1 disables future entirely
+future_workers <- function() {
+  as.integer(Sys.getenv("NELTUMA_FUTURE", "1"))
+}
+
+
+#' Jobs grouped into one future task
+#'
+#' The mlr3 book: "Aim for chunks with a runtime of at least several seconds, so
+#' that the parallelization overhead remains reasonable." A single fit here takes
+#' milliseconds, so a chunk size of 1 - the mlr3 default - would spend far more
+#' time dispatching than computing.
+#'
+#' @return integer chunk size
+exec_chunk_size <- function() {
+  as.integer(Sys.getenv("NELTUMA_CHUNK", "50"))
+}
+
+
 #' Benchmark the configured learners on one task
 #'
 #' Uses the final resampling from resampling.yml. The seed is set here so a
@@ -237,6 +221,23 @@ make_learners <- function(cfg) {
 #' @param cfg the resolved resampling config
 #' @return a BenchmarkResult
 run_benchmark <- function(task, cfg) {
+  # Keep one worker to roughly one core. data.table defaults to half the
+  # machine's cores (32 of 64 here) and spawns a pool that size, but the pool
+  # SLEEPS when idle - it does not hold 32 runnable threads - so this is a tidy
+  # -up, not a fix for contention. Measured: one benchmark process sat at a
+  # single running thread with 64 sleeping. Pinning to 1 removes a variable from
+  # the timings and avoids 30 workers each carrying a pool they never use, on
+  # tables of 82-222 rows. ranger and xgboost are already single-threaded in
+  # mlr3learners.
+  data.table::setDTthreads(1L)
+
+  fw <- future_workers()
+  if (fw > 1L) {
+    options(mlr3.exec_chunk_size = exec_chunk_size())
+    old_plan <- future::plan(future::multisession, workers = fw)
+    on.exit(future::plan(old_plan), add = TRUE)
+  }
+
   set.seed(cfg$seed)
   learners <- make_learners(cfg)
   resampling <- if (identical(cfg$final$resampling, "repeated_spcv_coords")) {

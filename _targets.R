@@ -24,10 +24,15 @@ tar_option_set(
     "dplyr", "tidyr", "purrr", "jsonlite", "yaml"
   ),
   format = "qs",
-  # crew keeps the long model fits off the main process. Workers are modest by
-  # default because this is a shared machine; raise with NELTUMA_WORKERS.
+  # crew keeps the long model fits off the main process. The 28 benchmark targets
+  # are independent, so this parallelises across them almost perfectly.
+  #
+  # 30 of the machine's 64 cores by default. One worker really is one core here:
+  # mlr3learners sets ranger num.threads = 1 and xgboost nthread = 1, so there is
+  # no hidden nested parallelism to oversubscribe. Raise with NELTUMA_WORKERS if
+  # the box is free; drop it if anyone else is using it.
   controller = crew::crew_controller_local(
-    workers = as.integer(Sys.getenv("NELTUMA_WORKERS", "4")),
+    workers = as.integer(Sys.getenv("NELTUMA_WORKERS", "30")),
     seconds_idle = 60
   ),
   # A terra SpatRaster is a pointer to an open GDAL dataset and does not survive

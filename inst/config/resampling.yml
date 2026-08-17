@@ -1,12 +1,24 @@
 # Single source of truth for resampling, tuning and the compute budget.
 # Closes action item 4.
 #
-# Every value here is what the ORIGINAL code did, recovered from the scripts and
-# corroborated by Glenn-Prosopis-ML/.Rhistory (finding 3.3). Where the manuscript
-# says something different, the divergence is recorded rather than silently
-# reconciled - see refactor-findings.md section 1.
-#
 # Consumed by R/config.R. Nothing else may hardcode these numbers.
+#
+# ---------------------------------------------------------------------------
+# 2026-08-17: THE TUNING DESIGN IS NO LONGER A REPRODUCTION OF THE ORIGINAL.
+#
+# Deliberate decision [HUGH]. The original search space was audited element by
+# element and found to be almost entirely inert - it tuned preprocessing that
+# cannot affect the learners, and tuned no learner hyperparameters at all. See
+# finding 7.23. Reproducing it faithfully would mean reproducing a design we had
+# already decided to replace, at roughly 900 CPU-hours.
+#
+# What is still reproduced: the analysis SHAPE - per site, per predictor stack,
+# the same five learner slots, spatial cross-validation, and the same benchmark
+# structure. What is not: the preprocessing graph and the hyperparameters.
+#
+# The probabilistic/conformal treatment is explicitly deferred to the next
+# refactor; predict_type = "prob" below is the foundation it will need.
+# ---------------------------------------------------------------------------
 
 seed: 5446   # covers tuning and final resampling. NOTE: the balanced class
              # sampling in the extract scripts calls sample() unseeded, so exact
@@ -15,11 +27,15 @@ seed: 5446   # covers tuning and final resampling. NOTE: the balanced class
 
 tuning:
   resampling: spcv_coords
-  folds: 20
+  # 5, not the original's 20. Inner resampling only has to rank configurations
+  # against each other, not produce a publishable estimate - that is the outer
+  # loop's job. 20 folds on 82-222 observations means ~4-11 observations per
+  # fold, which is noise dressed up as precision, and it cost 4x for nothing.
+  folds: 5
+  repeats: 1
   tuner: random_search
-  # term_evals ranges 10-50 across the original scripts, and the superseded
-  # ML-pipeline.R defaults to 5. Finding 1.8: the real budget was never stated.
-  # Pin it here and report it in the methods.
+  # Finding 1.8: the original's budget ranged 10-50 across scripts and was never
+  # stated. 50 configurations over a search space that now has real leverage.
   term_evals: 50
 
 final:
@@ -44,32 +60,64 @@ block_cv:
   range: null             # metres. Derive from legacy_imported/variogram/
                           # rather than guessing. Required if enabled.
 
+# WHAT WAS REMOVED FROM THE SEARCH SPACE, AND WHY (finding 7.23)
+#
+#   scale / no.scale branch  - ranger and xgboost split on thresholds and are
+#                              invariant to monotone per-feature transforms;
+#                              classif.svm leaves `scale` unset so e1071 already
+#                              standardises internally. Inert for every learner.
+#   pca / nop branch         - po("pca") defaults to rank. = NULL, keeping ALL
+#                              components: a centred orthogonal rotation, not
+#                              reduction. Distance-preserving, so inert for
+#                              linear and RBF SVM; for trees it perturbs splits
+#                              with no principled benefit and destroys feature
+#                              importance, which we want to report.
+#   importance filter        - filter.frac is the fraction KEPT; at 0.1 it keeps
+#                              ONE feature of 6 or 11. With deliberately chosen
+#                              bands there is nothing to select away, and the
+#                              filter trained an extra ranger per evaluation.
+#   svm tolerance            - the optimiser's stopping criterion, not a capacity
+#                              parameter. Tuning it buys numerical noise.
+#
+# Net effect: the old space doubled and redoubled itself over choices that could
+# not change the fitted model, which is why the untuned baseline matched every
+# tuned learner, and why the tuning archive showed sd 0.068 across configurations
+# that were largely equivalent by construction.
+
 learners:
   - id: xgboost
     backend: classif.xgboost
     tuned: true
-    filter: importance      # filter.frac tuned over 0.1-1
+    tuning_space: classif.xgboost.default   # eta, max_depth, nrounds,
+                                            # subsample, colsample_*, alpha, lambda
   - id: svm
     backend: classif.svm
     tuned: true
-    tuning_space: classif.svm.rbv2
+    tuning_space: svm_trimmed               # rbv2 minus tolerance; see R/models.R
     type: C-classification
   - id: ranger
     backend: classif.ranger
     tuned: true
-    filter: importance
+    tuning_space: classif.ranger.default     # mtry.ratio, num.trees, replace,
+                                             # sample.fraction
   - id: ensemble
     backend: stacked
-    tuned: true
-    # Finding 4.9: in the original, ens_rf wraps the SVM learner and ens_svm
-    # wraps ranger. Cosmetic, but learner_id output was misleading. Fixed here.
+    tuned: false
+    # Stacking is a real modelling choice and is kept. Base learners are left at
+    # defaults: tuning inside each learner_cv inside each outer fold multiplies
+    # cost without a clear claim attached to it.
+    # Finding 4.9: in the original, ens_rf wrapped the SVM learner and ens_svm
+    # wrapped ranger. Cosmetic, but learner_id output was misleading. Fixed here.
   - id: ranger_untuned
     backend: classif.ranger
     tuned: false
     role: baseline
+    # Kept, and now genuinely informative: with a search space that has real
+    # leverage, a tuned learner that cannot beat this is telling us something.
 
-# Action item 3, and the foundation for the conformal work. Retain BOTH hard
-# and probability outputs everywhere; the original never set this.
+# Action item 3, and the foundation for the conformal work deferred to the next
+# refactor. Retain BOTH hard and probability outputs everywhere; the original
+# never set this.
 predict_type: prob
 
 profile:
@@ -83,7 +131,7 @@ profile:
     sites: [bokspits_1]
   full:
     term_evals: 50
-    tuning_folds: 20
+    tuning_folds: 5
     final_folds: 10
     final_repeats: 10
     sites: all
