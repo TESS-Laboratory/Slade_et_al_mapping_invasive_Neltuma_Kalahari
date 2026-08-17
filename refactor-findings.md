@@ -213,6 +213,79 @@ Each needs a pipeline output, not just prose.
 | R1 Fig 6C / 8A / 8B, clarify axis values | Figure regeneration | Phases 4 and 5 |
 | R2 main, promote 24.8% and 34.6% | Both recomputed and defined | §2.3, §2.4 |
 
+### 5.3 The CHM is an input. Store the drone bands independently and stack by VRT
+
+**Decision, 2026-08-17 [HUGH].** The CHM is treated as a raw input alongside the
+reflectance bands, not as something this pipeline derives. Predictor stacks are
+assembled on demand by VRT rather than stored as duplicated multi-band GeoTIFFs.
+
+**An earlier position in this document is withdrawn.** A first reading of the
+evidence suggested promoting DSM and DTM to raw inputs and deriving the CHM as an
+intermediate. Reading the producer script settles it the other way.
+`Image_Processing/makeReflStacks_+CHM_terra.R` performs no differencing at all —
+it reads a CHM that already exists:
+
+```r
+Bokspits_1_CHM  <- rast("E:/Glenn/Botswana/ReflStacks/Bokspits_1_CHM.tif")
+Bokspits_1_CHMF <- resample(Bokspits_1_CHMCrop, Bokspits_1_ReflStackCrop,
+                            method = "bilinear")
+Bokspits_1_Stack_CHM <- c(Bokspits_1_ReflStackCrop, Bokspits_1_CHMF)
+```
+
+Two consequences, both correcting statements made earlier:
+
+- **DSM and DTM are not used by the drone arm.** The only elevation product it
+  consumes is `<site>_CHM.tif`. `drone_pix4d_dsm` and `drone_pix4d_dtm` are read
+  solely by `Terrain_Analysis.R`. Their recovery is therefore **not** blocking,
+  and they stay filed as lost unless terrain analysis returns to scope.
+- **Finding 7.5 is partly wrong** and is corrected in place below. The CHM *did*
+  have standalone existence, as `ReflStacks/<site>_CHM.tif`. It simply did not
+  survive to the server. What stands is that no script in any repository produces
+  it — it arrives from outside the codebase, and that remains unexplained.
+
+**What survives constrains the layout.** Nothing upstream of the assembled stacks
+is left: no standalone `<site>_CHM.tif`, no per-band
+`*_transparent_reflectance_*.tif`, no `4_index/` path anywhere (7.16). The
+earliest surviving drone rasters are the two stacks themselves.
+
+The target layout is therefore reachable only by decomposition, and that
+decomposition is provably lossless: bands 1 to 5 of `refl_stack_chm.tif` are
+**bit-identical** to `refl_stack.tif` (`max|diff| = 0` on every band, same grid,
+same extent, verified at Bokspits_1). So
+
+```
+chm.tif          band 6, extracted once
+refl_stack.tif   already independent, 5 bands
+stack_5_CHM.vrt  gdalbuildvrt -separate, no resampling required
+```
+
+reproduces `refl_stack_chm.tif` exactly. No warping is involved because the CHM
+band was already resampled onto the reflectance grid upstream.
+
+**That upstream resample is baked in and cannot be undone.** The archived CHM
+band is post-`crop`, post-`mask` and post-bilinear-`resample`. A native-resolution
+CHM recovered later would *not* be a drop-in replacement, and any comparison
+against band 6 must apply the same three operations first. Recorded so this is
+not rediscovered as a discrepancy.
+
+Secondary benefit: every site currently stores the five reflectance bands twice,
+which accounts for most of the 64 GB mirror.
+
+### 5.4 File formats to standardise on
+
+**Decision, 2026-08-17 [HUGH].** Deferred housekeeping, recorded so it is not
+lost. No Excel and no shapefiles in the new pipeline:
+
+| Current | Target | Note |
+|---|---|---|
+| `.xlsx` (lookups, bench and confusion workbooks) | CSV, JSON or Parquet as most appropriate | Lookup already done: `inst/config/classes.json`. `readxl` stays, for reading the surviving legacy workbooks only |
+| `.shp` + 7 sidecars | **FlatGeobuf** (`.fgb`) or **GeoParquet** | Also removes the missing-`.prj` problem in `WV2_clip.shp` (7.13) |
+| `.rds` / `.RData` intermediates | `targets` store, `qs2` | `.RData` is deliberately not being opened |
+
+`writexl` was omitted from the environment for this reason. `targets` 1.12.0
+offers `tarchetypes::tar_format_nanoparquet()` if Parquet is wanted for tabular
+targets.
+
 ---
 
 ## 6. Open questions
@@ -300,6 +373,23 @@ matches are the same files as `drone_refl_stack_chm` — the CHM is a *band insi
 both absent from the machine, the DSM-minus-DTM rebuild path assumed in §7.3 and
 in `docs/data-collation.md` has no inputs. The CHM can only be extracted from the
 stacks that already exist. Supersedes the rebuild note in 7.3.
+
+> **CORRECTION, 2026-08-17.** The heading overstates this. `drone_chm` does not
+> exist as a standalone product *on the server*, but it did exist in the original
+> project tree: `makeReflStacks_+CHM_terra.R` reads
+> `E:/Glenn/Botswana/ReflStacks/<site>_CHM.tif` as an already-complete file. The
+> CHM was an independent raster that failed to survive, not a band that never had
+> separate existence.
+>
+> The inference drawn from that overstatement was also wrong. This entry treats
+> the missing DSM and DTM as breaking a rebuild path the drone arm depends on. It
+> does not: no script anywhere performs DSM minus DTM, and the drone arm reads
+> only the CHM. The elevation products are consumed solely by
+> `Terrain_Analysis.R`.
+>
+> What survives unchanged: no script in any repository produces the CHM, so its
+> provenance is genuinely outside the codebase and still unexplained. See 5.3 and
+> 7.16.
 
 **7.6 RESOLVED. `wv2_raw_order3` is not a real delivery.** The ESA archive
 contains exactly two orders, `050132961020_01` and `050132961010_01`. The ID
@@ -405,6 +495,38 @@ manuscript side. **[ANDY]**
 What *is* new: these layers are **POLYGON** geometry despite `points` in their
 filename. The `_b30` suffix is a 30 cm buffer, which is why `build_ml_df` extracts
 with `exact_extract(fun = "mean")` before taking centroids. See finding 4.15.
+
+**7.16 CONFIRMED. Nothing upstream of the assembled drone stacks survived.**
+Checked exhaustively against the full server file index while settling the CHM
+question (5.3), because the earlier conclusion had been inferred from the absence
+of a producer script rather than from a search:
+
+| Probe | Hits on server |
+|---|---|
+| standalone `<site>_CHM.tif` | **0** |
+| per-band `*_transparent_reflectance_{blue,green,red,red edge,nir}.tif` | **0** |
+| any `4_index/` path | **0** |
+| `3_dsm_ortho` anywhere | **0** |
+| `*_dsm.tif` / `*_dtm.tif` matching a Neltuma site name | **0** |
+| `*_DTM.tif` total | 133, **all** under `share/Reproducibility/Plot/DTM/` |
+| `ReflStacks` | 4 hits, all of them *script filenames*, no directory |
+
+The 133 DTM hits are plot-numbered (`P24_DTM.tif`, `Pbuf53_DTM.tif`) and belong
+to the 64-plot LAZ study — the same directory whose case-insensitive `*_chm.tif`
+files inflated `drone_chm` to 4,707 matches during the scan. Nothing was missed
+the first time.
+
+So every Pix4D-side product is gone: the individual reflectance bands, the
+standalone CHM, the DSM and the DTM. The earliest surviving drone rasters are
+`refl_stack.tif` and `refl_stack_chm.tif`, which is why the layout in 5.3 has to
+be reached by decomposing them rather than by rebuilding from parts.
+
+This does **not** make DSM/DTM recovery blocking — they are read only by
+`Terrain_Analysis.R`, not by the drone modelling path (5.3). Recovering the Pix4D
+projects would still be valuable: it would restore the native-resolution CHM and
+allow the baked-in bilinear resample to be assessed rather than assumed. `E:/Glenn/`
+held five Metashape files, so photogrammetry projects existed outside the git
+repositories and may survive on external media. Worth asking Glen. **[HUGH]**
 
 ---
 
