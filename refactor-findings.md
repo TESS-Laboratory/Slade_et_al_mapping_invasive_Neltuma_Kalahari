@@ -67,6 +67,7 @@ needs either a text correction or a re-run. See §5 for the recommended route.
 | 2.6 | Table S4 total training observations = 1,024 | The seven shipped shapefiles hold 136+180+222+136+146+154+82 = **1,056** records. The 32-record difference is unexplained. | CONFIRMED |
 | 2.7 | Table S7 training-pixel selection | Code disagrees for every sensor. WV2: table says 280 at 95%, code says 30 at 99% (also 280 and 500 at 85% and 95% in other script versions). Planet: table says 200 at 85%, code says 400 at 85% (and 280/270/47 elsewhere). S2: table says 100 at 65%, code says 60 with thresholds of 0.75, 0.55 and 0.65 in the same script. | CONFIRMED |
 | 2.8 | §2.4: threshold yielding ">= 100 pixels per class" | Inconsistent with Table S7's per-sensor 280/200/100. | CONFIRMED |
+| 2.9 | §3: WV2 "SVM and ensemble models ... mean accuracies of **75.9%** and **75.1%**" | The headline 75.8% reproduces exactly (`400_95_WV2e` ensemble = 0.7579), but these two per-learner figures appear in **no** surviving workbook. That run gives SVM 0.7556 and ensemble 0.7579 — so the text also has the ranking inverted, crediting SVM with the higher score when the ensemble scored higher. Not a swap either: 0.759 and 0.751 occur nowhere across any WV2 benchmark. | CONFIRMED, new |
 
 **2.3 and 2.4 are the two numbers R2 asked to be promoted to the Abstract and
 Conclusions.** Neither is computed anywhere in R, and neither reproduces from the
@@ -295,7 +296,7 @@ targets.
 | 6.1 | Do Figure 8 and Table 1 derive from the **Random Forest** product (`RF_WV2_all_train_val_combined_b30_additional_WV2_merged_mosaic.tif`, what the hex extraction reads) while Figure 6C reports the **mlr3 SVM/ensemble** product? If so the paper mixes two classifications without saying so, and R2's objection lands on a number that does not describe the map it defends. | **[ANDY]** |
 | 6.2 | Were `frac_*` sub-pixel cover columns predictors or filters in the satellite models? Changes what "cross-scale calibration" means. | **[ANDY]** |
 | 6.3 | Is the Landsat arm in scope? It is not reported in the manuscript, appearing only as an optional fourth panel of the Fig 5 script and as a caution in the discussion. | **[ANDY]** |
-| 6.4 | Which of the five training-set rungs did each satellite run consume? Determines whether Table S7 or the code is right. | Hugh, from archived outputs |
+| 6.4 | Which of the five training-set rungs did each satellite run consume? Determines whether Table S7 or the code is right. | **ANSWERED for WV2** (400 @ 95%), narrowed to two candidates each for Planet and S2 — see 7.18. Remainder **[ANDY]** |
 | 6.5 | What accounts for 1,056 shapefile records vs 1,024 in Table S4? | Hugh |
 | 6.6 | Should §2.6 be rewritten to describe the modal focal filter that was actually run, or should the sieve-and-nearest-neighbour analysis be implemented as described? | **[ANDY]** |
 
@@ -573,6 +574,59 @@ quietly:
 `tools/mirror-inputs.sh` now points at this script, because a re-mirror without
 it silently returns the CHM to having no standalone existence.
 
+### 7.18 Open question 6.4 answered for WorldView-2, and 2.7 largely resolved
+
+152 benchmark and confusion workbooks mirrored into `data-in/results/` by
+[`tools/mirror-results.sh`](tools/mirror-results.sh) (1.6 MB). They settle what
+the histories could not (7.10), without opening the `.RData` files.
+
+**Method.** The confusion workbooks are class-by-class prediction counts. Under
+`repeated_spcv_coords` with 10 repeats every observation is predicted once per
+repeat, so for a balanced training set the column sums are
+`equal_class_size × 10`. That makes the class size directly readable, and it is
+self-checking: where sampling was balanced the column sums are *exactly* equal.
+
+**The filename convention differs between repositories**, which is why the
+filenames alone were ambiguous, and the arithmetic disambiguates it:
+
+| Workbook | Column sums | Implied size | Therefore |
+|---|---|---|---|
+| `res.preds_svm_60_65` (Glenn-Prosopis-ML) | 600 | 60 | `<size>_<threshold>` |
+| `Confusion_res.preds_S2_ens_65_100` (MLR3_pipeline) | 1000 | 100 | `<threshold>_<size>` |
+
+If `65_100` meant size 65 the sums would be 650. Confirmed independently by
+`equal_class_size_400_train_85`, whose sums are exactly 4000.
+
+**What was actually run, against Table S7:**
+
+| Sensor | Table S7 | Runs found in the archive | Verdict |
+|---|---|---|---|
+| WV2 | 280 @ 95% | 30@98, 30@99, 30@99-simple, **400@95** | **280 never ran** |
+| PlanetScope | 200 @ 85% | 30@90, **400@85** | **200 never ran** |
+| Sentinel-2 | 100 @ 65% | 60@65, **100@65** | **corroborated** |
+
+For WV2 and Planet the *threshold* in Table S7 is right and the *class size* is
+wrong. The obvious reconciliation — that `equal_class_size` is a cap and Table S7
+reports the count achieved after purity filtering — **does not hold**: the column
+sums are exactly 4000 across all six classes, so 400 per class was achieved in
+full with no shortfall.
+
+**Which WV2 run fed the manuscript.** §3 reports "mean overall accuracy of
+75.8%". The `400_95_WV2e` ensemble aggregates to **0.7579**, and that workbook is
+also the only WV2 run whose top two learners are SVM and the ensemble, matching
+"SVM and ensemble models again performed best". So the reported WV2 classification
+used **`equal_class_size = 400` at a 95% purity threshold**, and Table S7's 280 is
+wrong. This answers 6.4 for WV2.
+
+**Planet and Sentinel-2 cannot be pinned the same way.** The manuscript's 71.1%
+and 70.3% (§3, Figure 7) do not correspond to any surviving benchmark: the S2
+runs aggregate to 0.86-0.93 and the Planet runs to 0.78-0.83. Those figures are
+almost certainly a different evaluation — accuracy against the drone reference
+rather than internal resampling — so they identify nothing about the training
+rung. For those two sensors the archive narrows 6.4 to two candidates each
+(Planet 30@90 or 400@85; S2 60@65 or 100@65) but does not decide between them.
+**[ANDY]**
+
 ---
 
 ## 8. Class scheme
@@ -790,3 +844,18 @@ the omission is a decision rather than an oversight.
   `stacks.csv` record. Environment procedure written up in
   [`docs/environment.md`](docs/environment.md), which also carries the
   consequences for the deferred Docker work (9.5).
+- **2026-08-17** Drone data restructured and the satellite training question
+  cracked open. `tools/split-chm.sh` separates the CHM from the spectral bands so
+  every drone product is one independent raster; proven lossless twice over
+  (7.17). Stack assembly stays a pipeline target, not a stored product.
+  `tools/mirror-results.sh` mirrors 152 surviving benchmark and confusion
+  workbooks into `data-in/results/`, which **answers open question 6.4 for
+  WorldView-2** and largely resolves 2.7 (7.18): reading `equal_class_size` off
+  the confusion column sums shows WV2 ran at **400 @ 95%** and Planet at 400@85
+  or 30@90, so Table S7's 280 and 200 were never run, while its Sentinel-2 row
+  (100 @ 65%) is corroborated by a real run. New finding **2.9**: the WV2
+  per-learner accuracies in §3 (75.9% and 75.1%) appear in no surviving workbook
+  and invert the true ranking, though the headline 75.8% reproduces exactly.
+  Sections 5.3 and 5.4 record the CHM and file-format decisions; finding 7.5 is
+  corrected in place and the earlier proposal to derive the CHM from DSM minus
+  DTM is withdrawn.

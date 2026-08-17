@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+#
+# mirror-results.sh - copy the surviving benchmark and confusion workbooks into
+# data-in/results/ so they can be read without further access to the source tree.
+#
+# WHY
+#
+# Open question 6.4 asks which training-set rung each satellite run consumed,
+# which decides whether Table S7 or the code is right (finding 2.7). The console
+# histories did not settle it (7.10) and the .RData files are deliberately not
+# being opened. The archived outputs are the remaining evidence: their filenames
+# already show configurations that contradict Table S7, and their contents should
+# show the per-class counts directly.
+#
+# These are small spreadsheets, not rasters - the whole set is a few tens of MB.
+#
+# Reads from Glen's tree, so needs sudo. Writes only into this repo's
+# data-in/results/, which is gitignored, and chowns the result back to the
+# invoking user so the files are not left root-owned.
+#
+# Usage:
+#   sudo tools/mirror-results.sh --dry-run
+#   sudo tools/mirror-results.sh
+
+set -euo pipefail
+
+SRC_ROOT="${SRC_ROOT:-/raid/home/gs558}"
+DEST_ROOT="data-in/results"
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+# "<source directory>|<destination subdirectory>"
+RESULT_SETS=(
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/Bench|glenn_prosopis_ml/bench"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/Confusion|glenn_prosopis_ml/confusion"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/Confusion_back_up/back_up|glenn_prosopis_ml/confusion_backup"
+  "$SRC_ROOT/MLR3_pipeline/data_out/S2|mlr3_pipeline/s2"
+  "$SRC_ROOT/MLR3_pipeline/data_out/Planet|mlr3_pipeline/planet"
+  "$SRC_ROOT/MLR3_pipeline/data_out/Dinaka|mlr3_pipeline/dinaka"
+  "$SRC_ROOT/MLR3_pipeline/data_out/Dinaka/Bench|mlr3_pipeline/dinaka_bench"
+  "$SRC_ROOT/MLR3_pipeline/data_out/Dinaka/Confusion|mlr3_pipeline/dinaka_confusion"
+)
+
+if [ "$(id -u)" -ne 0 ]; then
+  if [ "$DRY_RUN" = "0" ]; then
+    echo "needs sudo to read $SRC_ROOT - re-run as: sudo $0" >&2
+    exit 1
+  fi
+  echo "NOTE: not running as root, so $SRC_ROOT cannot be stat'ed and every"
+  echo "      directory below will report MISSING. Use 'sudo $0 --dry-run' for"
+  echo "      a dry run that reflects what is actually there."
+  echo
+fi
+
+PROV="$DEST_ROOT/provenance.csv"
+[ "$DRY_RUN" = "0" ] && mkdir -p "$DEST_ROOT"
+[ "$DRY_RUN" = "0" ] && printf '"destination","source","bytes","source_mtime"\n' > "$PROV"
+
+total=0; copied=0; missing=0
+
+for entry in "${RESULT_SETS[@]}"; do
+  src="${entry%%|*}"
+  sub="${entry##*|}"
+  dst="$DEST_ROOT/$sub"
+
+  if [ ! -d "$src" ]; then
+    echo "MISSING DIR  $src"; missing=$((missing + 1)); continue
+  fi
+
+  n=$(find "$src" -maxdepth 1 -type f -iname '*.xlsx' | wc -l)
+  echo "$sub  <-  $src  ($n workbooks)"
+  total=$((total + n))
+  [ "$DRY_RUN" = "1" ] && continue
+
+  mkdir -p "$dst"
+  while IFS= read -r f; do
+    base=$(basename "$f")
+    cp -p "$f" "$dst/$base"
+    printf '"%s","%s","%s","%s"\n' \
+      "$sub/$base" "$f" "$(stat -c%s "$f")" "$(stat -c '%y' "$f" | cut -d. -f1)" >> "$PROV"
+    copied=$((copied + 1))
+  done < <(find "$src" -maxdepth 1 -type f -iname '*.xlsx' | sort)
+done
+
+echo
+if [ "$DRY_RUN" = "1" ]; then
+  echo "DRY RUN - $total workbooks would be copied, $missing directories missing"
+  exit 0
+fi
+
+# Do not leave root-owned files behind.
+owner="${SUDO_UID:-0}:${SUDO_GID:-0}"
+if [ "$owner" != "0:0" ]; then
+  chown -R "$owner" "$DEST_ROOT"
+  echo "chowned $DEST_ROOT to $owner"
+fi
+
+echo "copied $copied workbooks, $missing directories missing"
+echo "provenance: $PROV"
+du -sh "$DEST_ROOT"
