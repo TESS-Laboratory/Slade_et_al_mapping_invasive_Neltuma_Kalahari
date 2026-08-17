@@ -20,7 +20,7 @@ tar_option_set(
   packages = c(
     "terra", "sf", "exactextractr",
     "mlr3", "mlr3learners", "mlr3spatiotempcv", "mlr3pipelines",
-    "mlr3tuning", "mlr3tuningspaces", "mlr3filters",
+    "mlr3tuning", "mlr3tuningspaces", "mlr3filters", "paradox",
     "dplyr", "tidyr", "purrr", "jsonlite", "yaml"
   ),
   format = "qs",
@@ -128,7 +128,12 @@ per_cube <- tar_map(
   tar_target(training_split, drop_incomplete(training_raw)),
   tar_target(training,       training_split$data),
   tar_target(training_drops, training_split$summary),
-  tar_target(training_check, validate_training_table(training, site, sites = sites))
+  tar_target(training_check, validate_training_table(training, site, sites = sites)),
+
+  # ---- models ------------------------------------------------------------
+  tar_target(task, make_task(training, site, tag, sites = sites)),
+  tar_target(bench, run_benchmark(task, resampling)),
+  tar_target(bench_tidy, tidy_benchmark(bench, site, tag))
 )
 
 list(
@@ -192,5 +197,6 @@ list(
   per_cube,
   tar_combine(cube_index,     per_cube[["cube_info"]],     command = rbind(!!!.x)),
   tar_combine(training_index, per_cube[["training_check"]], command = rbind(!!!.x)),
-  tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x))
+  tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x)),
+  tar_combine(bench_index, per_cube[["bench_tidy"]], command = rbind(!!!.x))
 )

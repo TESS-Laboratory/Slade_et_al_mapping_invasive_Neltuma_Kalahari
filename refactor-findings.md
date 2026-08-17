@@ -770,6 +770,45 @@ resampling scheme, and *V. erioloba* is the class the manuscript's central
 confusion claim depends on (2.4). The §2.2 sentence needs correcting, and the
 per-class accuracies for these combinations need a stated caveat. **[ANDY]**
 
+### 7.22 The learner graph reconstructs to the original's own identifier
+
+The archived benchmark workbooks record each learner as its full `mlr3` pipeline
+id, which is effectively the graph written out. Rebuilding the graph from that
+description in `R/models.R` regenerates the identifier:
+
+```
+archived   scale_branch.scale.no.scale.scale_unbranch.pre_branch.pca.nop.pre_unbranch.importance.classif.ranger
+ours       scale_branch.scale.no.scale.scale_unbranch.pre_branch.pca.nop.pre_unbranch.importance.classif.ranger.tuned
+```
+
+identical but for the `.tuned` suffix `auto_tuner()` appends. So the
+preprocessing structure — a tuned branch between scaling and not scaling, a tuned
+branch between PCA and passthrough, an importance filter, then the learner — is
+recovered rather than guessed, and the SVM's lack of an `importance` token in its
+archived id is why SVM is unfiltered here.
+
+Together with 7.21, the training data and the model structure are now both
+evidenced against the originals. What remains unverified is the numbers, which
+needs a full-budget run.
+
+**A result to watch, not yet a finding.** Under the fast profile the untuned
+`ranger` baseline is at or above every tuned learner on all four stacks:
+
+| Stack | Best | Baseline |
+|---|---|---|
+| 5 | ranger.tuned 0.809 | 0.802 |
+| 5_CHM | **ranger.untuned 0.831** | 0.831 |
+| 5_CHM_NDVI | **ranger.untuned 0.838** | 0.838 |
+| 5_CHM_ALLVI | ranger.tuned 0.831 | 0.831 |
+
+This is **not** evidence about the reported pipeline: the fast profile allows 5
+tuning evaluations over 3 folds, so the tuned learners are barely tuned, and
+three outer iterations make the differences well inside noise. It is recorded
+because if the baseline still matches at the full budget — 50 evaluations over 20
+folds — then the elaborate graph is not earning its place, which is worth knowing
+before defending it to a reviewer. The baseline exists in `resampling.yml`
+precisely to make that answerable.
+
 ---
 
 ## 8. Class scheme
@@ -1102,3 +1141,16 @@ manifest, lockfile and library in agreement.
   class" claimed in §2.2, at every site, the worst being *V. erioloba* at
   Struizendam 4 with **n = 2** — a class the central confusion claim in 2.4
   depends on. **[ANDY]** Pipeline at 172 targets, 0 errors.
+- **2026-08-17** Models. `R/models.R` builds the spatial tasks, the learner graph
+  and the benchmark, all driven from `resampling.yml`. New finding **7.22**: the
+  graph reconstructed from the archived learner ids regenerates those ids exactly,
+  bar the `.tuned` suffix `auto_tuner()` adds, so the preprocessing structure is
+  recovered rather than guessed. With 7.21 the training data and the model
+  structure are both now evidenced against the originals; the numbers are not,
+  and need a full-budget run. `predict_type = "prob"` throughout closes **action
+  item 3** in code, and the `ens_rf`/`ens_svm` mislabelling of 4.9 is corrected.
+  Coordinates are excluded from the feature set (`coords_as_features = FALSE`) so
+  no model can memorise location. The full modelling chain runs on the fast
+  profile: 4 tasks x 5 learners in 1m42s, accuracies 0.73-0.84. Recorded but not
+  claimed: the untuned baseline matches or beats every tuned learner at the fast
+  budget, which is uninformative at 5 evaluations but would matter at 50.
