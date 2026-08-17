@@ -62,3 +62,6 @@ data-in/
 
 # IDE config uvr generates, with absolute machine-specific paths in it
 .vscode/
+
+# targets store (rebuildable, machine-specific)
+_targets/
