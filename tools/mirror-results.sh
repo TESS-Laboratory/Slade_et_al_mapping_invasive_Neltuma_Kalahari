@@ -21,13 +21,17 @@
 # Usage:
 #   sudo tools/mirror-results.sh --dry-run
 #   sudo tools/mirror-results.sh
+#   sudo tools/mirror-results.sh --with-training --dry-run
+#   sudo tools/mirror-results.sh --with-training
 
 set -euo pipefail
 
 SRC_ROOT="${SRC_ROOT:-/raid/home/gs558}"
 DEST_ROOT="data-in/results"
+# Scan every argument, not just $1: "--with-training --dry-run" must still be a
+# dry run, and getting that wrong writes when the user asked to preview.
 DRY_RUN=0
-[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+for a in "$@"; do [ "$a" = "--dry-run" ] && DRY_RUN=1; done
 
 # "<source directory>|<destination subdirectory>"
 RESULT_SETS=(
@@ -40,6 +44,27 @@ RESULT_SETS=(
   "$SRC_ROOT/MLR3_pipeline/data_out/Dinaka/Bench|mlr3_pipeline/dinaka_bench"
   "$SRC_ROOT/MLR3_pipeline/data_out/Dinaka/Confusion|mlr3_pipeline/dinaka_confusion"
 )
+
+# Serialised training tables. NOTE these are .rds, not .RData: a single
+# serialised object with no session state, environments or attached packages -
+# safe to read, unlike the session snapshots which are deliberately untouched.
+#
+# Two things they can settle that nothing else can:
+#   *ML_in_point_level.rds        the response column name, Type vs Class,
+#                                 which the two copies of build_ml_df disagree
+#                                 about (finding 3.3)
+#   *_pixel_extract_full_train_N  the satellite training rungs, with the purity
+#                                 threshold in the filename - an independent
+#                                 check on sensors.csv (7.19)
+#
+# Enabled with --with-training because they may be large; run --dry-run first.
+TRAINING_SETS=(
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out|glenn_prosopis_ml/ml_in"
+  "$SRC_ROOT/MLR3_pipeline/data_out|mlr3_pipeline/ml_in"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_in|glenn_prosopis_ml/pixel_extract"
+)
+WITH_TRAINING=0
+for a in "$@"; do [ "$a" = "--with-training" ] && WITH_TRAINING=1; done
 
 if [ "$(id -u)" -ne 0 ]; then
   if [ "$DRY_RUN" = "0" ]; then
@@ -82,9 +107,39 @@ for entry in "${RESULT_SETS[@]}"; do
   done < <(find "$src" -maxdepth 1 -type f -iname '*.xlsx' | sort)
 done
 
+# --- training tables (.rds), opt-in ----------------------------------------
+if [ "$WITH_TRAINING" = "1" ]; then
+  echo
+  for entry in "${TRAINING_SETS[@]}"; do
+    src="${entry%%|*}"; sub="${entry##*|}"; dst="$DEST_ROOT/$sub"
+    if [ ! -d "$src" ]; then
+      echo "MISSING DIR  $src"; missing=$((missing + 1)); continue
+    fi
+    # Recursive here: these sit one level down, in per-site subdirectories.
+    n=$(find "$src" -type f \( -iname '*ML_in_point_level.rds' -o \
+                                -iname '*pixel_extract_full_train_*.rds' \) | wc -l)
+    sz=$(find "$src" -type f \( -iname '*ML_in_point_level.rds' -o \
+                                 -iname '*pixel_extract_full_train_*.rds' \) \
+         -printf '%s\n' 2>/dev/null | awk '{t+=$1} END {printf "%.1f MB", t/1048576}')
+    echo "$sub  <-  $src  ($n tables, $sz)"
+    total=$((total + n))
+    [ "$DRY_RUN" = "1" ] && continue
+
+    mkdir -p "$dst"
+    while IFS= read -r f; do
+      base=$(basename "$f")
+      cp -p "$f" "$dst/$base"
+      printf '"%s","%s","%s","%s"\n' \
+        "$sub/$base" "$f" "$(stat -c%s "$f")" "$(stat -c '%y' "$f" | cut -d. -f1)" >> "$PROV"
+      copied=$((copied + 1))
+    done < <(find "$src" -type f \( -iname '*ML_in_point_level.rds' -o \
+                                     -iname '*pixel_extract_full_train_*.rds' \) | sort)
+  done
+fi
+
 echo
 if [ "$DRY_RUN" = "1" ]; then
-  echo "DRY RUN - $total workbooks would be copied, $missing directories missing"
+  echo "DRY RUN - $total file(s) would be copied, $missing directories missing"
   exit 0
 fi
 
@@ -95,6 +150,6 @@ if [ "$owner" != "0:0" ]; then
   echo "chowned $DEST_ROOT to $owner"
 fi
 
-echo "copied $copied workbooks, $missing directories missing"
+echo "copied $copied file(s), $missing directories missing"
 echo "provenance: $PROV"
 du -sh "$DEST_ROOT"

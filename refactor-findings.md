@@ -838,6 +838,43 @@ the safer default.
 forces a full rebuild against a uvr-managed R. Deferred, and recorded here so
 the omission is a decision rather than an oversight.
 
+**9.7 A pinned git dependency makes every later `uvr add` contingent on GitHub.**
+`uvr add` re-resolves the *whole* dependency set, so adding an unrelated CRAN
+package re-fetches the pinned `mlr3extralearners` sha from the GitHub API. If
+that call fails the entire transaction rolls back and nothing is added. During
+the GitHub incident of 2026-08-17 this blocked `uvr add tarchetypes` for over
+half an hour: 12 attempts, mostly `504 Gateway Timeout`.
+
+**A first diagnosis of this was wrong and is corrected here.** The initial
+failure returned `429 Too Many Requests` and was recorded as rate limiting caused
+by this session's own API calls. It was not. `GET /rate_limit` showed **57 of 60**
+requests remaining, and `githubstatus.com` reported a `major` **Partial System
+Outage**; subsequent failures were `504`, and a direct API call returned `504`
+too. The status code was read as a cause without checking either the quota or
+the service status. Same error of method as 9.4: inferring from one signal
+instead of interrogating the authoritative source.
+
+Mitigations, in order of preference: set a `GITHUB_PAT` (raises the quota, does
+nothing for an outage); prefer CRAN over git pins where a CRAN release will do;
+and note that `uvr` offers no offline resolution path even though `uvr.lock`
+already carries the pinned URL and checksum, which is arguably a gap in the tool.
+
+**9.8 OUTSTANDING: `uvr.lock` is knowingly incomplete.** To get past 9.7,
+`tarchetypes` was declared with `uvr add tarchetypes --no-lock`, which writes
+`uvr.toml` without resolving, and then installed straight from CRAN into
+`.uvr/library/`. So the manifest and the library both have it and **the lockfile
+does not**. This is deliberate and temporary, not an oversight.
+
+**Reconcile as soon as GitHub is healthy:**
+
+```sh
+source tools/uvr-env.sh
+uvr lock && uvr sync          # then confirm tarchetypes appears in uvr.lock
+```
+
+Until that is done the environment is not fully reproducible from `uvr.lock`
+alone, which is the one property the whole `uvr` arrangement exists to provide.
+
 ---
 
 ## Changelog
@@ -927,3 +964,19 @@ the omission is a decision rather than an oversight.
   class size rests on convention and timestamp rather than arithmetic. New finding
   **2.10**: the manuscript gives PlanetScope as 3 m in the Abstract, §2 and Table
   S7 but 4 m in the Figure 7 caption.
+- **2026-08-17** The pipeline exists and runs. `_targets.R` with `R/config.R` and
+  `R/manifest.R`: config is the single source of truth, the manifest is a
+  contract, and a missing input stops the run with an acquisition note rather
+  than being substituted or skipped. Static branching via `tarchetypes::tar_map`
+  over sites, so every check is an individually named target
+  (`refl_check_bokspits_1`) that names the offending site on failure. Input files
+  and shapefile **sidecar sets** are tracked, so a changed `.dbf` or a vanished
+  `.prj` registers (7.13). 27 targets under the fast profile, 55 under the full,
+  0 errors; the full run reproduces finding 2.6's **1,056** field records as a
+  computed target rather than a documented assertion.
+  Two environment findings: **9.7**, a pinned git dependency makes every later
+  `uvr add` contingent on the GitHub API — and the first diagnosis of that
+  failure, as rate limiting, was **wrong** and is corrected in place: the quota
+  was untouched and GitHub was in a major outage. **9.8** records that `uvr.lock`
+  is knowingly incomplete as a result, and must be reconciled with
+  `uvr lock && uvr sync` once GitHub is healthy.

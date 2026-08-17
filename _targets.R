@@ -14,6 +14,7 @@
 #   - The fast profile is the default, so an accidental run costs minutes.
 
 library(targets)
+library(tarchetypes)
 
 tar_option_set(
   packages = c(
@@ -29,14 +30,65 @@ tar_option_set(
     workers = as.integer(Sys.getenv("NELTUMA_WORKERS", "4")),
     seconds_idle = 60
   ),
-  # Rasters are passed between targets as file paths, not serialised objects: a
-  # terra SpatRaster is a pointer to an open GDAL dataset and does not survive
-  # being written to the targets store and read back in a different process.
+  # A terra SpatRaster is a pointer to an open GDAL dataset and does not survive
+  # being serialised into the store and read back in another process. Rasters
+  # therefore move between targets as file paths, never as objects.
   memory = "transient",
-  garbage_collection = TRUE
+  garbage_collection = TRUE,
+  # Decide whether an input file changed from its timestamp rather than by
+  # hashing it. The mirrored rasters run to 2.6 GB each and total ~64 GB;
+  # content-hashing them on every tar_make would dominate runtime. Safe here
+  # because nothing edits these files in place - they arrive by mirror or by
+  # git, both of which move the mtime.
+  trust_timestamps = TRUE
 )
 
 tar_source()
+
+# Static branching needs the site list when the graph is constructed, so this is
+# read here rather than as a target. The profile comes from NELTUMA_PROFILE, so
+# switching profile rebuilds the graph rather than mutating it mid-run.
+PROFILE <- active_profile()
+SITES   <- site_ids(PROFILE)
+
+# Per-site input paths, checks, and eventually cubes and models. tar_map is used
+# in preference to dynamic branching because the sites are known up front: it
+# gives one named target per site (refl_check_bokspits_1 and so on), which is
+# addressable in tar_read, visible in tar_visnetwork, and names the offending
+# site directly when something fails.
+per_site <- tar_map(
+  values = list(site = SITES),
+  names = site,
+
+  # Inputs tracked as files so a changed raster invalidates only that site.
+  # Timestamp-based change detection comes from trust_timestamps above.
+  tar_target(refl_path, file.path("data-in/drone", site, "refl_stack.tif"),
+             format = "file"),
+  tar_target(chm_path,  file.path("data-in/drone", site, "chm.tif"),
+             format = "file"),
+
+  # Shapefiles are file sets: track the sidecars too, or a changed .dbf or a
+  # vanished .prj goes unnoticed (finding 7.13).
+  tar_target(field_paths,
+             shapefile_files(file.path("data-in/drone", site, "field_points.shp")),
+             format = "file"),
+  tar_target(aoi_paths,
+             shapefile_files(file.path("data-in/drone", site, "aoi.shp")),
+             format = "file"),
+
+  # Validation. Each fails loudly, naming this site.
+  tar_target(refl_check,
+             validate_raster(refl_path, site, expect_bands = 5L, sites = sites)),
+  tar_target(chm_check,
+             validate_raster(chm_path, site, expect_bands = 1L, sites = sites)),
+  tar_target(field_check,
+             validate_vector(field_paths[1], site,
+                             expect_geometry = "POLYGON", sites = sites)),
+  tar_target(aoi_check,
+             validate_vector(aoi_paths[1], site,
+                             expect_geometry = c("POLYGON", "MULTIPOLYGON"),
+                             sites = sites))
+)
 
 list(
 
@@ -44,97 +96,53 @@ list(
   # Config files are tracked as files so that editing one invalidates exactly
   # the targets that depend on it.
 
-  tar_target(profile, active_profile(), cue = tar_cue(mode = "always")),
-
-  # format = "file" rather than tarchetypes::tar_file: one fewer dependency, and
-  # every `uvr add` re-resolves the pinned mlr3extralearners sha against the
-  # GitHub API, which rate-limits (finding 9.7).
-  tar_target(sites_file,      file.path(CONFIG_DIR, "sites.csv"),      format = "file"),
-  tar_target(stacks_file,     file.path(CONFIG_DIR, "stacks.csv"),     format = "file"),
-  tar_target(sensors_file,    file.path(CONFIG_DIR, "sensors.csv"),    format = "file"),
-  tar_target(resampling_file, file.path(CONFIG_DIR, "resampling.yml"), format = "file"),
-  tar_target(classes_file,    CLASSES_JSON,                            format = "file"),
-  tar_target(manifest_file,   MANIFEST_CSV,                            format = "file"),
+  tar_file(sites_file,      file.path(CONFIG_DIR, "sites.csv")),
+  tar_file(stacks_file,     file.path(CONFIG_DIR, "stacks.csv")),
+  tar_file(sensors_file,    file.path(CONFIG_DIR, "sensors.csv")),
+  tar_file(resampling_file, file.path(CONFIG_DIR, "resampling.yml")),
+  tar_file(classes_file,    CLASSES_JSON),
+  tar_file(manifest_file,   MANIFEST_CSV),
 
   tar_target(sites,      read_sites(sites_file)),
   tar_target(stacks,     read_stacks(stacks_file)),
   tar_target(sensors,    read_sensors(sensors_file)),
   tar_target(classes,    class_lookup("field", classes_file)),
   tar_target(manifest,   read_manifest(manifest_file)),
-  tar_target(resampling, resampling_config(profile, resampling_file)),
-
-  # The sites this run covers. Under the fast profile this is one site.
-  tar_target(active_sites, site_ids(profile, sites_file)),
+  tar_target(resampling, resampling_config(PROFILE, resampling_file)),
 
   # ---- data validation -----------------------------------------------------
-  # These run before anything expensive. Each fails loudly rather than letting a
-  # wrong input reach a model.
 
-  tar_target(
-    manifest_status,
-    manifest_summary(manifest)
-  ),
+  tar_target(manifest_status, manifest_summary(manifest)),
 
-  # Existence of every drone input this run needs.
+  # Existence and availability of every drone input this run needs, checked
+  # against the manifest rather than the filesystem, so that a lost input
+  # produces its acquisition note.
   tar_target(
-    drone_files_ok,
+    drone_inputs_present,
     lapply(
       c("drone_refl_stack", "drone_chm", "drone_field_points", "drone_aoi_clip"),
-      function(id) tryCatch(
-        assert_manifest_files(id, sites = active_sites, manifest = manifest),
-        error = function(e) structure(conditionMessage(e), class = "check_failure")
-      )
+      function(id) assert_manifest_files(id, sites = SITES, manifest = manifest)
     )
   ),
 
-  # Per-site raster validation: CRS, band count, pixel size.
-  tar_target(
-    refl_stack_valid,
-    validate_raster(
-      file.path("data-in/drone", active_sites, "refl_stack.tif"),
-      site = active_sites, expect_bands = 5L, sites = sites
-    ),
-    pattern = map(active_sites)
-  ),
+  per_site,
 
-  tar_target(
-    chm_valid,
-    validate_raster(
-      file.path("data-in/drone", active_sites, "chm.tif"),
-      site = active_sites, expect_bands = 1L, sites = sites
-    ),
-    pattern = map(active_sites)
-  ),
+  # Collect the per-site checks into single tables.
+  tar_combine(refl_checks,   per_site[["refl_check"]],   command = rbind(!!!.x)),
+  tar_combine(chm_checks,    per_site[["chm_check"]],    command = rbind(!!!.x)),
+  tar_combine(field_checks,  per_site[["field_check"]],  command = rbind(!!!.x)),
+  tar_combine(aoi_checks,    per_site[["aoi_check"]],    command = rbind(!!!.x)),
 
-  # Per-site vector validation. Geometry is checked explicitly because these are
-  # POLYGON despite the `points` in their name (finding 4.15).
-  tar_target(
-    field_points_valid,
-    validate_vector(
-      file.path("data-in/drone", active_sites, "field_points.shp"),
-      site = active_sites, expect_geometry = "POLYGON", sites = sites
-    ),
-    pattern = map(active_sites)
-  ),
-
-  # A single gate the rest of the pipeline can depend on, so that no modelling
-  # target can run unless validation passed.
+  # The gate. Nothing expensive may run without depending on this.
   tar_target(
     inputs_validated,
-    {
-      failed <- vapply(drone_files_ok, inherits, logical(1), "check_failure")
-      if (any(failed)) {
-        stop("Input validation failed:\n\n",
-             paste(unlist(drone_files_ok[failed]), collapse = "\n\n"),
-             call. = FALSE)
-      }
-      list(
-        profile   = profile,
-        sites     = active_sites,
-        rasters   = nrow(refl_stack_valid) + nrow(chm_valid),
-        vectors   = nrow(field_points_valid),
-        validated = TRUE
-      )
-    }
+    list(
+      profile   = PROFILE,
+      sites     = SITES,
+      rasters   = nrow(refl_checks) + nrow(chm_checks),
+      vectors   = nrow(field_checks) + nrow(aoi_checks),
+      n_field   = sum(field_checks$n_features),
+      validated = TRUE
+    )
   )
 )

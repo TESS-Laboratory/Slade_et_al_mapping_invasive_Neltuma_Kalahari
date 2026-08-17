@@ -254,6 +254,29 @@ validate_vector <- function(path, site, expect_geometry = NULL,
 }
 
 
+#' All files belonging to a shapefile
+#'
+#' A `.shp` is not a file, it is a file set. Tracking only the `.shp` would miss
+#' a changed `.dbf` (attributes) or `.prj` (CRS) entirely — and a missing `.prj`
+#' is a live problem in this project (finding 7.13). Returns only the sidecars
+#' that actually exist, so absence is visible downstream rather than fatal here.
+#'
+#' @param shp path to the .shp
+#' @return character vector of existing paths, .shp first
+shapefile_files <- function(shp) {
+  if (!grepl("\\.shp$", shp)) {
+    stop("shapefile_files() expects a .shp path, got: ", shp, call. = FALSE)
+  }
+  if (!file.exists(shp)) {
+    stop("Shapefile not found: ", shp, call. = FALSE)
+  }
+  stem <- sub("\\.shp$", "", shp)
+  candidates <- paste0(stem, ".", c("shp", "shx", "dbf", "prj", "cpg",
+                                    "qpj", "sbn", "sbx"))
+  candidates[file.exists(candidates)]
+}
+
+
 #' Summarise manifest availability
 #'
 #' Cheap target that makes the data position visible in the pipeline rather than
