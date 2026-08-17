@@ -65,3 +65,6 @@ data-in/
 
 # targets store (rebuildable, machine-specific)
 _targets/
+
+# derived outputs (rebuildable from data-in/ + the pipeline)
+data-out/

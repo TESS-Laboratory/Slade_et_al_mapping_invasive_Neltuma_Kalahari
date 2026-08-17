@@ -50,6 +50,7 @@ tar_source()
 # switching profile rebuilds the graph rather than mutating it mid-run.
 PROFILE <- active_profile()
 SITES   <- site_ids(PROFILE)
+TAGS    <- read_stacks()$tag
 
 # Per-site input paths, checks, and eventually cubes and models. tar_map is used
 # in preference to dynamic branching because the sites are known up front: it
@@ -88,6 +89,30 @@ per_site <- tar_map(
              validate_vector(aoi_paths[1], site,
                              expect_geometry = c("POLYGON", "MULTIPOLYGON"),
                              sites = sites))
+)
+
+# Predictor cubes: every site x every stack tag. Cheap - a VRT is a few kB - so
+# there is no reason to restrict which combinations exist.
+cube_grid <- expand.grid(site = SITES, tag = TAGS, stringsAsFactors = FALSE)
+# Carry n_bands through the values grid rather than looking it up in the command.
+# tar_map substitutes its value symbols throughout the expression, INCLUDING
+# inside `stacks$tag`, which silently becomes stacks$"5_CHM_NDVI" -> NULL. Any
+# `$<symbol>` accessor inside a tar_map command is a trap for the same reason.
+cube_grid$n_bands <- read_stacks()$n_bands[match(cube_grid$tag, TAGS)]
+
+per_cube <- tar_map(
+  values = cube_grid,
+  names = c("site", "tag"),
+  tar_target(
+    cube,
+    {
+      inputs_validated          # gate: no cube is assembled on unvalidated inputs
+      build_cube(site, tag, stacks = stacks, sites = sites)
+    },
+    format = "file"
+  ),
+  tar_target(cube_info, assert_cube_grid(cube, site, tag,
+                                         expect_bands = n_bands, sites = sites))
 )
 
 list(
@@ -144,5 +169,10 @@ list(
       n_field   = sum(field_checks$n_features),
       validated = TRUE
     )
-  )
+  ),
+
+  # ---- predictor cubes -----------------------------------------------------
+
+  per_cube,
+  tar_combine(cube_index, per_cube[["cube_info"]], command = rbind(!!!.x))
 )

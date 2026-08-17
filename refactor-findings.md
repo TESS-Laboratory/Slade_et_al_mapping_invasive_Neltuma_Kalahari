@@ -137,9 +137,24 @@ appearance where the repo copy takes alphabetical order from `as.factor`. Any
 reproduction built on the repo copy trains against a different target than the
 console session did.
 
-Which one produced the reported numbers is **OPEN**. It is settleable without
-guesswork: the surviving `*ML_in_point_level.rds` files carry the column names,
-so reading one shows whether `Type` or `Class` was the modelled response.
+Which one produced the reported numbers is **RESOLVED, 2026-08-17: the console
+version is right, and the response was `Type`.** Settled from the archived
+outputs already mirrored, without needing the `.rds` extracts. Every one of the
+**29** surviving drone confusion workbooks carries *numeric* dimnames — the union
+across all of them is codes `1, 2, 3, 4, 5, 6, 7, 10, 13`, and the set varies by
+site with what was actually surveyed there (Bokspits_1 has `1,2,3,4,5,6`,
+Struizendam_3 has `1,2,3,6,7,10`). **Zero** workbooks use class-name strings.
+
+Had `Class` been the response, those dimnames would read `Neltuma`,
+`Bare Ground` and so on, because `Class` is the name column in the lookup and
+`Type` is the integer code. So the drone models were trained on the field `Type`
+code, subset per site to the classes present.
+
+Two consequences for the port. The response is an integer code carried as a
+factor, so `class_labels()` must be applied at presentation time and never
+before. And the per-site class sets differ, which means a benchmark table
+combining sites is comparing models over different label spaces — worth stating
+explicitly wherever site results are pooled.
 
 The recovery does **not** rescue the five `build_ml_df_*` satellite variants.
 The history calls `build_ml_df_WV2e(cube = x, site_name = "WV2e", df_type = "points")`
@@ -575,6 +590,40 @@ quietly:
 `tools/mirror-inputs.sh` now points at this script, because a re-mirror without
 it silently returns the CHM to having no standalone existence.
 
+### 7.20 CONFIRMED. The vegetation-index rasters are on a different footprint
+
+Found while assembling predictor cubes. The VI rasters were computed on the
+**uncropped** mosaic, while `refl_stack.tif` and the CHM are cropped and masked
+to the site AOI. At Bokspits_1:
+
+| Raster | Dimensions | Extent (x) |
+|---|---|---|
+| `refl_stack.tif`, `chm.tif` | 9151 x 8221 | 470044.2 – 470563.9 |
+| `ndvi/savi/msavi/msavi2/mtvi.tif` | 12209 x 10309 | 469955.1 – 470648.4 |
+
+The grids *are* pixel-aligned — the offsets are whole pixel counts (1570, 1120,
+−1488, −968) and the pixel size matches to floating-point noise — so the rasters
+are co-registered. But the extents differ, and **`gdalbuildvrt` defaults to the
+union of its inputs**. Assembling a cube without pinning the extent produces a
+12209 x 10309 grid with the reflectance and CHM bands padded out in nodata: a
+larger raster, every pixel index shifted, and nothing about the result looking
+wrong. Every extracted training value would change.
+
+`R/cubes.R` pins each cube to the reflectance grid with `-te` and then verifies
+the assembled VRT against it rather than trusting the pin. Verified at
+Bokspits_1 across all 11 bands of `5_CHM_ALLVI` against their source rasters at
+3,000 sample points: `max|diff| = 0`, no nodata mismatches.
+
+**A consequence worth carrying forward.** Because the VI rasters are unmasked,
+the VI bands of a cube carry data where the reflectance and CHM bands are nodata
+— inside the extent but outside the AOI mask. In the sample above, 2,727 of
+3,000 points had VI values against 1,919 with reflectance. This is faithful to
+the original, which combined the same products, and it does not affect training,
+since the field polygons all sit inside the AOI. It *would* matter for
+landscape-scale prediction, where a model could otherwise be asked to predict on
+pixels with VI values and no reflectance. Masking is therefore a prediction-time
+concern, recorded here so it is a decision rather than a surprise.
+
 ### 7.18 Open question 6.4 answered for WorldView-2, and 2.7 largely resolved
 
 152 benchmark and confusion workbooks mirrored into `data-in/results/` by
@@ -859,7 +908,7 @@ nothing for an outage); prefer CRAN over git pins where a CRAN release will do;
 and note that `uvr` offers no offline resolution path even though `uvr.lock`
 already carries the pinned URL and checksum, which is arguably a gap in the tool.
 
-**9.8 OUTSTANDING: `uvr.lock` is knowingly incomplete.** To get past 9.7,
+**9.8 CLOSED (2026-08-17). `uvr.lock` was knowingly incomplete.** To get past 9.7,
 `tarchetypes` was declared with `uvr add tarchetypes --no-lock`, which writes
 `uvr.toml` without resolving, and then installed straight from CRAN into
 `.uvr/library/`. So the manifest and the library both have it and **the lockfile
@@ -874,6 +923,10 @@ uvr lock && uvr sync          # then confirm tarchetypes appears in uvr.lock
 
 Until that is done the environment is not fully reproducible from `uvr.lock`
 alone, which is the one property the whole `uvr` arrangement exists to provide.
+
+**Resolved.** GitHub recovered and the lockfile was reconciled: `uvr.lock` now
+carries `tarchetypes` 0.14.1 among 180 packages, and `uvr doctor` reports
+manifest, lockfile and library in agreement.
 
 ---
 
@@ -980,3 +1033,18 @@ alone, which is the one property the whole `uvr` arrangement exists to provide.
   was untouched and GitHub was in a major outage. **9.8** records that `uvr.lock`
   is knowingly incomplete as a result, and must be reconciled with
   `uvr lock && uvr sync` once GitHub is healthy.
+- **2026-08-17** Predictor cubes. `R/cubes.R` assembles every stack in
+  `stacks.csv` as a GDAL VRT from the independent rasters, closing the design in
+  5.3: 28 cubes for 7 sites x 4 tags, 144 kB in total, nothing stored
+  pre-combined. Bands are named in the VRT so a cube is self-describing and the
+  `dsm`/`chm` confusion (7.14) cannot recur. New finding **7.20**: the VI rasters
+  sit on the uncropped footprint, larger than the reflectance grid though
+  pixel-aligned, and `gdalbuildvrt` unions by default — so an unpinned cube would
+  silently shift every pixel index. Cubes are pinned with `-te` and verified
+  against the reflectance grid; values checked band-by-band against source at
+  3,000 points, `max|diff| = 0`. **Finding 3.3 resolved** without needing further
+  data: all 29 surviving drone confusion workbooks carry numeric dimnames (codes
+  1-7, 10, 13) rather than class-name strings, so the response variable was the
+  field `Type` code, matching the `.Rhistory` copy of `build_ml_df` rather than
+  the repo copy. **Finding 9.8 closed**: `uvr.lock` now carries `tarchetypes`.
+  Pipeline at 132 targets, 0 errors.

@@ -1934,6 +1934,25 @@ checksum = "md5:a89fa5477da46a579392fc3bfef17d57"
 requires = ["Matrix"]
 
 [[package]]
+name = "tarchetypes"
+version = "0.14.1"
+source = "cran"
+raw_version = "0.14.1"
+url = "https://cran.r-project.org/src/contrib/tarchetypes_0.14.1.tar.gz"
+checksum = "md5:d4f4f3df10679bd73367e8d54a7eeb99"
+requires = [
+    "dplyr",
+    "fs",
+    "rlang",
+    "secretbase",
+    "targets",
+    "tibble",
+    "tidyselect",
+    "vctrs",
+    "withr",
+]
+
+[[package]]
 name = "targets"
 version = "1.12.0"
 source = "cran"
