@@ -1,0 +1,7 @@
+[project]
+name = "Slade_et_al_mapping_invasive_Neltuma_Kalahari"
+
+[dependencies]
+exactextractr = "*"
+sf = "*"
+terra = "*"

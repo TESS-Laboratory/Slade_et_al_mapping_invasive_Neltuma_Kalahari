@@ -142,6 +142,25 @@ find / -type f -name '*T34JDR*' 2>/dev/null                        # Sentinel-2 
 
 ## Step 2. Environment
 
+> **Done, with one mandatory deviation. See [`docs/environment.md`](environment.md).**
+>
+> The warning below about P3M binaries was right, and stronger than expected:
+> binaries do not merely "compile from source sometimes", they are *unusable* on
+> this host. P3M's noble builds link GDAL 3.8 (`libgdal.so.34`); the server has
+> 3.11.4 (`libgdal.so.37`). Every GDAL-linked package installs cleanly and then
+> fails to load. **Source builds must be forced** — `source tools/uvr-env.sh`
+> before any `uvr` command. Findings 9.1 to 9.3.
+>
+> The system libraries were already present and no admin was needed. Two unrelated
+> headers are missing and do need root (finding 9.4).
+>
+> Two departures from the recipe below, both deliberate: R is **not** pinned —
+> the server has 4.6.0, not the 4.6.1 named here, and pinning forces a full
+> rebuild against a uvr-managed R (finding 9.6). And `qs2` has not been added
+> yet; `tar_option_set(format = "qs")` in Step 3 needs whichever of `qs`/`qs2`
+> the installed `targets` expects, so it is settled there rather than guessed
+> here.
+
 Use **`uvr`**, not `renv`. It pins the R version itself, which is the whole point
 when moving between the workstation and this server.
 

@@ -57,3 +57,8 @@ file-index.txt
 
 # mirrored input data (machine-specific, tracked via inst/manifest/, not git)
 data-in/
+/.uvr/library/
+/.uvr/activate*
+
+# IDE config uvr generates, with absolute machine-specific paths in it
+.vscode/

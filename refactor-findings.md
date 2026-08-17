@@ -466,6 +466,70 @@ misspelling Reviewer 1 flagged across Figures 3, 8, S1 to S8, S10 and S11.
 
 ---
 
+## 9. Environment
+
+Step 2 of the server handover. Full detail in
+[`docs/environment.md`](docs/environment.md); this section records only what a
+future reader would otherwise have to rediscover the hard way.
+
+**9.1 CONFIRMED. Pre-built binaries cannot be used for the spatial stack on this
+host, and the failure is silent until load time.** `uvr` defaults to Posit
+Package Manager binaries and correctly identifies the host as Ubuntu 24.04
+("noble"). But P3M's noble builds link the GDAL from noble's own archive
+(3.8.x, `libgdal.so.34`) while the machine carries ubuntugis GDAL 3.11.4
+(`libgdal.so.37`). Sonames are the ABI contract, so the binary cannot resolve
+its own dependency:
+
+```
+$ ldd .uvr/library/terra/libs/terra.so
+    libproj.so.25    => /lib/x86_64-linux-gnu/libproj.so.25       (ok)
+    libgdal.so.34    => not found
+    libgeos_c.so.1   => /lib/x86_64-linux-gnu/libgeos_c.so.1      (ok)
+```
+
+GEOS and PROJ happen to match, which is why this presents as a partial breakage
+rather than an obvious one. Not a `uvr` defect and not fixable by a `uvr`
+upgrade — it is a host/repository mismatch. It affects `terra`, `sf` and
+`exactextractr` today and every future GDAL/GEOS/PROJ-linked package.
+
+**9.2 The fix is `UVR_NO_BINARY=1`, set globally via `tools/uvr-env.sh`.**
+Source builds run each package's own `configure`, which shells out to
+`gdal-config` on `PATH`, so the link target is the installed GDAL by
+construction and cannot drift. `uvr` 0.4.6 offers no `uvr.toml` key for this —
+flag or environment variable only — so the setting cannot live in the manifest
+alongside the dependency list. It is deliberately blunt: every package builds
+from source, not just the spatial ones. A per-package allowlist would be the
+clever option and would rot at the first dependency change. Cost is modest;
+terra is 1m20s wall at `-j16`, and `MAKEFLAGS` propagates through
+`R CMD INSTALL`.
+
+**9.3 `uvr sync --ignore-cache` does not replace an installed package.**
+`--ignore-cache` skips the *download* cache only; the "already present in
+`.uvr/library/`" check is separate, so sync reports `Everything is up to date`
+and no-ops straight over a broken binary. A bad install must be evicted with
+`rm -rf .uvr/library/<pkg>` first. Worth knowing before debugging a rebuild that
+never happened.
+
+**9.4 Two dev headers are missing and need root.** `libcurl4-openssl-dev` and
+`libtiff-dev`. Neither blocks the spatial stack, but the first blocks `curl` →
+`httr`/`gh` and anything fetching over the network. Everything else the stack
+needs is present, including `udunits2`, `sqlite3`, `zstd`, `lz4`, `openssl`,
+`libxml2`, `netcdf` and the font and image libraries.
+
+**9.5 This constrains the Docker work.** The base image must either carry a GDAL
+whose soname matches the binaries it installs, or adopt the same source-build
+policy. Pinning a `rocker/geospatial` tag satisfies the first only for as long
+as that tag's GDAL and P3M's stay in step, which is precisely the assumption
+that broke here. The second is what `tools/uvr-env.sh` already encodes and is
+the safer default.
+
+**9.6 R is not pinned.** No `.r-version`, so the project is bound to system R
+4.6.0. Pinning would make the environment reproducible across machines but
+forces a full rebuild against a uvr-managed R. Deferred, and recorded here so
+the omission is a decision rather than an oversight.
+
+---
+
 ## Changelog
 
 - **2026-08-13** Phase 0.1 to 0.3. Cross-repo audit; recovered and reconstructed
@@ -501,3 +565,23 @@ misspelling Reviewer 1 flagged across Figures 3, 8, S1 to S8, S10 and S11.
   the repo copy) and 4.14 (filename casing). **Finding 7.3 partially superseded**:
   `drone_chm`'s DSM-minus-DTM rebuild path has no inputs, because the CHM is a
   band inside the stack and both Pix4D elevation products are gone (7.5).
+- **2026-08-16** Step 3 begun. `inst/config/sites.csv`, `stacks.csv` and
+  `resampling.yml` added, each derived from an observable source rather than from
+  the manuscript: `sites.csv` read straight off the mirrored rasters and vectors,
+  `stacks.csv` from `DRONE_STACK_BANDS`, `resampling.yml` from the scripts.
+  **Action item 4 closed**; action item 3 (`predict_type = "prob"`) set globally.
+  Findings 4.15, 7.14 and 7.15 added. `sensors.csv` deliberately left unwritten:
+  its purity thresholds and per-class sizes are exactly what finding 2.7 shows
+  Table S7 and the code disagreeing about, so choosing values would bury the
+  contradiction rather than resolve it. **[ANDY]**
+- **2026-08-17** Step 2. The R environment stands up. Section 9 added.
+  `uvr` is in use, but its default P3M binaries are unusable on this host — they
+  link GDAL 3.8 while the machine carries 3.11.4, so every GDAL-linked package
+  fails at load (9.1). Fixed by forcing source builds through the new
+  `tools/uvr-env.sh`, which must be sourced before any `uvr` command (9.2).
+  `terra`, `sf` and `exactextractr` installed and verified against the mirrored
+  data: GDAL 3.11.4, GEOS 3.12.2, PROJ 9.4.1, and `refl_stack_chm.tif` reads back
+  the same 6 bands, EPSG:32734, 0.05679 m and CHM range that `sites.csv` and
+  `stacks.csv` record. Environment procedure written up in
+  [`docs/environment.md`](docs/environment.md), which also carries the
+  consequences for the deferred Docker work (9.5).
