@@ -16,6 +16,12 @@
 #   sudo tools/mirror-inputs.sh               # do it
 #   sudo tools/mirror-inputs.sh -s SRC        # override the source tree
 #
+# AFTER MIRRORING, run tools/split-chm.sh. This script only copies; it does not
+# restructure. The CHM arrives welded into band 6 of refl_stack_chm.tif, and
+# split-chm.sh extracts it back out so every drone product is one independent
+# raster. Skipping that step leaves the CHM with no standalone existence, which
+# is the state that made it unauditable in the first place (findings 5.3, 7.17).
+#
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -437,13 +437,17 @@ by [`tools/mirror-inputs.sh`](tools/mirror-inputs.sh):
 
 ```
 data-in/
-  drone/{site}/       aoi.* field_points.* refl_stack.tif
+  drone/{site}/       aoi.* field_points.* refl_stack.tif  chm.tif
                       refl_stack_chm.tif ndvi/savi/msavi/msavi2/mtvi.tif
   wv2/raw/{order}_01/ {order}_01_P001_MUL/  {order}_01_P001_PAN/  GIS_FILES/
   wv2|s2|planet/grids/{site}.*
   shared/veg_type_lookup.xlsx
   provenance.csv
 ```
+
+`chm.tif` is written by [`tools/split-chm.sh`](tools/split-chm.sh) after
+mirroring, not by the mirror itself — see 7.17. `refl_stack_chm.tif` is retained
+for now and is redundant once that split is verified.
 
 198 files for the drone arm and grids, ~47 GB. Raw deliveries keep their Maxar
 directory names: `Mosaic_tiles.R` globs those literal paths, and the order ID is
@@ -527,6 +531,47 @@ projects would still be valuable: it would restore the native-resolution CHM and
 allow the baked-in bilinear resample to be assessed rather than assumed. `E:/Glenn/`
 held five Metashape files, so photogrammetry projects existed outside the git
 repositories and may survive on external media. Worth asking Glen. **[HUGH]**
+
+**7.17 DONE. The CHM is now a standalone raster again, provably losslessly.**
+[`tools/split-chm.sh`](tools/split-chm.sh) extracts band 6 of
+`refl_stack_chm.tif` into `data-in/drone/{site}/chm.tif`, so every drone product
+is one independent file and predictor stacks can be assembled in the graph
+instead of stored pre-combined. Seven files, 2.5 GB, 2m30s. Two exact
+verifications, both passing at all seven sites:
+
+| Check | Result |
+|---|---|
+| `chm.tif` vs band 6 of the source (`--verify`) | `max\|diff\| = 0`, `nodata_mismatch = 0` |
+| bands 1-5 of `refl_stack_chm.tif` vs `refl_stack.tif` (`--verify-spectral`) | `max\|diff\| = 0`, `nodata_mismatch = 0` |
+
+So `refl_stack.tif + chm.tif` carries exactly the information of the 6-band
+stack, and the ~30 GB of retained `refl_stack_chm.tif` is now redundant. They are
+kept until someone decides to drop them; nothing reads them.
+
+Three details worth keeping, because each is a place this could have gone wrong
+quietly:
+
+- **The comparison is exact, not checksummed.** A first pass used GDAL band
+  checksums and they agreed everywhere — but that value is 16-bit and collides
+  freely here: three bands of `bokspits_2` share `41043`, and `struizendam_4` is
+  the only site where all five differ from one another. Checksums were kept as a
+  smoke test; the lossless claim rests on chunked exact arithmetic. The NaN masks
+  are compared separately, since a difference raster cannot reveal a nodata cell
+  that moved.
+- **The output band is described `chm`, not `dsm`.** The source label
+  `<site>_MS_RGB_dsm` is preserved in `ORIGINAL_BAND_DESCRIPTION` metadata
+  alongside `SOURCE_FILE`, `SOURCE_BAND` and a `NOTE` recording the resample. The
+  rename is deliberate: it removes the failure mode in 7.14 where someone
+  "corrects" the pipeline to treat the band as elevation.
+- **`chm.tif` is a reconstruction, not a recovery.** It is byte-exact with what
+  the analysis consumed, but it is not the original `ReflStacks/<site>_CHM.tif`,
+  which is gone. It is already cropped, masked and bilinear-resampled, so it is
+  not interchangeable with a native-resolution CHM if the Pix4D projects turn up.
+  The manifest records it as `availability = reconstructed` rather than
+  `mirrored`, and `provenance.csv` marks the seven rows `DERIVED`.
+
+`tools/mirror-inputs.sh` now points at this script, because a re-mirror without
+it silently returns the CHM to having no standalone existence.
 
 ---
 
