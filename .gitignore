@@ -68,3 +68,5 @@ _targets/
 
 # derived outputs (rebuildable from data-in/ + the pipeline)
 data-out/
+
+_targets_fast/

@@ -2,8 +2,14 @@
 #
 # Run:
 #   source tools/uvr-env.sh          # required: forces source builds, wires pandoc
-#   NELTUMA_PROFILE=fast  R -e 'targets::tar_make()'    # smoke run, minutes
-#   NELTUMA_PROFILE=full  R -e 'targets::tar_make()'    # real run, hours
+#   NELTUMA_PROFILE=fast  R -e 'targets::tar_make(store = "_targets_fast")'
+#   NELTUMA_PROFILE=full  R -e 'targets::tar_make()'
+#
+# GIVE THE FAST PROFILE ITS OWN STORE (store = "_targets_fast"). The two
+# profiles share target names but not settings, so a fast smoke test run into
+# the default store overwrites the overlapping site's full-profile records with
+# 3-fold versions, which the next full run must redo. tar_read() takes the same
+# store argument.
 #
 # Design rules, from refactor-findings.md:
 #   - No number that appears in the methods section is hardcoded here. Everything
