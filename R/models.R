@@ -275,12 +275,27 @@ learner_spec <- function(cfg, learner_id) {
 }
 
 
-#' The shared (non-learner) part of the config
+#' Settings the tuning stage depends on
+#'
+#' Split from the evaluation settings so that changing the tuner or its budget
+#' invalidates only the tune_config targets and their downstream fits - the
+#' untuned learners (ensemble, baseline) never touch these and their fits
+#' survive a tuner change untouched. Same dependency-granularity lesson as the
+#' per-learner specs.
 #'
 #' @param cfg the resolved resampling config
-#' @return list of seed, predict_type, tuning and final settings
-shared_budget <- function(cfg) {
-  cfg[c("seed", "predict_type", "tuning", "final")]
+#' @return list of seed, predict_type and tuning settings
+tuning_settings <- function(cfg) {
+  cfg[c("seed", "predict_type", "tuning")]
+}
+
+
+#' Settings the final evaluation depends on
+#'
+#' @param cfg the resolved resampling config
+#' @return list of seed, predict_type and final-resampling settings
+eval_settings <- function(cfg) {
+  cfg[c("seed", "predict_type", "final")]
 }
 
 

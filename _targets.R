@@ -70,7 +70,7 @@ tar_option_set(
     "terra", "sf", "exactextractr",
     "mlr3", "mlr3learners", "mlr3spatiotempcv", "mlr3pipelines",
     "mlr3tuning", "mlr3tuningspaces", "mlr3filters", "paradox",
-    "mlr3extralearners",
+    "mlr3extralearners", "mlr3mbo",
     "dplyr", "tidyr", "purrr", "jsonlite", "yaml"
   ),
   format = "qs",
@@ -208,9 +208,9 @@ per_fit <- tar_map(
   # Tuning runs ONCE per (site, stack, learner); the fixed configuration is then
   # evaluated with the repeated outer CV. ~350 fits per tuned target instead of
   # the nested design's 25,100. See tune_config() for the trade-off.
-  tar_target(tuned, tune_config(task_sym, spec_sym, tune_shared),
+  tar_target(tuned, tune_config(task_sym, spec_sym, tune_settings),
              resources = ml_resources),
-  tar_target(fit, run_resample(task_sym, spec_sym, tune_shared, tuned),
+  tar_target(fit, run_resample(task_sym, spec_sym, eval_shared, tuned),
              resources = ml_resources),
   tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
 )
@@ -278,7 +278,8 @@ list(
   tar_combine(training_index, per_cube[["training_check"]], command = rbind(!!!.x)),
   tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x)),
   per_spec,
-  tar_target(tune_shared, shared_budget(resampling)),
+  tar_target(tune_settings, tuning_settings(resampling)),
+  tar_target(eval_shared,   eval_settings(resampling)),
 
   per_fit,
   tar_combine(score_index, per_fit[["fit_tidy"]], command = rbind(!!!.x)),

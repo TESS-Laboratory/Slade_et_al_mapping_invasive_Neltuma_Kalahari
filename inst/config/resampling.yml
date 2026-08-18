@@ -33,10 +33,16 @@ tuning:
   # fold, which is noise dressed up as precision, and it cost 4x for nothing.
   folds: 5
   repeats: 1
-  tuner: random_search
-  # Finding 1.8: the original's budget ranged 10-50 across scripts and was never
-  # stated. 50 configurations over a search space that now has real leverage.
-  term_evals: 50
+  # Model-based (Bayesian) optimisation via mlr3mbo. Decision 2026-08-18 [HUGH].
+  # Pleasingly, this makes the manuscript's section 2.5 claim of "Bayesian
+  # optimisation" TRUE - finding 1.4 records that the original only ever ran
+  # random search, with tnr("mbo") appearing in a demo script. The methods text
+  # no longer needs correcting on this point.
+  tuner: mbo
+  # 30, not 50: MBO spends its budget adaptively, and ~30 evaluations of a 4-6
+  # dimensional space typically matches or beats 50 random draws. Finding 1.8:
+  # the original's budget was never stated anywhere.
+  term_evals: 30
 
 final:
   resampling: repeated_spcv_coords
