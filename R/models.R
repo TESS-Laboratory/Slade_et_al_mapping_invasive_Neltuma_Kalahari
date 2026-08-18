@@ -73,19 +73,62 @@ svm_search_space <- function() {
 }
 
 
+#' Compact xgboost search space
+#'
+#' Replaces lts("classif.xgboost.default"), whose nrounds ranged to ~2000 and
+#' made xgboost the only long tail of the first full run: 28 fits still open at
+#' 7 hours while every other learner had finished. On 82-222 observations there
+#' is no realistic loss from capping rounds at 500 and tuning the four
+#' parameters with real capacity leverage.
+#'
+#' @return a paradox::ParamSet
+xgboost_search_space <- function() {
+  paradox::ps(
+    eta              = paradox::p_dbl(0.01, 0.3, logscale = TRUE),
+    max_depth        = paradox::p_int(2L, 8L),
+    nrounds          = paradox::p_int(50L, 500L),
+    subsample        = paradox::p_dbl(0.5, 1),
+    colsample_bytree = paradox::p_dbl(0.5, 1)
+  )
+}
+
+
+#' lightgbm search space
+#'
+#' No lts space exists for lightgbm, so this is written out. Same philosophy as
+#' the xgboost trim: the capacity parameters, bounded sanely for tables of
+#' 82-222 rows. min_data_in_leaf is allowed down to 2 because the rarest classes
+#' have single-digit counts (finding 7.21).
+#'
+#' @return a paradox::ParamSet
+lightgbm_search_space <- function() {
+  paradox::ps(
+    learning_rate    = paradox::p_dbl(0.01, 0.3, logscale = TRUE),
+    num_leaves       = paradox::p_int(4L, 64L),
+    num_iterations   = paradox::p_int(50L, 500L),
+    bagging_fraction = paradox::p_dbl(0.5, 1),
+    feature_fraction = paradox::p_dbl(0.5, 1),
+    min_data_in_leaf = paradox::p_int(2L, 20L)
+  )
+}
+
+
 #' Build one learner from its resampling.yml entry
 #'
 #' @param spec one entry from `resampling.yml$learners`
 #' @param cfg the resolved resampling config
 #' @return a Learner, wrapped in an AutoTuner when the spec is tuned
-make_learner <- function(spec, cfg) {
-  pt <- cfg$predict_type
+make_learner <- function(spec, shared) {
+  pt <- shared$predict_type
 
-  if (identical(spec$id, "ensemble")) return(ensemble_learner(cfg))
+  if (identical(spec$id, "ensemble")) return(ensemble_learner(shared))
 
   base <- switch(
     spec$id,
-    xgboost        = mlr3::lrn("classif.xgboost", predict_type = pt),
+    xgboost        = mlr3::lrn("classif.xgboost", predict_type = pt,
+                               booster = "gbtree"),
+    lightgbm       = mlr3::lrn("classif.lightgbm", predict_type = pt,
+                               verbose = -1L, num_threads = 1L),
     ranger         = mlr3::lrn("classif.ranger", predict_type = pt,
                                importance = "impurity"),
     ranger_untuned = mlr3::lrn("classif.ranger", predict_type = pt,
@@ -104,18 +147,16 @@ make_learner <- function(spec, cfg) {
 
   ss <- if (identical(spec$tuning_space, "svm_trimmed")) {
     svm_search_space()
+  } else if (identical(spec$tuning_space, "xgboost_trimmed")) {
+    xgboost_search_space()
+  } else if (identical(spec$tuning_space, "lightgbm_custom")) {
+    lightgbm_search_space()
   } else {
     # lts() sets to_tune() tokens on the learner; auto_tuner infers the space.
     base <- mlr3tuningspaces::lts(spec$tuning_space)$get_learner()
     base$predict_type <- pt
     if (identical(spec$id, "ranger")) {
       base$param_set$set_values(importance = "impurity")
-    }
-    if (identical(spec$id, "xgboost")) {
-      # colsample_bylevel and friends declare a dependency on booster == "gbtree".
-      # xgboost's own default IS gbtree, but mlr3 leaves the value unset, so the
-      # dependency cannot be verified and tuning aborts. Set it explicitly.
-      base$param_set$set_values(booster = "gbtree")
     }
     NULL
   }
@@ -124,14 +165,14 @@ make_learner <- function(spec, cfg) {
   # be at least the number of future workers, or the last batch leaves workers
   # idle.
   fw <- future_workers()
-  batch <- max(1L, ceiling(fw / max(1L, cfg$tuning$folds)))
+  batch <- max(1L, ceiling(fw / max(1L, shared$tuning$folds)))
 
   args <- list(
-    tuner = mlr3tuning::tnr(cfg$tuning$tuner, batch_size = batch),
+    tuner = mlr3tuning::tnr(shared$tuning$tuner, batch_size = batch),
     learner = base,
-    resampling = mlr3::rsmp(cfg$tuning$resampling, folds = cfg$tuning$folds),
+    resampling = mlr3::rsmp(shared$tuning$resampling, folds = shared$tuning$folds),
     measure = mlr3::msr("classif.ce"),
-    terminator = mlr3tuning::trm("evals", n_evals = cfg$tuning$term_evals),
+    terminator = mlr3tuning::trm("evals", n_evals = shared$tuning$term_evals),
     store_models = FALSE
   )
   if (!is.null(ss)) args$search_space <- ss
@@ -147,8 +188,8 @@ make_learner <- function(spec, cfg) {
 #'
 #' @param cfg the resolved resampling config
 #' @return a GraphLearner
-ensemble_learner <- function(cfg) {
-  pt <- cfg$predict_type
+ensemble_learner <- function(shared) {
+  pt <- shared$predict_type
   cv <- function(lrn, id) mlr3pipelines::po("learner_cv", lrn, id = id)
 
   stack <- mlr3pipelines::gunion(list(
@@ -218,6 +259,34 @@ exec_chunk_size <- function() {
 }
 
 
+#' One learner spec from the resolved config
+#'
+#' Exists so each fit target depends on ITS OWN learner's spec plus the shared
+#' budget, not on the whole config. targets invalidates on upstream VALUE, so
+#' editing xgboost's entry reruns only xgboost fits - the first full run lost
+#' 112 banked fits to exactly this coupling.
+#'
+#' @param cfg the resolved resampling config
+#' @param learner_id one id
+#' @return the spec list
+learner_spec <- function(cfg, learner_id) {
+  spec <- Filter(function(x) identical(x$id, learner_id), cfg$learners)
+  if (length(spec) != 1L) {
+    stop("No learner '", learner_id, "' in resampling.yml.", call. = FALSE)
+  }
+  spec[[1]]
+}
+
+
+#' The shared (non-learner) part of the config
+#'
+#' @param cfg the resolved resampling config
+#' @return list of seed, predict_type, tuning and final settings
+shared_budget <- function(cfg) {
+  cfg[c("seed", "predict_type", "tuning", "final")]
+}
+
+
 #' Resample one learner on one task
 #'
 #' One (site, stack, learner) combination per target, replacing the
@@ -230,7 +299,7 @@ exec_chunk_size <- function() {
 #' @param learner_id one id from resampling.yml
 #' @param cfg the resolved resampling config
 #' @return a ResampleResult
-run_resample <- function(task, learner_id, cfg) {
+run_resample <- function(task, spec, shared) {
   # Keep one worker to roughly one core; see finding 7.24.
   data.table::setDTthreads(1L)
 
@@ -242,22 +311,18 @@ run_resample <- function(task, learner_id, cfg) {
     on.exit(future::plan(old_plan), add = TRUE)
   }
 
-  spec <- Filter(function(x) identical(x$id, learner_id), cfg$learners)
-  if (length(spec) != 1L) {
-    stop("No learner '", learner_id, "' in resampling.yml.", call. = FALSE)
-  }
-  learner <- make_learner(spec[[1]], cfg)
+  learner <- make_learner(spec, shared)
 
-  resampling <- if (identical(cfg$final$resampling, "repeated_spcv_coords")) {
-    mlr3::rsmp("repeated_spcv_coords", folds = cfg$final$folds,
-               repeats = cfg$final$repeats)
+  resampling <- if (identical(shared$final$resampling, "repeated_spcv_coords")) {
+    mlr3::rsmp("repeated_spcv_coords", folds = shared$final$folds,
+               repeats = shared$final$repeats)
   } else {
-    mlr3::rsmp(cfg$final$resampling, folds = cfg$final$folds)
+    mlr3::rsmp(shared$final$resampling, folds = shared$final$folds)
   }
 
   # Same seed for every learner, so all learners on a task see identical outer
   # splits and their scores are paired, not merely comparable.
-  set.seed(cfg$seed)
+  set.seed(shared$seed)
   mlr3::resample(task, learner, resampling, store_models = FALSE)
 }
 

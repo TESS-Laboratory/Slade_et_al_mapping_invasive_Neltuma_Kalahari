@@ -88,8 +88,11 @@ learners:
   - id: xgboost
     backend: classif.xgboost
     tuned: true
-    tuning_space: classif.xgboost.default   # eta, max_depth, nrounds,
-                                            # subsample, colsample_*, alpha, lambda
+    # Custom compact space (R/models.R), replacing classif.xgboost.default whose
+    # nrounds ranged to ~2000: on 82-222 observations that made xgboost the run's
+    # only long tail - 28 fits still open after 7h while every other learner had
+    # finished. Capped at 500 with the core capacity parameters kept.
+    tuning_space: xgboost_trimmed
   - id: svm
     backend: classif.svm
     tuned: true
@@ -100,6 +103,15 @@ learners:
     tuned: true
     tuning_space: classif.ranger.default     # mtry.ratio, num.trees, replace,
                                              # sample.fraction
+  - id: lightgbm
+    backend: classif.lightgbm            # via mlr3extralearners (pinned, 9.7)
+    tuned: true
+    tuning_space: lightgbm_custom        # no lts space exists for lightgbm
+    # Added 2026-08-18 [HUGH]. Generally as accurate as xgboost and much faster.
+    # Project precedent: Glen already trialled classif.lightgbm in
+    # Development_test/run_choices_lightgbm.R. catboost considered and deferred:
+    # not on CRAN, installs from a GitHub release binary, and uvr already failed
+    # to resolve its repo layout once (9.7) - one non-CRAN dependency is enough.
   - id: ensemble
     backend: stacked
     tuned: false

@@ -916,6 +916,20 @@ requires = [
 ]
 
 [[package]]
+name = "lightgbm"
+version = "4.7.0"
+source = "cran"
+raw_version = "4.7.0"
+url = "https://cran.r-project.org/src/contrib/lightgbm_4.7.0.tar.gz"
+checksum = "md5:162767bf25ae8099347496fcd4d2234f"
+requires = [
+    "R6",
+    "data.table",
+    "jsonlite",
+    "Matrix",
+]
+
+[[package]]
 name = "listenv"
 version = "1.0.0"
 source = "cran"

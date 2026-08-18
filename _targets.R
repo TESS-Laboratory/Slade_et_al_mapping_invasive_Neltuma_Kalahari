@@ -70,6 +70,7 @@ tar_option_set(
     "terra", "sf", "exactextractr",
     "mlr3", "mlr3learners", "mlr3spatiotempcv", "mlr3pipelines",
     "mlr3tuning", "mlr3tuningspaces", "mlr3filters", "paradox",
+    "mlr3extralearners",
     "dplyr", "tidyr", "purrr", "jsonlite", "yaml"
   ),
   format = "qs",
@@ -185,14 +186,26 @@ per_cube <- tar_map(
 # is what lets crew use the whole machine at ~100% efficiency instead of leaning
 # on future's ~55% (finding 7.24). Each fit references its task target by symbol
 # - the standard pattern for chaining tar_map blocks.
+# Each fit depends on its OWN learner's spec plus the shared budget, not on the
+# whole config: targets invalidates on upstream VALUE, so a per-learner spec
+# target that comes back unchanged leaves that learner's fits alone. The first
+# full run lost 112 banked fits to editing one learner's entry; this decoupling
+# is why that cannot recur.
+per_spec <- tar_map(
+  values = list(learner_id = LEARNER_IDS),
+  names = learner_id,
+  tar_target(spec, learner_spec(resampling, learner_id))
+)
+
 fit_grid <- expand.grid(site = SITES, tag = TAGS, learner_id = LEARNER_IDS,
                         stringsAsFactors = FALSE)
 fit_grid$task_sym <- rlang::syms(paste0("task_", fit_grid$site, "_", fit_grid$tag))
+fit_grid$spec_sym <- rlang::syms(paste0("spec_", fit_grid$learner_id))
 
 per_fit <- tar_map(
-  values = fit_grid[, c("site", "tag", "learner_id", "task_sym")],
+  values = fit_grid[, c("site", "tag", "learner_id", "task_sym", "spec_sym")],
   names = c("site", "tag", "learner_id"),
-  tar_target(fit, run_resample(task_sym, learner_id, resampling),
+  tar_target(fit, run_resample(task_sym, spec_sym, tune_shared),
              resources = ml_resources),
   tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
 )
@@ -259,6 +272,9 @@ list(
   tar_combine(cube_index,     per_cube[["cube_info"]],     command = rbind(!!!.x)),
   tar_combine(training_index, per_cube[["training_check"]], command = rbind(!!!.x)),
   tar_combine(training_attrition, per_cube[["training_drops"]], command = rbind(!!!.x)),
+  per_spec,
+  tar_target(tune_shared, shared_budget(resampling)),
+
   per_fit,
   tar_combine(score_index, per_fit[["fit_tidy"]], command = rbind(!!!.x)),
 
