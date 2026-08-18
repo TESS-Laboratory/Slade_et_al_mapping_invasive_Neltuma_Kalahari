@@ -153,3 +153,19 @@ profile:
     final_folds: 10
     final_repeats: 10
     sites: all
+
+# Landscape prediction (R/predict.R). One classified surface per site, produced
+# by the winning learner for the configured stack, retrained on all of that
+# site's training data with its tuned configuration.
+prediction:
+  # 5_CHM_ALLVI matches the archived landscape products
+  # (svm_pixel_level_*_stack_5_CHM_ALLVI.tif), keeping our surfaces directly
+  # comparable with the originals and with Table S10. Our marginally best stack
+  # is 5_CHM_NDVI (+0.004); comparability wins at that margin.
+  stack: 5_CHM_ALLVI
+  # Both outputs always: hard classes for the maps and area figures, per-class
+  # probabilities as the foundation for the conformal work (next refactor).
+  write_prob: true
+  # The fast profile predicts on an aggregated cube (factor 20 ~ 1.1 m pixels)
+  # so the graph is exercised end to end in seconds, not tens of minutes.
+  fast_aggregate: 20

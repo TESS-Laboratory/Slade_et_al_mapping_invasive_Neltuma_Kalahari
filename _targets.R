@@ -98,6 +98,10 @@ PROFILE <- active_profile()
 SITES   <- site_ids(PROFILE)
 TAGS    <- read_stacks()$tag
 LEARNER_IDS <- vapply(read_resampling()$learners, function(x) x$id, character(1))
+TUNED_IDS   <- vapply(Filter(function(x) isTRUE(x$tuned), read_resampling()$learners),
+                      function(x) x$id, character(1))
+PRED_TAG <- read_resampling()$prediction$stack
+PRED_AGG <- if (PROFILE == "fast") as.integer(read_resampling()$prediction$fast_aggregate) else 1L
 
 # Per-site input paths, checks, and eventually cubes and models. tar_map is used
 # in preference to dynamic branching because the sites are known up front: it
@@ -215,6 +219,39 @@ per_fit <- tar_map(
   tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
 )
 
+# Landscape prediction: one surface per site, winning learner for PRED_TAG,
+# retrained on all training data with its tuned configuration. The tuned configs
+# for every tuned learner are passed as a named list because the winner is only
+# known at runtime (best_models); untuned winners look up NULL, which is correct.
+pred_grid <- data.frame(site = SITES, stringsAsFactors = FALSE)
+pred_grid$cube_sym  <- rlang::syms(paste0("cube_", SITES, "_", PRED_TAG))
+pred_grid$train_sym <- rlang::syms(paste0("training_", SITES, "_", PRED_TAG))
+pred_grid$aoi_sym   <- rlang::syms(paste0("aoi_paths_", SITES))
+for (id in TUNED_IDS) {
+  pred_grid[[paste0("cfg_", id)]] <- rlang::syms(paste0("tuned_", SITES, "_", PRED_TAG, "_", id))
+}
+
+per_pred <- tar_map(
+  values = pred_grid,
+  names = site,
+  tar_target(
+    pred,
+    predict_site(
+      cube_sym, aoi_sym[1], train_sym,
+      # [["site"]] not $site: tar_map substitutes its value symbols even inside
+      # `$` accessors (the stacks$tag trap), and `site` is one of them here.
+      best = best_models[best_models[["site"]] == site &
+                         best_models[["tag"]] == PRED_TAG, , drop = FALSE],
+      resampling = resampling,
+      tuned_configs = list(svm = cfg_svm, xgboost = cfg_xgboost,
+                           ranger = cfg_ranger, lightgbm = cfg_lightgbm),
+      site = site, tag = PRED_TAG, aggregate = PRED_AGG
+    ),
+    format = "file", resources = ml_resources
+  ),
+  tar_target(pred_summary, summarise_prediction(pred, site, PRED_TAG))
+)
+
 list(
 
   # ---- configuration -------------------------------------------------------
@@ -286,5 +323,9 @@ list(
 
   # Best learner per site x stack, with the margin over the runner-up and a
   # clear_win flag so wins inside the noise are not silently promoted.
-  tar_target(best_models, select_best(score_index))
+  tar_target(best_models, select_best(score_index)),
+
+  # ---- landscape prediction ----------------------------------------------
+  per_pred,
+  tar_combine(class_areas, per_pred[["pred_summary"]], command = rbind(!!!.x))
 )

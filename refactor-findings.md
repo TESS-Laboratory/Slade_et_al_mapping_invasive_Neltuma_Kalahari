@@ -863,6 +863,61 @@ dependency on `booster == "gbtree"`, which is xgboost's own default but is left
 unset by mlr3, so the dependency cannot be verified and tuning aborts. Set
 explicitly in `make_learner()`.
 
+### 7.24 Compute behaviour, measured
+
+Recorded because three successive intuitions about parallelising this pipeline
+were wrong before measurement settled it. (a) future parallelism inside a
+resample reaches **4.37x at 8 workers** (multicore and multisession within 1%) —
+an earlier "futures buy nothing" reading was an own goal: `mlr3.exec_chunk_size`
+of 10 against a 5-iteration loop makes one chunk and serialises everything.
+Chunk size is 1 at this level, where each job is already seconds long.
+(b) Crew across independent targets is still the better converter of cores to
+throughput, hence the per-learner fit split (140+ schedulable units).
+(c) Operational: killing `tar_make` kills neither the crew dispatcher nor its
+workers — the dispatcher respawns killed workers, and orphaned workers once
+burned ~56 cores for 41 minutes computing results nobody collected. Kill order:
+tar_make, then the callr dispatcher, then workers.
+
+### 7.25 Tuning: once per task, Bayesian, and the manuscript's claim made true
+
+Two decisions, 2026-08-18 [HUGH]. **Tune once, evaluate fixed**: the nested
+design re-ran the 250-fit search inside each of 100 outer iterations (25,100
+fits per tuned learner-task) although repeats measure accuracy's fold
+sensitivity, not the search's. Now: one 5-fold x 50-eval search per task, the
+chosen config evaluated under the unchanged 10x10 outer CV (~350 fits, ~70x
+less). The estimate is "accuracy of the chosen configuration", not "of the
+procedure" — a far weaker leak than the never-reported winning inner score. The
+full run dropped from a projected ~6 h to **21 m 27 s**. This also dissolved
+the "lightgbm is slow" puzzle: 25,100 calls of fixed per-call overhead at
+n<=222 swamps any library's tree-building advantage.
+
+**Tuner: mlr3mbo at 30 evals** (from random search at 50). Paired on identical
+outer splits across 112 tuned fits: mean delta **-0.0001**, 54/112 improved —
+same quality at 60% of the budget. Pleasingly this makes §2.5's "Bayesian
+optimisation" claim TRUE; finding 1.4 records that the original never ran it.
+Gap hit on the way: mlr3mbo's GP surrogate needs `DiceKriging` (+`rgenoud`) for
+all-numeric spaces; a smoke test that only exercised the mixed-type svm space
+missed it. Both installed and locked.
+
+### 7.26 First complete drone-arm results (full profile, spatial CV)
+
+168 fits, 7 sites x 4 stacks x 6 learners, MBO-tuned, snapshotted in
+`data-out/results/`. Headlines against the manuscript:
+
+- **Figure 4B's stack ordering reproduces exactly**: 5_CHM_NDVI (0.878) >
+  5_CHM_ALLVI (0.874) > 5_CHM (0.869) > spectral-only (0.856). The CHM's ~+2
+  points are real under honest spatial CV.
+- **"SVM and ensemble performed best" half-survives**: svm best in 18/28, mean
+  0.897 vs ~0.86 for the rest, and the only learner where tuning clearly pays.
+  The ensemble is mid-pack (best in 3).
+- **"~90% overall accuracy" is ~2-3 points optimistic**: grand mean 0.869,
+  per-site bests 0.81-0.96. "Mean ~87%, up to ~95% at the best sites" is the
+  defensible restatement.
+- **Tuned ranger vs untuned baseline: 0.862 vs 0.861.**
+- **0 of 28 site-stack winners are clear** of the winner's own iteration sd
+  (~0.09-0.13): report "svm consistently at or near the top", not a winners
+  table. **[ANDY]**
+
 ---
 
 ## 8. Class scheme
@@ -1195,6 +1250,16 @@ manifest, lockfile and library in agreement.
   class" claimed in §2.2, at every site, the worst being *V. erioloba* at
   Struizendam 4 with **n = 2** — a class the central confusion claim in 2.4
   depends on. **[ANDY]** Pipeline at 172 targets, 0 errors.
+- **2026-08-18** The model layer redesigned around measurement, and the first
+  complete results. Per-learner fit targets with select-best; tune-once with the
+  fixed config under the unchanged 10x10 outer CV (7.25); tuner switched to
+  mlr3mbo at 30 evals after a paired comparison showed parity with random search
+  at 50 (7.25); lightgbm added, xgboost's space capped, fit targets decoupled
+  from the config so single-learner edits rerun only that learner. Full run:
+  **21 minutes**. Findings 7.24-7.26; first drone-arm results summarised in 7.26
+  and snapshotted. `R/predict.R` added: per-site landscape class + probability
+  surfaces from the winning learner, masked to the AOI against 7.20, with class
+  areas and a whole-surface confidence figure as pipeline targets.
 - **2026-08-17** Models. `R/models.R` builds the spatial tasks, the learner graph
   and the benchmark, all driven from `resampling.yml`. New finding **7.22**: the
   graph reconstructed from the archived learner ids regenerates those ids exactly,
