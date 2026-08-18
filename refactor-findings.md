@@ -918,6 +918,49 @@ missed it. Both installed and locked.
   (~0.09-0.13): report "svm consistently at or near the top", not a winners
   table. **[ANDY]**
 
+### 7.27 Why SVM beat the trees: the boundaries are linear
+
+Asked why svm dominated (7.26), the tuner's own choices answered: **17 of 28
+winning SVM configurations chose a linear kernel** (8 radial, 3 polynomial).
+Three mechanisms, in order of weight: the features are polygon-mean
+reflectances, so noise is pre-averaged and classes separate along smooth
+spectral/height gradients where a max-margin hyperplane is the right inductive
+bias; trees approximate oblique hyperplanes with axis-aligned staircases whose
+stairs each cost data that n = 82-222 does not have; and spatial CV holds out
+whole clusters whose shifted feature distributions punish non-extrapolating
+piecewise-constant models, while linear decision functions extend beyond the
+training hull. Consistent with tuned ranger ≈ untuned baseline: no
+hyperparameter fixes an inductive-bias mismatch.
+
+### 7.28 Confirmed: a penalised multinomial matches everything
+
+glmnet (lts default: alpha, s) added as the direct test of 7.27, and it **tops
+the table**: mean 0.892 vs svm 0.889, best learner in 15 of 28 tasks, and wins
+the paired-by-task comparison against svm 17/28 (mean +0.003). The simplest,
+fastest model in the pool matches or beats every tree ensemble and the stacked
+ensemble. **[ANDY]** This materially strengthens the paper's framing: the
+predictive signal lives in the constructed features (polygon means, CHM,
+indices), not in model complexity - and the workhorse claim should arguably be
+"a regularised linear classifier suffices", which is a more interesting
+ecological statement than a learner bake-off.
+
+Operational notes from the same round: glmnet's multinomial refuses folds where
+a class has 0-1 observations, which finding 1.7's n = 2 V. erioloba at
+struizendam_4 guarantees under 5-fold CV - all learners now run encapsulated
+with a featureless fallback so fold-level failures score rather than crash. And
+ranger's crew-safe `num.threads = 1` silently carried into landscape prediction,
+where the regime inverts (few heavy targets, idle machine): a 224M-pixel
+single-threaded ranger predict ran ~2 h before being killed; prediction now
+tiles across forked workers (`NELTUMA_PREDICT_CORES`).
+
+### 7.29 First full-resolution landscape surfaces
+
+Seven class + probability surfaces (5_CHM_ALLVI, winning learner per site,
+masked to AOI). Neltuma cover: 0.4-3.9% at six sites, **16.8% at
+struizendam_4** - ecologically plausible, and the per-site whole-surface mean
+top-class probability (0.75-0.96) is a confidence figure the original could
+never report (1.5). These feed the Figure 4/6 reproductions next.
+
 ---
 
 ## 8. Class scheme
@@ -1260,6 +1303,15 @@ manifest, lockfile and library in agreement.
   and snapshotted. `R/predict.R` added: per-site landscape class + probability
   surfaces from the winning learner, masked to the AOI against 7.20, with class
   areas and a whole-surface confidence figure as pipeline targets.
+- **2026-08-18** glmnet round and the linearity verdict. Findings 7.27-7.29:
+  the winning SVMs were mostly linear-kernel, and a penalised multinomial added
+  as the direct test **tops the 7-learner table** (0.892), best in 15/28 -
+  model complexity is not where the signal is. Universal featureless fallback
+  after glmnet died on 1.7's n=2 class; prediction parallelised across raster
+  tiles after ranger's crew-safe single-threading crawled on a 224M-pixel
+  surface. Seven full-resolution class+probability surfaces rendered; Neltuma
+  0.4-3.9% cover at six sites, 16.8% at struizendam_4. Results snapshotted in
+  data-out/results/final_7learner.rds.
 - **2026-08-17** Models. `R/models.R` builds the spatial tasks, the learner graph
   and the benchmark, all driven from `resampling.yml`. New finding **7.22**: the
   graph reconstructed from the archived learner ids regenerates those ids exactly,
