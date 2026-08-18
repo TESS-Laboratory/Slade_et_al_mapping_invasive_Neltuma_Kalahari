@@ -79,7 +79,14 @@ predict_site <- function(cube_path, aoi_path, training, best, resampling,
     out
   }
 
-  pred <- terra::predict(cube, learner, fun = wrap, na.rm = FALSE)
+  # Prediction is the "few heavy targets" case: one 75-224M pixel surface per
+  # site on an otherwise idle machine, so per-target parallelism pays here where
+  # it did not for the fits (7.24). terra tiles the raster across forked
+  # workers; svm predict cost is O(support vectors x pixels) and struizendam_2
+  # took ~2h single-threaded.
+  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+  pred <- terra::predict(cube, learner, fun = wrap, na.rm = FALSE,
+                         cores = if (aggregate > 1L) 1L else n_cores)
   names(pred) <- c("class", paste0("prob_", lvls))
 
   aoi <- terra::vect(aoi_path)
