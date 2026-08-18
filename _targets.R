@@ -205,7 +205,12 @@ fit_grid$spec_sym <- rlang::syms(paste0("spec_", fit_grid$learner_id))
 per_fit <- tar_map(
   values = fit_grid[, c("site", "tag", "learner_id", "task_sym", "spec_sym")],
   names = c("site", "tag", "learner_id"),
-  tar_target(fit, run_resample(task_sym, spec_sym, tune_shared),
+  # Tuning runs ONCE per (site, stack, learner); the fixed configuration is then
+  # evaluated with the repeated outer CV. ~350 fits per tuned target instead of
+  # the nested design's 25,100. See tune_config() for the trade-off.
+  tar_target(tuned, tune_config(task_sym, spec_sym, tune_shared),
+             resources = ml_resources),
+  tar_target(fit, run_resample(task_sym, spec_sym, tune_shared, tuned),
              resources = ml_resources),
   tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
 )

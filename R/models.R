@@ -118,12 +118,15 @@ lightgbm_search_space <- function() {
 #' @param spec one entry from `resampling.yml$learners`
 #' @param cfg the resolved resampling config
 #' @return a Learner, wrapped in an AutoTuner when the spec is tuned
-make_learner <- function(spec, shared) {
+#' A bare learner with no tuning apparatus
+#'
+#' @param spec one entry from `resampling.yml$learners`
+#' @param shared the shared budget
+#' @return a Learner
+bare_learner <- function(spec, shared) {
   pt <- shared$predict_type
-
   if (identical(spec$id, "ensemble")) return(ensemble_learner(shared))
-
-  base <- switch(
+  switch(
     spec$id,
     xgboost        = mlr3::lrn("classif.xgboost", predict_type = pt,
                                booster = "gbtree"),
@@ -137,13 +140,31 @@ make_learner <- function(spec, shared) {
                                type = "C-classification"),
     stop("Unknown learner id '", spec$id, "' in resampling.yml.", call. = FALSE)
   )
+}
 
-  if (!isTRUE(spec$tuned)) {
-    # Baseline: no tuning. Now genuinely informative - with a search space that
-    # has real leverage, a tuned learner that cannot beat this is saying
-    # something about the data rather than about the search.
-    return(base)
-  }
+
+#' Tune once per task, returning the chosen configuration
+#'
+#' TUNING IS DELIBERATELY NOT NESTED IN THE OUTER REPEATS (decision 2026-08-18
+#' [HUGH]). The previous design re-ran the full 250-fit search inside each of
+#' the 100 outer iterations - 25,100 fits per tuned learner per task - although
+#' the tuning result barely changes across repeats: repeats measure the
+#' fold-assignment sensitivity of the ACCURACY, not of the search. Tuning once
+#' and evaluating the fixed configuration costs ~350 fits instead, ~70x less.
+#'
+#' The trade, stated honestly: the reported estimate is now "accuracy of the
+#' CHOSEN configuration under spatial CV", not "of the tuning procedure" - the
+#' configuration was selected using all of the task's data. This is a far
+#' weaker leak than reporting the winning inner score (finding 7.23's 0.946
+#' artefact), and the winning inner score is never reported.
+#'
+#' @param task a TaskClassifST
+#' @param spec one learner entry
+#' @param shared the shared budget
+#' @return named list of chosen parameter values, or NULL for untuned specs
+tune_config <- function(task, spec, shared) {
+  if (!isTRUE(spec$tuned)) return(NULL)
+  data.table::setDTthreads(1L)
 
   ss <- if (identical(spec$tuning_space, "svm_trimmed")) {
     svm_search_space()
@@ -152,31 +173,32 @@ make_learner <- function(spec, shared) {
   } else if (identical(spec$tuning_space, "lightgbm_custom")) {
     lightgbm_search_space()
   } else {
-    # lts() sets to_tune() tokens on the learner; auto_tuner infers the space.
-    base <- mlr3tuningspaces::lts(spec$tuning_space)$get_learner()
-    base$predict_type <- pt
-    if (identical(spec$id, "ranger")) {
-      base$param_set$set_values(importance = "impurity")
-    }
     NULL
   }
 
-  # batch_size per the mlr3 book: batch_size x inner resampling iterations should
-  # be at least the number of future workers, or the last batch leaves workers
-  # idle.
-  fw <- future_workers()
-  batch <- max(1L, ceiling(fw / max(1L, shared$tuning$folds)))
+  learner <- if (is.null(ss)) {
+    # lts() sets to_tune() tokens on the learner; tune() infers the space.
+    l <- mlr3tuningspaces::lts(spec$tuning_space)$get_learner()
+    l$predict_type <- shared$predict_type
+    if (identical(spec$id, "ranger")) l$param_set$set_values(importance = "impurity")
+    l
+  } else {
+    bare_learner(spec, shared)
+  }
 
+  set.seed(shared$seed)
   args <- list(
-    tuner = mlr3tuning::tnr(shared$tuning$tuner, batch_size = batch),
-    learner = base,
+    tuner = mlr3tuning::tnr(shared$tuning$tuner),
+    task = task,
+    learner = learner,
     resampling = mlr3::rsmp(shared$tuning$resampling, folds = shared$tuning$folds),
-    measure = mlr3::msr("classif.ce"),
+    measures = mlr3::msr("classif.ce"),
     terminator = mlr3tuning::trm("evals", n_evals = shared$tuning$term_evals),
     store_models = FALSE
   )
   if (!is.null(ss)) args$search_space <- ss
-  do.call(mlr3tuning::auto_tuner, args)
+  ti <- do.call(mlr3tuning::tune, args)
+  ti$result_learner_param_vals
 }
 
 
@@ -209,28 +231,11 @@ ensemble_learner <- function(shared) {
 }
 
 
-#' All configured learners
-#'
-#' @param cfg the resolved resampling config
-#' @return named list of Learners
-make_learners <- function(cfg) {
-  ls <- lapply(cfg$learners, make_learner, cfg = cfg)
-  names(ls) <- vapply(cfg$learners, function(x) x$id, character(1))
-  ls
-}
-
-
 #' Number of future workers for in-task parallelism
 #'
-#' mlr3 parallelises `benchmark()` over the flattened set of (learner,
-#' resampling iteration, tuning evaluation) jobs. That is a second level of
-#' parallelism on top of crew, which parallelises across targets, so the product
-#' of the two must stay within the machine.
-#'
-#' Whether it helps at all is an empirical question, not an obvious win: the mlr3
-#' book advises against parallelising when individual iterations are short, and
-#' these tasks are 82-222 rows, so a single fit runs in milliseconds. See
-#' `mlr3.exec_chunk_size` below.
+#' Measured (finding 7.24): with chunk size 1 this reaches 4.37x at 8 workers.
+#' Kept at 1 by default because crew across the per-learner fit targets already
+#' parallelises at ~100% efficiency; raise only when targets are scarce.
 #'
 #' @return integer worker count; 1 disables future entirely
 future_workers <- function() {
@@ -240,18 +245,10 @@ future_workers <- function() {
 
 #' Jobs grouped into one future task
 #'
-#' MEASURED, and the default is deliberately 1.
-#'
-#' The mlr3 book advises grouping jobs so each chunk runs for several seconds,
-#' which is right for bare resampling iterations that take milliseconds. It is
-#' WRONG at this level of the nesting: each job here is one outer iteration,
-#' which contains a complete tuning call (5 folds x 50 evals) and runs for
-#' seconds already. Chunking them just serialises the outer loop.
-#'
-#' Setting this to 10 against a 5-iteration outer loop produced exactly one
-#' chunk and made an 8-worker run indistinguishable from sequential - which was
-#' briefly mistaken for future parallelism not working at all. It works: 4.37x
-#' at 8 workers, with multicore and multisession within 1% of each other.
+#' Deliberately 1: each job at this level is a whole tuning call or outer fit of
+#' seconds, and chunking them serialises the loop - chunk 10 against a
+#' 5-iteration outer loop made one chunk and was briefly mistaken for future not
+#' working at all (7.24).
 #'
 #' @return integer chunk size
 exec_chunk_size <- function() {
@@ -299,7 +296,7 @@ shared_budget <- function(cfg) {
 #' @param learner_id one id from resampling.yml
 #' @param cfg the resolved resampling config
 #' @return a ResampleResult
-run_resample <- function(task, spec, shared) {
+run_resample <- function(task, spec, shared, config = NULL) {
   # Keep one worker to roughly one core; see finding 7.24.
   data.table::setDTthreads(1L)
 
@@ -311,7 +308,11 @@ run_resample <- function(task, spec, shared) {
     on.exit(future::plan(old_plan), add = TRUE)
   }
 
-  learner <- make_learner(spec, shared)
+  learner <- bare_learner(spec, shared)
+  if (!is.null(config)) {
+    keep <- config[names(config) %in% learner$param_set$ids()]
+    learner$param_set$set_values(.values = keep)
+  }
 
   resampling <- if (identical(shared$final$resampling, "repeated_spcv_coords")) {
     mlr3::rsmp("repeated_spcv_coords", folds = shared$final$folds,
