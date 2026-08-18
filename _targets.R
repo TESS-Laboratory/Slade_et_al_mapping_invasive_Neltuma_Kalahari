@@ -240,17 +240,22 @@ for (id in TUNED_IDS) {
 per_pred <- tar_map(
   values = pred_grid,
   names = site,
+  # A per-site best row, so a change to best_models (e.g. a new learner joining
+  # the pool) invalidates only the predictions whose winner actually changed.
+  # [["site"]] not $site: tar_map substitutes its value symbols even inside `$`
+  # accessors (the stacks$tag trap), and `site` is one of them here.
+  tar_target(best_row,
+             best_models[best_models[["site"]] == site &
+                         best_models[["tag"]] == PRED_TAG, , drop = FALSE]),
   tar_target(
     pred,
     predict_site(
       cube_sym, aoi_sym[1], train_sym,
-      # [["site"]] not $site: tar_map substitutes its value symbols even inside
-      # `$` accessors (the stacks$tag trap), and `site` is one of them here.
-      best = best_models[best_models[["site"]] == site &
-                         best_models[["tag"]] == PRED_TAG, , drop = FALSE],
+      best = best_row,
       resampling = resampling,
       tuned_configs = list(svm = cfg_svm, xgboost = cfg_xgboost,
-                           ranger = cfg_ranger, lightgbm = cfg_lightgbm),
+                           ranger = cfg_ranger, lightgbm = cfg_lightgbm,
+                           glmnet = cfg_glmnet),
       site = site, tag = PRED_TAG, aggregate = PRED_AGG
     ),
     format = "file", resources = ml_resources

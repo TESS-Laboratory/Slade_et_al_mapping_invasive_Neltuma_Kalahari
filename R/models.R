@@ -132,6 +132,7 @@ bare_learner <- function(spec, shared) {
                                booster = "gbtree"),
     lightgbm       = mlr3::lrn("classif.lightgbm", predict_type = pt,
                                verbose = -1L, num_threads = 1L),
+    glmnet         = mlr3::lrn("classif.glmnet", predict_type = pt),
     ranger         = mlr3::lrn("classif.ranger", predict_type = pt,
                                importance = "impurity"),
     ranger_untuned = mlr3::lrn("classif.ranger", predict_type = pt,

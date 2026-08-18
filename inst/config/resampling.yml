@@ -104,6 +104,15 @@ learners:
     tuned: true
     tuning_space: svm_trimmed               # rbv2 minus tolerance; see R/models.R
     type: C-classification
+  - id: glmnet
+    backend: classif.glmnet
+    tuned: true
+    tuning_space: classif.glmnet.default   # alpha (ridge<->lasso), s (penalty)
+    # Added 2026-08-18 [HUGH]. Diagnostic as much as competitive: 17/28 winning
+    # SVMs chose a LINEAR kernel (7.27), so if a penalised multinomial matches
+    # the svm, the "boundaries are linear" reading is confirmed with a model an
+    # order of magnitude simpler and faster - which also strengthens the paper's
+    # framing that carefully built features, not model complexity, do the work.
   - id: ranger
     backend: classif.ranger
     tuned: true
