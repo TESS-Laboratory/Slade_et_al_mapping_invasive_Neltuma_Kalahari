@@ -144,6 +144,25 @@ bare_learner <- function(spec, shared) {
 }
 
 
+#' Wrap a learner so a failing fold scores as a failure, not a crash
+#'
+#' Finding 1.7 made concrete: V. erioloba has n = 2 at struizendam_4, so under
+#' 5-fold CV most training folds hold 0-1 observations of it and glmnet's
+#' multinomial refuses ("one multinomial or binomial class has 1 or 0
+#' observations"), where trees and svm quietly cope. Encapsulation scores the
+#' failing fold with a featureless fallback instead of killing the run, for
+#' every learner - a fold-level failure is information, not a reason to lose
+#' 300 targets.
+#'
+#' @param learner a Learner, modified in place and returned
+#' @param pt predict_type for the fallback
+with_fallback <- function(learner, pt) {
+  learner$encapsulate("evaluate",
+                      fallback = mlr3::lrn("classif.featureless", predict_type = pt))
+  learner
+}
+
+
 #' Tune once per task, returning the chosen configuration
 #'
 #' TUNING IS DELIBERATELY NOT NESTED IN THE OUTER REPEATS (decision 2026-08-18
@@ -186,6 +205,8 @@ tune_config <- function(task, spec, shared) {
   } else {
     bare_learner(spec, shared)
   }
+
+  learner <- with_fallback(learner, shared$predict_type)
 
   set.seed(shared$seed)
   args <- list(
@@ -324,7 +345,7 @@ run_resample <- function(task, spec, shared, config = NULL) {
     on.exit(future::plan(old_plan), add = TRUE)
   }
 
-  learner <- bare_learner(spec, shared)
+  learner <- with_fallback(bare_learner(spec, shared), shared$predict_type)
   if (!is.null(config)) {
     keep <- config[names(config) %in% learner$param_set$ids()]
     learner$param_set$set_values(.values = keep)
