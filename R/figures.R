@@ -159,3 +159,85 @@ cowplot_get_legend <- function(p) {
   if (!length(hit)) stop("No legend found to extract.", call. = FALSE)
   g$grobs[[hit[1]]]
 }
+
+
+#' Accuracy figure: the Figure 4B analogue, with the spread the paper omitted
+#'
+#' Two panels. (A) accuracy by predictor stack - the paper's Fig 4B claim -
+#' shown as the seven per-site winning accuracies plus their mean, so the
+#' ordering carries its uncertainty instead of a bare bar. (B) accuracy by
+#' learner across all 28 site x stack tasks, which is the linearity result
+#' (7.28) in one picture.
+#'
+#' Design notes: identity lives on the y axis, so no legend and no categorical
+#' palette are needed - grey observation dots, one accent for the mean, means
+#' direct-labelled. The dashed reference line is the manuscript's "~90%%
+#' overall accuracy" claim, so the figure states the comparison it invites.
+#'
+#' @param best_models the per site x stack winners
+#' @param score_index all learner x task scores
+#' @param out_png output path
+#' @return the output path
+fig_accuracy <- function(best_models, score_index,
+                         out_png = "data-out/figures/fig_accuracy.png") {
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  accent <- "#B5179E"   # the Neltuma magenta doubles as the house accent
+  ink <- "grey25"
+
+  base_theme <- ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_line(colour = "grey92"),
+      axis.title.y = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(face = "bold", size = 10),
+      plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40")
+    )
+
+  # -- A: by stack, per-site winners ----------------------------------------
+  a <- best_models
+  a_mean <- stats::aggregate(classif.acc ~ tag, a, mean)
+  a$tag <- factor(a$tag, levels = a_mean$tag[order(a_mean$classif.acc)])
+  a_mean$tag <- factor(a_mean$tag, levels = levels(a$tag))
+
+  pA <- ggplot2::ggplot(a, ggplot2::aes(x = classif.acc, y = tag)) +
+    ggplot2::geom_vline(xintercept = 0.9, linetype = "22",
+                        colour = "grey70", linewidth = 0.4) +
+    ggplot2::geom_point(colour = "grey55", size = 1.8, alpha = 0.8) +
+    ggplot2::geom_point(data = a_mean, colour = accent, size = 3.2) +
+    ggplot2::geom_text(data = a_mean,
+                       ggplot2::aes(label = sprintf("%.3f", classif.acc)),
+                       vjust = -1.1, size = 2.9, colour = ink) +
+    ggplot2::annotate("text", x = 0.9, y = 0.6, label = "manuscript “~90%”",
+                      hjust = -0.05, size = 2.6, colour = "grey55") +
+    ggplot2::scale_x_continuous(limits = c(NA, 1)) +
+    ggplot2::labs(title = "A · Accuracy by predictor stack",
+                  subtitle = "winning learner per site (grey) and stack mean (magenta)",
+                  x = "overall accuracy, 10×10 repeated spatial CV") +
+    base_theme
+
+  # -- B: by learner, all tasks ---------------------------------------------
+  b <- score_index
+  b_mean <- stats::aggregate(classif.acc ~ learner, b, mean)
+  b$learner <- factor(b$learner, levels = b_mean$learner[order(b_mean$classif.acc)])
+  b_mean$learner <- factor(b_mean$learner, levels = levels(b$learner))
+
+  pB <- ggplot2::ggplot(b, ggplot2::aes(x = classif.acc, y = learner)) +
+    ggplot2::geom_point(colour = "grey55", size = 1.4, alpha = 0.55,
+                        position = ggplot2::position_jitter(height = 0.12, seed = 1)) +
+    ggplot2::geom_point(data = b_mean, colour = accent, size = 3.2) +
+    ggplot2::geom_text(data = b_mean,
+                       ggplot2::aes(label = sprintf("%.3f", classif.acc)),
+                       vjust = -1.1, size = 2.9, colour = ink) +
+    ggplot2::labs(title = "B · Accuracy by learner",
+                  subtitle = "all 28 site × stack tasks (grey) and learner mean (magenta)",
+                  x = "overall accuracy, 10×10 repeated spatial CV") +
+    base_theme
+
+  # explicit namespacing: patchwork is installed but not attached in workers,
+  # and ggplot2 4.x dispatches `/` through S7 only when patchwork is attached
+  fig <- patchwork::wrap_plots(list(pA, pB), ncol = 1, heights = c(1, 1.4))
+  ggplot2::ggsave(out_png, fig, width = 7.2, height = 6.4, dpi = 200,
+                  bg = "white", device = grDevices::png, type = "cairo")
+  out_png
+}

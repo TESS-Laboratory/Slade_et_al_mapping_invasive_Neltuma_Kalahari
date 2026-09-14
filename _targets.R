@@ -108,6 +108,8 @@ TUNED_IDS   <- vapply(Filter(function(x) isTRUE(x$tuned), read_resampling()$lear
                       function(x) x$id, character(1))
 PRED_TAG <- read_resampling()$prediction$stack
 PRED_AGG <- if (PROFILE == "fast") as.integer(read_resampling()$prediction$fast_aggregate) else 1L
+`%||%` <- function(a, b) if (is.null(a)) b else a
+PRED_SMOOTH <- as.integer(read_resampling()$prediction$smooth_window %||% 0L)
 
 # Per-site input paths, checks, and eventually cubes and models. tar_map is used
 # in preference to dynamic branching because the sites are known up front: it
@@ -260,7 +262,14 @@ per_pred <- tar_map(
     ),
     format = "file", resources = ml_resources
   ),
-  tar_target(pred_summary, summarise_prediction(pred, site, PRED_TAG))
+  tar_target(pred_summary, summarise_prediction(pred, site, PRED_TAG)),
+
+  # The explicit modal smoothing step (finding 1.6 done honestly), plus its
+  # area accounting so the filter's effect is measured rather than assumed.
+  tar_target(pred_smooth,
+             smooth_prediction(pred, PRED_SMOOTH, site, PRED_TAG),
+             format = "file", resources = ml_resources),
+  tar_target(smooth_areas, class_area_table(pred_smooth, site, PRED_TAG, "smoothed"))
 )
 
 list(
@@ -339,6 +348,8 @@ list(
   # ---- landscape prediction ----------------------------------------------
   per_pred,
   tar_combine(class_areas, per_pred[["pred_summary"]], command = rbind(!!!.x)),
+  tar_combine(class_areas_smooth, per_pred[["smooth_areas"]], command = rbind(!!!.x)),
+  tar_target(area_comparison, compare_areas(class_areas, class_areas_smooth)),
 
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under
@@ -347,9 +358,11 @@ list(
     "fig_maps",
     rlang::call2("fig_landscape_maps",
                  rlang::call2("setNames",
-                              rlang::call2("list", !!!rlang::syms(paste0("pred_", SITES))),
+                              rlang::call2("list", !!!rlang::syms(paste0("pred_smooth_", SITES))),
                               SITES),
                  quote(best_models), quote(PRED_TAG)),
     format = "file"
-  )
+  ),
+
+  tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file")
 )
