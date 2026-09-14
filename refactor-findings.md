@@ -992,6 +992,45 @@ The original applied a 25-cell modal focal filter before area accounting
 that was never implemented). Our class areas will therefore differ from
 smoothed ones; whether to add an explicit, honestly-described smoothing step is
 an open design decision. **[HUGH]**
+### 7.31 The modal filter systematically erases sparse Neltuma
+
+The smoothing question (7.30) is now measured, and the answer is a finding in
+its own right. The 25-cell modal focal filter - the operation the original ran
+invisibly (1.6) - is nearly neutral in aggregate (total Neltuma -2.3%) but that
+aggregate is a trap: struizendam_4's dense stands dominate the total and mask
+what happens where the invasion is sparse.
+
+| Site | Neltuma raw (ha) | smoothed | delta |
+|---|---|---|---|
+| struizendam_3 | 0.106 | 0.051 | **-51.9%** |
+| struizendam_2 | 0.136 | 0.107 | **-21.3%** |
+| struizendam_1 | 0.668 | 0.602 | -9.9% |
+| bokspits_1-3 | 0.238-0.735 | - | -5.5% to +1.4% |
+| struizendam_4 (dense) | 2.504 | 2.544 | +1.6% |
+
+Mechanism: a ~1.25 m majority window deletes any isolated plant smaller than
+roughly half the window. Clumped invasion survives; scattered individuals - the
+leading edge of an invasion, and the management-relevant case - are voted out
+of existence by their neighbours. Sparse occurrences of other classes fare the
+same (*Boscia* -60%, *Gnidia* -51% at their sparse sites).
+
+**Why this reaches the manuscript's claims.** The original used its (invisibly)
+smoothed drone maps as the reference side of the drone-vs-WV2 comparison, so
+Table S10's "satellite overpredicted Neltuma by 24.8%" (2.3) was measured
+against a reference from which part of the sparse Neltuma had already been
+deleted. Some of that gap is plausibly the filter, not the sensor. And a paper
+whose title is about *detecting sparse invasions* applied, without describing
+it, a post-processing step that specifically removes sparse detections.
+**[ANDY]** - both the §2.6 methods description and the §3.2 comparison need to
+account for this; our pipeline keeps raw and smoothed surfaces side by side so
+either can be the reported one, explicitly.
+
+Operational note: terra's C++ focal2 segfaults deterministically on
+bokspits_3's full raster ("memory not mapped", uncatchable from R - under crew
+it presents as an infinite silent retry loop). smooth_prediction()
+strip-processes with a half-window overlap, verified cell-for-cell identical to
+a single pass. All seven sites smooth cleanly under strips (bokspits_3 in
+17m11s).
 ---
 
 ## 8. Class scheme
@@ -1356,3 +1395,18 @@ manifest, lockfile and library in agreement.
   profile: 4 tasks x 5 learners in 1m42s, accuracies 0.73-0.84. Recorded but not
   claimed: the untuned baseline matches or beats every tuned learner at the fast
   budget, which is uninformative at 5 evaluations but would matter at 50.
+- **2026-09-14** Smoothing measured, and the paper becomes a pipeline product.
+  The explicit modal-25 smoothing step ran on all seven sites (bokspits_3 via
+  strip processing around a deterministic terra focal2 segfault, output verified
+  identical to a single pass). **Finding 7.31**: the filter is near-neutral in
+  aggregate (-2.3% total Neltuma) but erases sparse Neltuma - **-52% at
+  struizendam_3, -21% at struizendam_2** - deleting exactly the scattered
+  leading-edge plants the paper is about, and the original's Table S10
+  comparison used these smoothed maps as its reference side. **[ANDY]**
+  `paper/manuscript.qmd`: the manuscript text verbatim (9,132 words, 25/25
+  headings, word-count checked), pipeline numbers as inline expressions only
+  where the sentence stays true, 2 PIPELINE-CONTRADICTS and 8 PIPELINE-PENDING
+  comments for authorial decisions, our Figure 4 analogues embedded, rendered
+  via tarchetypes::tar_quarto as a downstream node of score_index/best_models.
+  First render: "85-90%" -> 87-97%, "five algorithms over 200 iterations" ->
+  7 over 100, abstract "~90%" -> ~88%.

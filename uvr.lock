@@ -1768,6 +1768,28 @@ requires = [
 ]
 
 [[package]]
+name = "quarto"
+version = "1.5.1"
+source = "cran"
+raw_version = "1.5.1"
+url = "https://cran.r-project.org/src/contrib/quarto_1.5.1.tar.gz"
+checksum = "md5:399b5a595e22f090193a9169d5bd84db"
+requires = [
+    "cli",
+    "fs",
+    "htmltools",
+    "jsonlite",
+    "later",
+    "lifecycle",
+    "processx",
+    "rlang",
+    "rmarkdown",
+    "rstudioapi",
+    "xfun",
+    "yaml",
+]
+
+[[package]]
 name = "ranger"
 version = "0.18.0"
 source = "cran"

@@ -364,5 +364,13 @@ list(
     format = "file"
   ),
 
-  tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file")
+  tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file"),
+
+  # ---- the paper ----------------------------------------------------------
+  # The manuscript as a pipeline product: verbatim text, pipeline numbers as
+  # inline expressions, contradictions flagged for authorial decisions.
+  # tar_quarto scans the qmd for tar_read() calls and wires the dependencies.
+  tar_target(paper_values,
+             build_paper_values(score_index, best_models, class_areas, training_index)),
+  tarchetypes::tar_quarto(paper, "paper/manuscript.qmd")
 )
