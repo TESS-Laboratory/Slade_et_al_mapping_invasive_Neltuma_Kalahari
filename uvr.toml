@@ -34,6 +34,7 @@ tarchetypes = "*"
 targets = "*"
 terra = "*"
 tidyr = "*"
+tidyterra = "*"
 xgboost = "*"
 yaml = "*"
 

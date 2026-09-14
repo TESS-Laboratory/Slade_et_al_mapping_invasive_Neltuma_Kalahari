@@ -961,6 +961,37 @@ struizendam_4** - ecologically plausible, and the per-site whole-surface mean
 top-class probability (0.75-0.96) is a confidence figure the original could
 never report (1.5). These feed the Figure 4/6 reproductions next.
 
+### 7.30 Class palette defined, CVD-validated, and the first map figure
+
+`classes.json` now carries a color per class - the palette never existed in any
+repository. The nine classes that appear on the drone maps were validated
+computationally, not by eye: **all 36 pairs reach OKLab dE >= 15 for normal
+vision and >= 8 under Vienot protan/deutan simulation** (Python implementation
+of the dataviz validator; no node on this host). Getting there took ten
+iterations and two structural concessions worth recording:
+
+- **Neltuma is magenta**, not red: red-vs-green collapses for deuteranopes, and
+  Neltuma-vs-*V. erioloba* is the exact confusion pair the manuscript turns on
+  (2.4), so the map must hold it for CVD readers. Magenta's blue content
+  survives both protan and deutan simulation against every woody class.
+- **Two rare classes left their semantic hue**: *V. erioloba* is orange and
+  *Boscia* near-navy, because five greens/olives cannot pairwise-separate at
+  this standard. Legend-anchored rare classes can afford it; the dominant
+  cover classes (bare cream, grass yellow, *Rhigozum* olive) stay semantic.
+
+`R/figures.R` renders the Figure 4A analogue: seven full-resolution surfaces,
+winning learner and accuracy per panel, modal-aggregated for display, italic
+binomial legend built from `class_labels()` (8.6). Two environment notes: the
+installed `ragg` fails with "Graphics API version mismatch" and `ggsave`
+auto-selects it, so the device is pinned to cairo png; and the figure's
+dependency list is built from `SITES` so the fast profile resolves.
+
+**A caveat the maps carry forward**: these are raw per-pixel classifications.
+The original applied a 25-cell modal focal filter before area accounting
+(finding 1.6 - which also records that the manuscript describes a sieve filter
+that was never implemented). Our class areas will therefore differ from
+smoothed ones; whether to add an explicit, honestly-described smoothing step is
+an open design decision. **[HUGH]**
 ---
 
 ## 8. Class scheme

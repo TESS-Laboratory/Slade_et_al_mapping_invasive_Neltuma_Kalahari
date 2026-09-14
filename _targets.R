@@ -338,5 +338,18 @@ list(
 
   # ---- landscape prediction ----------------------------------------------
   per_pred,
-  tar_combine(class_areas, per_pred[["pred_summary"]], command = rbind(!!!.x))
+  tar_combine(class_areas, per_pred[["pred_summary"]], command = rbind(!!!.x)),
+
+  # ---- figures -------------------------------------------------------------
+  # The pred_* dependency list is built from SITES so the same code works under
+  # both profiles (fast has one site; a hardcoded seven would not resolve).
+  targets::tar_target_raw(
+    "fig_maps",
+    rlang::call2("fig_landscape_maps",
+                 rlang::call2("setNames",
+                              rlang::call2("list", !!!rlang::syms(paste0("pred_", SITES))),
+                              SITES),
+                 quote(best_models), quote(PRED_TAG)),
+    format = "file"
+  )
 )

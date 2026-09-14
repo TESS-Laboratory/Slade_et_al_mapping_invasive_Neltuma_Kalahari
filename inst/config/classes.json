@@ -21,78 +21,142 @@
       "code": 1,
       "name": "Neltuma",
       "label_md": "*Neltuma*",
-      "aliases": ["Prosopis", "Mesquite", "Sexanana"],
+      "aliases": [
+        "Prosopis",
+        "Mesquite",
+        "Sexanana"
+      ],
       "description": "Medium sized (1-3 m) tree/shrub still green in dry season but greenness varies between individual plants (c.15%); some plants flowering with small yellow flowers.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Neltuma",
       "simple_code": 1,
-      "notes": "The target class. Renamed from Prosopis by commit 567696e, consistent with Hughes et al. 2022."
+      "notes": "The target class. Renamed from Prosopis by commit 567696e, consistent with Hughes et al. 2022.",
+      "color": "#B5179E"
     },
     {
       "code": 2,
       "name": "Bare Ground",
       "label_md": "Bare ground",
-      "aliases": ["Bare Sand"],
+      "aliases": [
+        "Bare Sand"
+      ],
       "description": "Mostly light brown/orange coloured bare sand.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Bare Ground",
       "simple_code": 2,
-      "notes": "DISCREPANCY: Table S3 describes Bare Ground as including 'grey/white calcrete ridges and mixed sand and calcrete', i.e. merging code 8. The lookup keeps Calcrete separate. Resolve before regenerating Table S3."
+      "notes": "DISCREPANCY: Table S3 describes Bare Ground as including 'grey/white calcrete ridges and mixed sand and calcrete', i.e. merging code 8. The lookup keeps Calcrete separate. Resolve before regenerating Table S3.",
+      "color": "#F7EDD4"
     },
     {
       "code": 3,
       "name": "Short Grass",
       "label_md": "Short grass",
-      "aliases": ["Grass", "Dry Grass"],
+      "aliases": [
+        "Grass",
+        "Dry Grass"
+      ],
       "description": "Dry grey/brown grass (< 0.5 m) with associated leaf litter.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Grass",
       "simple_code": 3,
-      "notes": "DISCREPANCY: lookup says 'Short Grass', Table S3 and S4 say 'Grass'. Table S3 additionally names the assemblage (Schmidtia kalahariensis dominant)."
+      "notes": "DISCREPANCY: lookup says 'Short Grass', Table S3 and S4 say 'Grass'. Table S3 additionally names the assemblage (Schmidtia kalahariensis dominant).",
+      "color": "#CDC23E"
     },
     {
       "code": 4,
       "name": "Gnidia polycephala",
       "label_md": "*Gnidia polycephala*",
-      "aliases": ["Gnidia"],
+      "aliases": [
+        "Gnidia"
+      ],
       "description": "Small low shrub with bright yellow/green flowers at the time of the survey.",
-      "used_in": { "drone_training": true, "satellite_training": false, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": false,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Gnidia polycephala",
       "simple_code": null,
-      "notes": "Dropped from satellite training (frac_4 explicitly deselected). Table S3 notes marginal cover in Bokspits_1 only, but Table S4 records 61 observations across Bokspits 1-3."
+      "notes": "Dropped from satellite training (frac_4 explicitly deselected). Table S3 notes marginal cover in Bokspits_1 only, but Table S4 records 61 observations across Bokspits 1-3.",
+      "color": "#A9C6F7"
     },
     {
       "code": 5,
       "name": "Vachellia erioloba",
       "label_md": "*Vachellia erioloba*",
-      "aliases": ["Camel Thorn", "Acacia erioloba", "CT"],
+      "aliases": [
+        "Camel Thorn",
+        "Acacia erioloba",
+        "CT"
+      ],
       "description": "Tall (3-7 m) tree mostly still green in dry season; some (c.50%) flowering with small orange flowers.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Vachellia erioloba",
       "simple_code": 6,
-      "notes": "The principal confusion class for Neltuma and the subject of the section 2.6 co-occurrence analysis. Collapses into 6 under the simple scheme."
+      "notes": "The principal confusion class for Neltuma and the subject of the section 2.6 co-occurrence analysis. Collapses into 6 under the simple scheme.",
+      "color": "#EA7A2A"
     },
     {
       "code": 6,
       "name": "Rhigozum trichotomum",
       "label_md": "*Rhigozum trichotomum*",
-      "aliases": ["Rig Trig", "Rhigosum trichotomum", "RT"],
+      "aliases": [
+        "Rig Trig",
+        "Rhigosum trichotomum",
+        "RT"
+      ],
       "description": "Medium height (c.1-2 m) brown woody shrub. No green leaves.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Rhigozum trichotomum",
       "simple_code": 6,
-      "notes": "Reviewer 1 flagged the misspelling 'Rhigosum' in Figures 3, 8 and S1-S8, S10, S11. Use label_md everywhere to prevent recurrence."
+      "notes": "Reviewer 1 flagged the misspelling 'Rhigosum' in Figures 3, 8 and S1-S8, S10, S11. Use label_md everywhere to prevent recurrence.",
+      "color": "#5E7220"
     },
     {
       "code": 7,
       "name": "Senegalia mellifera",
       "label_md": "*Senegalia mellifera*",
-      "aliases": ["Acacia Melifera", "Acacia mellifera"],
+      "aliases": [
+        "Acacia Melifera",
+        "Acacia mellifera"
+      ],
       "description": "Medium (1-3 m) bush/tree mostly brown; some (c.15%) flowering with white flowers at time of survey.",
-      "used_in": { "drone_training": true, "satellite_training": true, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Senegalia mellifera",
       "simple_code": 6,
-      "notes": "Collapses into 6 under the simple scheme."
+      "notes": "Collapses into 6 under the simple scheme.",
+      "color": "#1FBD9A"
     },
     {
       "code": 8,
@@ -100,65 +164,115 @@
       "label_md": "Calcrete",
       "aliases": [],
       "description": "White exposed limestone rock.",
-      "used_in": { "drone_training": false, "satellite_training": false, "table_s3": false, "table_s4": false },
+      "used_in": {
+        "drone_training": false,
+        "satellite_training": false,
+        "table_s3": false,
+        "table_s4": false
+      },
       "table_s3_name": null,
       "simple_code": null,
-      "notes": "Present in the field lookup, absent from Table S3, explicitly deselected from satellite training (frac_8). Table S3 appears to fold it into Bare Ground."
+      "notes": "Present in the field lookup, absent from Table S3, explicitly deselected from satellite training (frac_8). Table S3 appears to fold it into Bare Ground.",
+      "color": "#D9D4CB"
     },
     {
       "code": 9,
       "name": "Diospyros lycioides",
       "label_md": "*Diospyros lycioides*",
-      "aliases": ["Blue Bush"],
+      "aliases": [
+        "Blue Bush"
+      ],
       "description": "Low (c.1 m) blueish grey shrub.",
-      "used_in": { "drone_training": false, "satellite_training": false, "table_s3": false, "table_s4": false },
+      "used_in": {
+        "drone_training": false,
+        "satellite_training": false,
+        "table_s3": false,
+        "table_s4": false
+      },
       "table_s3_name": null,
       "simple_code": null,
-      "notes": "In the field lookup but never used in any classification and absent from Table S3."
+      "notes": "In the field lookup but never used in any classification and absent from Table S3.",
+      "color": "#7D5BA6"
     },
     {
       "code": 10,
       "name": "Boscia albitrunca",
       "label_md": "*Boscia albitrunca*",
-      "aliases": ["Shepherds Tree", "Shephards Tree"],
+      "aliases": [
+        "Shepherds Tree",
+        "Shephards Tree"
+      ],
       "description": "Tall 2-4 m tree, dark green leaves, rare individuals.",
-      "used_in": { "drone_training": true, "satellite_training": false, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": false,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Boscia albitrunca",
       "simple_code": 6,
-      "notes": "Computed then dropped in satellite extraction (frac_10 deselected). Table S4 records only 14 observations, all in Struizendam_3, contradicting the stated 20-per-class minimum."
+      "notes": "Computed then dropped in satellite extraction (frac_10 deselected). Table S4 records only 14 observations, all in Struizendam_3, contradicting the stated 20-per-class minimum.",
+      "color": "#0A2C47"
     },
     {
       "code": 11,
       "name": "Other",
       "label_md": "Other",
-      "aliases": ["Other- record in notes"],
+      "aliases": [
+        "Other- record in notes"
+      ],
       "description": "Individual trees such as Vachellia haematoxylon. Not used in classification as too rare for training and validation.",
-      "used_in": { "drone_training": false, "satellite_training": false, "table_s3": false, "table_s4": false },
+      "used_in": {
+        "drone_training": false,
+        "satellite_training": false,
+        "table_s3": false,
+        "table_s4": false
+      },
       "table_s3_name": null,
       "simple_code": null,
-      "notes": "Explicitly excluded by the lookup's own description. Note the lookup still says 'Acacia Haematoxylon'; the accepted name is Vachellia haematoxylon."
+      "notes": "Explicitly excluded by the lookup's own description. Note the lookup still says 'Acacia Haematoxylon'; the accepted name is Vachellia haematoxylon.",
+      "color": "#8C8C8C"
     },
     {
       "code": 12,
       "name": "Vachellia hebeclada",
       "label_md": "*Vachellia hebeclada*",
-      "aliases": ["Candle Bush", "Candle Thorn", "Acacia hebeclada"],
+      "aliases": [
+        "Candle Bush",
+        "Candle Thorn",
+        "Acacia hebeclada"
+      ],
       "description": "Low (c.1-1.5 m) bush, often circular in shape.",
-      "used_in": { "drone_training": false, "satellite_training": false, "table_s3": true, "table_s4": false },
+      "used_in": {
+        "drone_training": false,
+        "satellite_training": false,
+        "table_s3": true,
+        "table_s4": false
+      },
       "table_s3_name": "Vachellia hebeclada",
       "simple_code": 6,
-      "notes": "In Table S3 but not Table S4, so described but never trained on. Table S3 notes marginal cover in Bokspits_1 only."
+      "notes": "In Table S3 but not Table S4, so described but never trained on. Table S3 notes marginal cover in Bokspits_1 only.",
+      "color": "#C69C6D"
     },
     {
       "code": 13,
       "name": "Stipagrostis amabilis",
       "label_md": "*Stipagrostis amabilis*",
-      "aliases": ["Tall Dune Grass", "Kalahari Dune Grass"],
+      "aliases": [
+        "Tall Dune Grass",
+        "Kalahari Dune Grass"
+      ],
       "description": "Light brown/grey grass, thick clumps c.1 m in height. Mostly Stipagrostis amabilis.",
-      "used_in": { "drone_training": true, "satellite_training": false, "table_s3": true, "table_s4": true },
+      "used_in": {
+        "drone_training": true,
+        "satellite_training": false,
+        "table_s3": true,
+        "table_s4": true
+      },
       "table_s3_name": "Stipagrostis amabilis",
       "simple_code": 3,
-      "notes": "DISCREPANCY: lookup name is 'Tall Dune Grass', Tables S3 and S4 use the binomial. Commit 567696e added 'Mostly Stipagrostis amabilis' to the description, which is what licenses the rename. Deselected from satellite training (frac_13). Table S4 records 10 observations, all in Bokspits_2."
+      "notes": "DISCREPANCY: lookup name is 'Tall Dune Grass', Tables S3 and S4 use the binomial. Commit 567696e added 'Mostly Stipagrostis amabilis' to the description, which is what licenses the rename. Deselected from satellite training (frac_13). Table S4 records 10 observations, all in Bokspits_2.",
+      "color": "#63290A"
     }
   ],
   "satellite_only_classes": [
@@ -167,39 +281,113 @@
       "name": "Mixed woody cover",
       "label_md": "Mixed woody cover",
       "description": "Mixture of woody vegetation dominated by Rhigozum trichotomum and Senegalia mellifera with Vachellia haematoxylon and Vachellia erioloba. Used where satellite pixels are not dominated by one tree species and do not include Neltuma.",
-      "used_in": { "drone_training": false, "satellite_training": true, "table_s3": true, "table_s4": false },
+      "used_in": {
+        "drone_training": false,
+        "satellite_training": true,
+        "table_s3": true,
+        "table_s4": false
+      },
       "notes": "UNRESOLVED. Appears in Table S3 but has no code in the lookup. Most likely realised as code 6 under the simple scheme, but this must be confirmed against the archived training sets before Table S3 is regenerated."
     }
   ],
   "schemes": {
     "field": {
       "description": "The full field-survey scheme as recorded in the lookup.",
-      "codes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+      "codes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ]
     },
     "drone_training": {
       "description": "Classes actually used for drone classification training, per Table S4.",
-      "codes": [1, 2, 3, 4, 5, 6, 7, 10, 13],
+      "codes": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        10,
+        13
+      ],
       "n_observations_table_s4": 1024,
       "notes": "The seven shipped shapefiles hold 1056 records. The 32-record difference is unexplained; see refactor-findings.md 2.6."
     },
     "satellite_training": {
       "description": "Classes retained for satellite training after fractional-cover filtering.",
-      "codes": [1, 2, 3, 5, 6, 7],
+      "codes": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
       "notes": "Codes 4, 8 and 13 are explicitly deselected; 10 is computed then dropped."
     },
     "simple": {
       "description": "Four-class collapse used for the final WorldView-2 product. Codes 5 and 7 are recoded to 6.",
-      "mapping": { "1": 1, "2": 2, "3": 3, "5": 6, "6": 6, "7": 6 },
-      "codes": [1, 2, 3, 6],
-      "labels": { "1": "Neltuma", "2": "Bare Ground", "3": "Short Grass", "6": "Other woody" },
+      "mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "5": 6,
+        "6": 6,
+        "7": 6
+      },
+      "codes": [
+        1,
+        2,
+        3,
+        6
+      ],
+      "labels": {
+        "1": "Neltuma",
+        "2": "Bare Ground",
+        "3": "Short Grass",
+        "6": "Other woody"
+      },
       "notes": "Under this scheme code 6 no longer means Rhigozum trichotomum; it means any woody vegetation that is not Neltuma. Outputs must never mix the simple and field schemes without relabelling."
     },
     "mixed_density": {
       "description": "Synthetic classes for mixed-cover pixels, built from frac_6 bands. Present in the extraction scripts but never written to disk because of the broken saveRDS calls.",
       "codes": [
-        { "code": 21, "name": "High density mixed", "frac_6_range": [0.65, 0.94] },
-        { "code": 31, "name": "Medium density mixed", "frac_6_range": [0.35, 0.64] },
-        { "code": 41, "name": "Low density mixed", "frac_6_range": [0.05, 0.34] }
+        {
+          "code": 21,
+          "name": "High density mixed",
+          "frac_6_range": [
+            0.65,
+            0.94
+          ]
+        },
+        {
+          "code": 31,
+          "name": "Medium density mixed",
+          "frac_6_range": [
+            0.35,
+            0.64
+          ]
+        },
+        {
+          "code": 41,
+          "name": "Low density mixed",
+          "frac_6_range": [
+            0.05,
+            0.34
+          ]
+        }
       ],
       "notes": "See refactor-findings.md 4.7. Never produced, so never used in any reported result."
     }
@@ -213,5 +401,6 @@
       ],
       "notes": "Appears as frac_53 in purity filters and in the balanced-sample counts, with no entry in any lookup. Origin unknown. Resolve against the archived classification rasters."
     }
-  ]
+  ],
+  "color_note": "Colors for the nine drone-map classes (1-7,10,13) are CVD-validated: all 36 pairs reach OKLab dE>=15 normal and >=8 under Vienot protan/deutan simulation. Neltuma is magenta so the invader survives red-green CVD against every woody class. Codes 8,9,11,12 are completeness-only. Regenerate via the validation script in refactor-findings.md 7.30 if any hex changes."
 }
