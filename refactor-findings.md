@@ -1274,6 +1274,66 @@ Also noted: mlr3's "evaluate" encapsulation cannot interrupt a fit inside
 libsvm's C loop, so a timeout would not have helped without switching to
 callr encapsulation and paying a process spawn per fit. Trimming the space
 is the cheaper and the more honest fix.
+### 7.37 Three sensors, four training arms: the +6.1% does not reproduce
+
+Full campaign 2026-09-15/16 (polynomial-free svm space, 10x10 spcv_coords,
+MBO 30): best learner per sensor and training arm, with the manuscript's
+figure alongside.
+
+| sensor / arm | best | overall | Neltuma recall | manuscript |
+|---|---|---|---|---|
+| WV2 archived (Glen's purity extraction) | lightgbm | 0.643 | 0.65 | 75.8 |
+| WV2 field points only (0.8 m buffers) | glmnet | **0.668** | **0.81** | 69.7 |
+| WV2 dr_raw / dr_smooth | svm / svm | 0.664 / 0.641 | 0.39 / - | - |
+| Planet archived | svm | **0.737** | 0.39 | 71.1 |
+| Planet dr_raw / dr_smooth | svm / svm | 0.755 / **0.698** | - | - |
+| S2 archived | svm | **0.867** | 0.57 | 70.3 (Neltuma 50.4) |
+| S2 dr_raw / dr_smooth | ranger_untuned / ensemble | 0.806 / 0.820 | - | - |
+
+Four things, in order of consequence:
+
+1. **The +6.1% from drone-derived training does not reproduce - it
+   reverses.** Section 3.2 and Fig 6B: "incorporating drone-derived
+   calibration data improved predictive accuracy by 6.1%, from ~69.7% to
+   75.8%". Under the same spatial CV, the field-point arm scores 0.668 and
+   the drone-purity arm 0.643: -2.5 points, with Neltuma recall 0.81 against
+   0.65. The field arm is what the manuscript calls "field observations
+   alone" and lands within 3 points of its 69.7; it is the 75.8 that is not
+   there (7.34). The purity extraction's real contribution is *volume* - it
+   is what makes Planet and S2 trainable at all (Fig 5) - not accuracy at
+   WV2 scale. Caveat stated: the field arm is unbalanced (as the original's
+   was) and ~1,000 rows against 2,400. **[ANDY]** - this is the paper's
+   cross-scale-calibration headline.
+2. **Planet and S2 reproduce or exceed the manuscript.** Planet 0.737 vs
+   71.1; S2 0.867 vs 70.3 - though S2's 240 training pixels in four classes
+   make its folds tiny (acc_min 0.20, sd 0.18) and its number the least
+   trustworthy on the board. S2 Neltuma recall 0.57 sits next to the
+   manuscript's 50.4 "Neltuma-specific accuracy". The ordering the
+   manuscript builds section 3.3 on (overall accuracy roughly flat across
+   sensors, Neltuma-specific accuracy collapsing with grain) survives in
+   the pixel-level comparison with the drone maps: Neltuma precision
+   WV2 0.40 -> Planet 0.24 -> S2 0.15 at recall 0.76 / 0.54 / 0.76.
+3. **The smoothed-reference penalty grows with pixel size** (7.31 -> 7.35
+   -> here): WV2 dr_smooth trails dr_raw by 2 points, Planet by **6**
+   (0.698 vs 0.755). At 3 m the purity labels are built from surfaces from
+   which the modal filter has already removed the sparse cover.
+4. **Landscape Neltuma by sensor** (raw surfaces, whole study area): WV2
+   821 ha, Planet 1,575 ha, S2 1,428 ha; inside the drone sites Planet
+   over-predicts by 12% and S2 by 38% against the raw drone maps (WV2 raw:
+   +94%, 7.35). Mean winning-class probability 0.69 / 0.74 / 0.61.
+
+Drone arm after the retune: grand mean 0.872 (was 0.869), the seven
+5_CHM_ALLVI winners unchanged; only bokspits_3's svm surface differs, so
+every re-derived satellite arm that reads that site was rebuilt. Fig 5
+(sub-pixel cover per sensor) and Fig 6C (the WV2 study-area map, raw and
+filtered) are now pipeline products. One glmnet convergence warning on
+pred_struizendam_2 (lambda path, harmless).
+
+Design wart found on the way: each landscape prediction depends on the
+LIST of all tuned configurations, so any svm change re-predicted all seven
+sites (six of them to identical surfaces, skipped downstream by value).
+The dependency should be the winner's configuration only; deferred to the
+next invalidation point rather than paying another one now.
 ---
 
 ## 8. Class scheme
@@ -1691,3 +1751,8 @@ manifest, lockfile and library in agreement.
   WV2 arm and Fig 5 / Fig 6C producers added. **Finding 7.36**: polynomial
   svm kernel measured as the sole tuning bottleneck (107 s vs <3 s per fit)
   and dropped [HUGH]; full retune launched.
+- **2026-09-16** Full campaign complete (661 targets, 4h). **Finding 7.37**:
+  Planet 0.737 / S2 0.867 reproduce or exceed the manuscript; WV2 field-only
+  0.668 beats the drone-purity arm 0.643, so the +6.1% cross-scale
+  calibration claim reverses under spatial CV [ANDY]; smoothed-reference
+  penalty grows with grain (Planet -6 points); Fig 5 and Fig 6C produced.

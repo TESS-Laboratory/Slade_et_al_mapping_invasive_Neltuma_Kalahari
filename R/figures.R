@@ -288,7 +288,7 @@ fig_subpixel_cover <- function(exts, sensors, out_png = "data-out/figures/fig5_s
                             colour = "white", linewidth = 0.3) +
     ggplot2::geom_vline(data = n, ggplot2::aes(xintercept = thr),
                         linetype = "dashed", colour = "grey40", linewidth = 0.4) +
-    ggplot2::geom_text(data = n, ggplot2::aes(x = 0.02, y = Inf, label = label),
+    ggplot2::geom_text(data = n, ggplot2::aes(x = 0.3, y = Inf, label = label),
                        hjust = 0, vjust = 1.15, size = 2.7, colour = "grey20", lineheight = 0.95) +
     ggplot2::facet_wrap(~ sensor, ncol = 1, scales = "free_y") +
     ggplot2::scale_x_continuous("Sub-pixel Neltuma cover (fraction of pixel)",
