@@ -1207,6 +1207,11 @@ sparse sites - the paper's subject - are where WV2 both misses most and
 where the filter finishes the job. **[ANDY]** - S10 needs the surface choice
 stated, and the sparse-site rows shown.
 
+*Correction 2026-09-16, marked in place:* after the polynomial-free retune
+(7.36) bokspits_3's drone surface changed (svm winner), and the S10 figures
+moved to **+27.1% smoothed / +98.1% raw** (Neltuma recall 0.76 -> 0.50). The
+reading is unchanged; the manuscript reads the live values.
+
 **The S10 matrix itself** (WV2 class vs drone-majority class per WV2 pixel,
 ~830k pixels inside the seven sites) settles what the filter does to
 detection rather than to area:
@@ -1756,3 +1761,9 @@ manifest, lockfile and library in agreement.
   0.668 beats the drone-purity arm 0.643, so the +6.1% cross-scale
   calibration claim reverses under spatial CV [ANDY]; smoothed-reference
   penalty grows with grain (Planet -6 points); Fig 5 and Fig 6C produced.
+- **2026-09-16 (later)** Satellite results plumbed into the manuscript: 3
+  substitutions (drone Neltuma-specific ~90%, Dominance 14 km2 / 3.0%, S10
+  +27.1%), 6 PIPELINE-CONTRADICTS comments (75.8%, +6.1% x2, 79.9%,
+  71.1/70.3 with 50.4, 34.6%), Figure 5 + 6C embedded, Table 1 analogue
+  rendered. Per-fit Neltuma-recall targets added without touching
+  best_models. 7.35 numbers corrected in place after the retune.
