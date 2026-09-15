@@ -115,6 +115,21 @@ build_satellite_cube <- function(srcs, bands, sensor,
 }
 
 
+
+#' Write an sf layer as FlatGeobuf without the first-write GDAL warning
+#'
+#' `delete_dsn = TRUE` on a path that does not exist yet makes GDAL warn; only
+#' ask for the delete when there is something to delete.
+#'
+#' @param v sf object
+#' @param out output path
+#' @return `out`
+write_fgb <- function(v, out) {
+  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+  sf::st_write(v, out, delete_dsn = file.exists(out), quiet = TRUE)
+  out
+}
+
 #' Declare the CRS on the WV2 study-area boundary
 #'
 #' `WV2_clip.shp` ships without a `.prj` (finding 7.13), but its coordinates
@@ -136,9 +151,7 @@ fix_wv2_aoi <- function(shp, epsg, out = "data-out/wv2/wv2_aoi.fgb") {
     stop("WV2 AOI has grown a CRS that is not EPSG:", epsg,
          " - re-check finding 7.13 before trusting this layer.", call. = FALSE)
   }
-  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
-  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
-  out
+  write_fgb(v, out)
 }
 
 
@@ -240,9 +253,7 @@ build_purity_layer <- function(ext, purity, keep_classes, out) {
          "wrong grid, or a threshold typo.", call. = FALSE)
   }
 
-  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
-  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
-  out
+  write_fgb(v, out)
 }
 
 
@@ -301,9 +312,7 @@ make_analysis_grid <- function(aoi_path, cell_m, out, square = FALSE) {
   g <- sf::st_make_grid(aoi, cellsize = cell_m, square = square)
   g <- g[lengths(sf::st_intersects(g, aoi)) > 0]
   v <- sf::st_sf(cell_id = seq_along(g), geometry = g)
-  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
-  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
-  out
+  write_fgb(v, out)
 }
 
 
@@ -348,9 +357,7 @@ build_phase_layer <- function(raw_tif, smooth_tif, grid_path, neltuma_code,
   grid$phase_raw    <- phase_of(grid$cover_raw)
   grid$phase_smooth <- phase_of(grid$cover_smooth)
 
-  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
-  sf::st_write(grid, out, delete_dsn = TRUE, quiet = TRUE)
-  out
+  write_fgb(grid, out)
 }
 
 
