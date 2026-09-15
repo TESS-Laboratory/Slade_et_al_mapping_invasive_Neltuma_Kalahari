@@ -432,10 +432,8 @@ plant_scale_site <- function(site, points_path, aoi_path, raw_tif, smooth_tif,
 #' @param df combined output of `plant_scale_site()`
 #' @return data.frame: surface, Type, n, n_correct, accuracy
 plant_scale_summary <- function(df) {
-  # One row per point: where a point sat inside two sites' bounding boxes,
-  # keep the row whose surface actually covered it (non-NA prediction).
-  df <- df[order(df$point_row, is.na(df$pred_raw)), , drop = FALSE]
-  df <- df[!duplicated(df$point_row), , drop = FALSE]
+  # Uniqueness comes from plant_scale_site's AOI-membership test - the site
+  # AOIs do not overlap, so no further deduplication is needed here.
   out <- lapply(c(raw = "pred_raw", smooth = "pred_smooth"), function(col) {
     ok <- !is.na(df[[col]])
     agg <- aggregate(list(n = ok, n_correct = ok & df[[col]] == df$Type),
