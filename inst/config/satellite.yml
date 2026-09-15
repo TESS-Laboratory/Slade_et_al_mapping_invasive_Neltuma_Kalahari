@@ -35,3 +35,39 @@ wv2:
     dominance: 15      # percent cover, exclusive lower bound
     expansion: 1.5
     incursion: 0.1
+
+# PlanetScope, 3 m (manuscript section 2.4; the reported run is
+# Boravast_2022_09_400_85 per sensors.csv). Planet_stack.tif carries
+# B/G/R/NIR + NDVI (band 5 verified = NDVI(b4, b3) to 1e-8); the other four
+# indices are computed in-pipeline with Glen's formulas, verified against
+# the shipped S2 rasters to ~1e-8. No majority filter was applied to the
+# satellite products other than WV2 in any surviving script: smooth_window 0.
+planet:
+  epsg: 32734
+  dir: data-in/planet/raw
+  base: Planet_stack.tif
+  bands: [blue, green, red, nir, ndvi]
+  vis: [msavi, msavi2, mtvi, savi]      # computed; ndvi already in base
+  tag: 4_ALLVI
+  training: Planet_equal_class_size_400_train_85.shp
+  classes: [1, 2, 3, 5, 6]               # no S.mellifera at 3 m (7.32)
+  grids: data-in/planet/grids
+  aoi: WV2_clip.shp                      # shared study-area boundary
+  smooth_window: 0
+
+# Sentinel-2, 10 m (the reported run is S2_60_65). S2_Large_stack + the five
+# shipped VI rasters are bit-identical to Glen's assembled 9-band S2_stack.
+s2:
+  epsg: 32734
+  dir: data-in/s2/raw
+  base: S2_Large_stack.tif
+  bands: [blue, green, red, nir]
+  vis: [msavi, msavi2, mtvi, ndvi, savi]
+  vi_files: {msavi: S2_MSAVI.tif, msavi2: S2_MSAVI2.tif, mtvi: S2_MTVI.tif,
+             ndvi: S2_NDVI.tif, savi: S2_SAVI.tif}
+  tag: 4_ALLVI
+  training: S2_equal_class_size_60_train_65.shp
+  classes: [1, 2, 3, 6]                  # four classes at 10 m (7.32)
+  grids: data-in/s2/grids
+  aoi: WV2_clip.shp
+  smooth_window: 0

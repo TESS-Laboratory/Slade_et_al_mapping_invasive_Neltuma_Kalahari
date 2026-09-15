@@ -345,6 +345,159 @@ wv2_compare <- tar_map(
   )
 )
 
+
+# ---------------------------------------------------------------------------
+# Planet and S2: the generic satellite arm, driven from satellite.yml.
+# Same three training arms, prediction and S10 comparison as WV2; no phases
+# (the manuscript derives those from WV2 only). Flat tar_maps over
+# sensor x site and sensor x arm x learner, chained by symbol.
+# ---------------------------------------------------------------------------
+SAT_SENSORS <- c("planet", "s2")
+SATCFG_BUILD <- read_satellite()
+
+sat_grid <- data.frame(sensor = SAT_SENSORS, stringsAsFactors = FALSE)
+sat_grid$tag       <- vapply(SAT_SENSORS, function(s) SATCFG_BUILD[[s]]$tag, "")
+sat_grid$train_shp <- vapply(SAT_SENSORS, function(s)
+  file.path(SATCFG_BUILD[[s]]$dir, SATCFG_BUILD[[s]]$training), "")
+sat_grid$ext_raw_sym    <- rlang::syms(paste0("sat_ext_raw_all_", SAT_SENSORS))
+sat_grid$ext_smooth_sym <- rlang::syms(paste0("sat_ext_smooth_all_", SAT_SENSORS))
+for (id in TUNED_IDS) {
+  sat_grid[[paste0("cfg_", id)]] <-
+    rlang::syms(paste0("sat_tuned_", SAT_SENSORS, "_archived_", id))
+}
+
+per_sensor <- tar_map(
+  values = sat_grid,
+  names = sensor,
+  tar_target(sat_cfg, satcfg[[sensor]]),
+  tar_target(sat_base_path, file.path(sat_cfg$dir, sat_cfg$base), format = "file"),
+  tar_target(sat_vi_paths,
+             { sat_base_path; sat_vi_files(sat_cfg, sensor) },
+             format = "file"),
+  tar_target(sat_cube,
+             {
+               spec <- sat_cube_spec(sat_cfg, sat_vi_paths)
+               build_satellite_cube(spec$srcs, spec$bands, sensor)
+             },
+             format = "file"),
+  tar_target(sat_train_paths, shapefile_files(train_shp), format = "file"),
+  tar_target(sat_sensor_row, sensors[sensors[["sensor"]] == sensor, , drop = FALSE]),
+
+  # archived arm
+  tar_target(sat_training_ext,
+             build_training_table(sat_cube, sat_train_paths[1], sensor, tag,
+                                  classes = classes)),
+  tar_target(sat_training_archived,
+             balance_classes(drop_incomplete(sat_training_ext)$data,
+                             seed = resampling$seed)),
+  tar_target(sat_task_archived,
+             make_task(sat_training_archived, sensor, tag,
+                       sites = data.frame(site = sensor, epsg = sat_cfg$epsg))),
+
+  # re-derived arms
+  tar_target(sat_layer_dr_raw,
+             build_purity_layer(ext_raw_sym, sat_sensor_row$purity_threshold,
+                                sat_cfg$classes,
+                                file.path("data-out", sensor, "train_dr_raw.fgb")),
+             format = "file"),
+  tar_target(sat_layer_dr_smooth,
+             build_purity_layer(ext_smooth_sym, sat_sensor_row$purity_threshold,
+                                sat_cfg$classes,
+                                file.path("data-out", sensor, "train_dr_smooth.fgb")),
+             format = "file"),
+  tar_target(sat_training_dr_raw,
+             balance_classes(drop_incomplete(build_training_table(
+               sat_cube, sat_layer_dr_raw, sensor, tag, classes = classes))$data,
+               cap = sat_sensor_row$class_size, seed = resampling$seed)),
+  tar_target(sat_training_dr_smooth,
+             balance_classes(drop_incomplete(build_training_table(
+               sat_cube, sat_layer_dr_smooth, sensor, tag, classes = classes))$data,
+               cap = sat_sensor_row$class_size, seed = resampling$seed)),
+  tar_target(sat_task_dr_raw,
+             make_task(sat_training_dr_raw, sensor, tag,
+                       sites = data.frame(site = sensor, epsg = sat_cfg$epsg))),
+  tar_target(sat_task_dr_smooth,
+             make_task(sat_training_dr_smooth, sensor, tag,
+                       sites = data.frame(site = sensor, epsg = sat_cfg$epsg))),
+
+  # prediction on the archived arm, masked to the shared study-area boundary
+  tar_target(sat_best_archived,
+             sat_best[sat_best[["site"]] == paste0(sensor, "_archived"), , drop = FALSE]),
+  tar_target(
+    sat_pred,
+    predict_site(
+      sat_cube, wv2_aoi, sat_training_archived,
+      best = sat_best_archived, resampling = resampling,
+      tuned_configs = list(svm = cfg_svm, xgboost = cfg_xgboost,
+                           ranger = cfg_ranger, lightgbm = cfg_lightgbm,
+                           glmnet = cfg_glmnet),
+      site = sensor, tag = tag, aggregate = PRED_AGG
+    ),
+    format = "file", resources = ml_resources
+  ),
+  tar_target(sat_pred_summary, summarise_prediction(sat_pred, sensor, tag)),
+  tar_target(sat_pred_smooth,
+             smooth_prediction(sat_pred, sat_cfg$smooth_window, sensor, tag),
+             format = "file", resources = ml_resources),
+  tar_target(sat_confusion_raw_raw,
+             wv2_drone_confusion(ext_raw_sym, sat_pred, sat_cfg$classes)),
+  tar_target(sat_confusion_raw_smoothdrone,
+             wv2_drone_confusion(ext_smooth_sym, sat_pred, sat_cfg$classes))
+)
+
+# sensor x site: purity extraction over each sensor's pixel grids, and the
+# per-site area comparison against the drone surfaces.
+sat_site_grid <- expand.grid(sensor = SAT_SENSORS, site = SITES,
+                             stringsAsFactors = FALSE)
+sat_site_grid$grid_path <- mapply(function(s, site)
+  file.path(SATCFG_BUILD[[s]]$grids, paste0(site, ".shp")),
+  sat_site_grid$sensor, sat_site_grid$site, USE.NAMES = FALSE)
+sat_site_grid$pred_sym   <- rlang::syms(paste0("pred_", sat_site_grid$site))
+sat_site_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", sat_site_grid$site))
+sat_site_grid$aoi_sym    <- rlang::syms(paste0("aoi_paths_", sat_site_grid$site))
+sat_site_grid$sat_pred_sym   <- rlang::syms(paste0("sat_pred_", sat_site_grid$sensor))
+sat_site_grid$sat_smooth_sym <- rlang::syms(paste0("sat_pred_smooth_", sat_site_grid$sensor))
+
+sat_sites <- tar_map(
+  values = sat_site_grid,
+  names = c("sensor", "site"),
+  tar_target(sat_grid_files, shapefile_files(grid_path), format = "file"),
+  tar_target(sat_ext_raw,    purity_extract(pred_sym, sat_grid_files[1], site)),
+  tar_target(sat_ext_smooth, purity_extract(smooth_sym, sat_grid_files[1], site)),
+  tar_target(sat_site_areas,
+             compare_site_surfaces(site, aoi_sym[1],
+                                   drone = list(raw = pred_sym, smoothed = smooth_sym),
+                                   wv2   = list(raw = sat_pred_sym, smoothed = sat_smooth_sym),
+                                   sensor = sensor))
+)
+
+# Per-sensor combines of the site extractions, by explicit symbol list (the
+# same pattern as fig_maps) since tar_combine cannot subset a map by sensor.
+sat_ext_combines <- unlist(lapply(SAT_SENSORS, function(s) lapply(c("raw", "smooth"), function(k)
+  targets::tar_target_raw(
+    paste0("sat_ext_", k, "_all_", s),
+    rlang::call2("bind_rows", !!!rlang::syms(paste0("sat_ext_", k, "_", s, "_", SITES)),
+                 .ns = "dplyr")
+  ))), recursive = FALSE)
+
+# sensor x arm x learner fits
+sat_fit_grid <- expand.grid(sensor = SAT_SENSORS, arm = WV2_ARMS,
+                            learner_id = LEARNER_IDS, stringsAsFactors = FALSE)
+sat_fit_grid$task_sym <- rlang::syms(paste0("sat_task_", sat_fit_grid$arm, "_", sat_fit_grid$sensor))
+sat_fit_grid$spec_sym <- rlang::syms(paste0("spec_", sat_fit_grid$learner_id))
+sat_fit_grid$tag <- vapply(sat_fit_grid$sensor, function(s) SATCFG_BUILD[[s]]$tag, "")
+
+sat_fits <- tar_map(
+  values = sat_fit_grid,
+  names = c("sensor", "arm", "learner_id"),
+  tar_target(sat_tuned, tune_config(task_sym, spec_sym, tune_settings),
+             resources = ml_resources),
+  tar_target(sat_fit, run_resample(task_sym, spec_sym, eval_shared, sat_tuned),
+             resources = ml_resources),
+  tar_target(sat_fit_tidy,
+             tidy_resample(sat_fit, paste0(sensor, "_", arm), tag, learner_id))
+)
+
 list(
 
   # ---- configuration -------------------------------------------------------
@@ -588,6 +741,16 @@ list(
   tar_combine(plant_validation, wv2_compare[["plant_scale"]],
               command = rbind(!!!.x)),
   tar_target(plant_validation_summary, plant_scale_summary(plant_validation)),
+
+  # ---- satellite arms: Planet and S2 -------------------------------------
+  sat_sites,
+  sat_ext_combines,
+  per_sensor,
+  sat_fits,
+  tar_combine(sat_scores, sat_fits[["sat_fit_tidy"]], command = rbind(!!!.x)),
+  tar_target(sat_best, select_best(sat_scores)),
+  tar_combine(sat_drone_areas, sat_sites[["sat_site_areas"]], command = rbind(!!!.x)),
+  tar_combine(sat_pred_index, per_sensor[["sat_pred_summary"]], command = rbind(!!!.x)),
 
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under

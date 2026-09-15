@@ -243,3 +243,5 @@ active_profile <- function() {
   }
   p
 }
+
+`%||%` <- function(a, b) if (is.null(a)) b else a

@@ -180,14 +180,14 @@ masked_class_areas <- function(class_tif, aoi) {
 #' @param site drone site id
 #' @param aoi_path the drone site boundary
 #' @param drone named list: raw and smoothed drone prediction paths
-#' @param wv2 named list: raw and smoothed WV2 prediction paths
+#' @param wv2 named list: raw and smoothed satellite prediction paths
+#' @param sensor label for the satellite rows (planet and s2 reuse this)
 #' @return long data.frame: site, sensor, surface, Type, area_ha
-compare_site_surfaces <- function(site, aoi_path, drone, wv2) {
+compare_site_surfaces <- function(site, aoi_path, drone, wv2, sensor = "wv2") {
   aoi <- terra::vect(aoi_path)
-  sets <- list(
-    drone_raw      = drone$raw[1],      drone_smoothed = drone$smoothed[1],
-    wv2_raw        = wv2$raw[1],        wv2_smoothed   = wv2$smoothed[1]
-  )
+  sets <- list(drone$raw[1], drone$smoothed[1], wv2$raw[1], wv2$smoothed[1])
+  names(sets) <- c("drone_raw", "drone_smoothed",
+                   paste0(sensor, "_raw"), paste0(sensor, "_smoothed"))
   out <- lapply(names(sets), function(nm) {
     a <- masked_class_areas(sets[[nm]], aoi)
     parts <- strsplit(nm, "_")[[1]]
@@ -468,4 +468,94 @@ wv2_drone_confusion <- function(ext, wv2_tif, keep_classes) {
   out$wv2_class <- as.integer(out$wv2_class)
   out$drone_class <- as.integer(out$drone_class)
   out[out$n_pixels > 0, , drop = FALSE]
+}
+
+
+# ---------------------------------------------------------------------------
+# Planet and S2: the generic arm
+#
+# Same design as WV2, driven from satellite.yml. Two differences in the
+# inputs: S2 ships the same five VI rasters as WV2 (verified bit-identical to
+# Glen's assembled 9-band S2_stack), while Planet ships only B/G/R/NIR + NDVI,
+# so the other four VIs are computed here with Glen's exact formulas - which
+# were verified against all five S2 rasters at max |diff| ~1e-8 (2026-09-15).
+# ---------------------------------------------------------------------------
+
+#' Glen's vegetation-index formulas, exactly as coded
+#'
+#' Finding 4.10 stands: the index NAMED msavi is Qi et al.'s form with 2*RED
+#' (i.e. not MSAVI), msavi2 is the correct MSAVI, and mtvi is Haboudane's
+#' MTVI2. The names are kept so the computed rasters match the shipped ones
+#' band for band; the manuscript's "MSAVI2 and MTVI2" are these.
+#'
+#' @param green,red,nir numeric vectors or SpatRasters
+#' @return named list of the five indices
+vi_formulas <- function(green, red, nir) {
+  L <- 0.5
+  list(
+    msavi  = nir + 0.5 - 0.5 * sqrt((2 * nir + 1)^2 - 8 * (nir - 2 * red)),
+    msavi2 = (2 * nir + 1 - sqrt((2 * nir + 1)^2 - 8 * (nir - red))) / 2,
+    mtvi   = 1.5 * (1.2 * (nir - green) - 2.5 * (red - green)) /
+             sqrt((2 * nir + 1)^2 - (6 * nir - 5 * sqrt(red) - 0.5)),
+    ndvi   = (nir - red) / (nir + red),
+    savi   = (1 + L) * (nir - red) / (nir + red + L)
+  )
+}
+
+
+#' Write the vegetation indices a sensor's base stack lacks
+#'
+#' @param base_tif the reflectance stack
+#' @param base_bands its band names (must include green, red, nir)
+#' @param want indices to produce
+#' @param sensor id, for the output directory
+#' @return paths to the written rasters, in `want` order
+compute_vi_rasters <- function(base_tif, base_bands, want, sensor,
+                               out_dir = file.path("data-out", sensor, "vi")) {
+  r <- terra::rast(base_tif[1]); names(r) <- base_bands
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  vapply(want, function(vi) {
+    out <- file.path(out_dir, paste0(sensor, "_", vi, ".tif"))
+    v <- vi_formulas(r[["green"]], r[["red"]], r[["nir"]])[[vi]]
+    names(v) <- vi
+    terra::writeRaster(v, out, overwrite = TRUE,
+                       gdal = c("COMPRESS=LZW", "PREDICTOR=3", "TILED=YES"))
+    out
+  }, character(1), USE.NAMES = FALSE)
+}
+
+
+#' Source rasters and band names for a sensor cube, from its config entry
+#'
+#' @param cfg one sensor's entry from satellite.yml
+#' @param vi_files paths to VI rasters (shipped or computed), in `cfg$vis` order
+#' @return list(srcs, bands)
+sat_cube_spec <- function(cfg, vi_files) {
+  base <- file.path(cfg$dir, cfg$base)
+  if (!file.exists(base)) {
+    stop("Base raster not mirrored: ", base,
+         "\n  Run: sudo tools/mirror-results.sh --with-satellite", call. = FALSE)
+  }
+  list(srcs = c(base, vi_files), bands = c(cfg$bands, cfg$vis))
+}
+
+
+#' The VI rasters a sensor needs: shipped files, or computed ones
+#'
+#' @param cfg one sensor's entry from satellite.yml
+#' @param sensor id
+#' @return character vector of paths, in `cfg$vis` order
+sat_vi_files <- function(cfg, sensor) {
+  shipped <- cfg$vi_files %||% list()
+  paths <- vapply(cfg$vis, function(vi) {
+    if (!is.null(shipped[[vi]])) file.path(cfg$dir, shipped[[vi]]) else NA_character_
+  }, character(1))
+  to_compute <- cfg$vis[is.na(paths)]
+  if (length(to_compute)) {
+    paths[is.na(paths)] <- compute_vi_rasters(file.path(cfg$dir, cfg$base),
+                                              cfg$bands, to_compute, sensor)
+  }
+  missing <- paths[!file.exists(paths)]
+  if (length(missing)) stop("VI raster(s) missing: ", paste(missing, collapse = ", "))
+  unname(paths)
 }
