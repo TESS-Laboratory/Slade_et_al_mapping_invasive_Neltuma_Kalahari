@@ -19,6 +19,9 @@ wv2:
   # The study-area boundary. Ships without a .prj (finding 7.13); its CRS is
   # declared from `epsg` above and rewritten as .fgb by the pipeline.
   aoi: WV2_clip.shp
+  # Section 2.5: field training points "buffered by 0.8 m" for the WV2
+  # field-only arm (the 69.7% that +6.1% is measured against, Fig 6B).
+  field_buffer_m: 0.8
   # WV_2_Majority_filter.R line 52 runs focal(w = 9, fun = "modal") - 14.4 m
   # at 1.6 m pixels - while naming its outputs "MJ25"/"FMJ25". The code wins
   # over the filename, as usual in this project. 0 disables.

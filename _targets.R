@@ -319,6 +319,21 @@ wv2_extracts <- tar_map(
   tar_target(wv2_ext_smooth, purity_extract(smooth_sym, wv2_grid_files[1], site))
 )
 
+# The field-observations-only WV2 arm (section 3.2's 69.7%; Fig 6B), a
+# fourth WV2 arm kept out of WV2_ARMS because Planet/S2 share that list.
+wv2_field_fits <- tar_map(
+  values = list(learner_id = LEARNER_IDS,
+                spec_sym = rlang::syms(paste0("spec_", LEARNER_IDS))),
+  names = learner_id,
+  tar_target(wv2_field_tuned, tune_config(wv2_task_field, spec_sym, tune_settings),
+             resources = ml_resources),
+  tar_target(wv2_field_fit,
+             run_resample(wv2_task_field, spec_sym, eval_shared, wv2_field_tuned),
+             resources = ml_resources),
+  tar_target(wv2_field_fit_tidy,
+             tidy_resample(wv2_field_fit, "wv2_field", WV2_TAG, learner_id))
+)
+
 # Drone vs WV2 class areas per drone site - the Table S10 producer. All four
 # raw/smoothed combinations, so the reference-side choice (finding 7.31) is
 # explicit rather than inherited from what was on disk.
@@ -645,8 +660,30 @@ list(
              make_task(wv2_training_dr_smooth, "wv2", WV2_TAG,
                        sites = data.frame(site = "wv2", epsg = 32734L))),
 
+  # FIELD-ONLY ARM: the seven sites' field polygons re-buffered to the
+  # manuscript's 0.8 m, features from the WV2 cube, unbalanced as the
+  # original's was. The dependency list is built from SITES (fig_maps pattern).
+  targets::tar_target_raw(
+    "wv2_layer_field",
+    rlang::call2("build_field_layer",
+                 rlang::call2("setNames",
+                              rlang::call2("list", !!!rlang::syms(paste0("field_paths_", SITES))),
+                              SITES),
+                 quote(satcfg$wv2$field_buffer_m), quote(satcfg$wv2$classes),
+                 "data-out/wv2/wv2_train_field.fgb"),
+    format = "file"
+  ),
+  tar_target(wv2_training_field,
+             drop_incomplete(build_training_table(wv2_cube, wv2_layer_field, "wv2",
+                                                  WV2_TAG, classes = classes))$data),
+  tar_target(wv2_task_field,
+             make_task(wv2_training_field, "wv2", WV2_TAG,
+                       sites = data.frame(site = "wv2", epsg = 32734L))),
+
   wv2_fits,
-  tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], command = rbind(!!!.x)),
+  wv2_field_fits,
+  tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], wv2_field_fits[["wv2_field_fit_tidy"]],
+              command = rbind(!!!.x)),
   tar_target(wv2_best, select_best(wv2_scores)),
   # Prediction reproduces the reported product, so it runs on the archived arm.
   tar_target(wv2_best_archived,
@@ -766,6 +803,14 @@ list(
   ),
 
   tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file"),
+  # Figure 5 analogue: sub-pixel Neltuma cover per sensor, from the raw-surface
+  # purity extractions of all three sensors.
+  tar_target(fig_cover,
+             fig_subpixel_cover(list(wv2 = wv2_ext_raw_all,
+                                     planet = sat_ext_raw_all_planet,
+                                     s2 = sat_ext_raw_all_s2),
+                                sensors),
+             format = "file"),
 
   # ---- the paper ----------------------------------------------------------
   # The manuscript as a pipeline product: verbatim text, pipeline numbers as

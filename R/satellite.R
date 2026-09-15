@@ -559,3 +559,31 @@ sat_vi_files <- function(cfg, sensor) {
   if (length(missing)) stop("VI raster(s) missing: ", paste(missing, collapse = ", "))
   unname(paths)
 }
+
+
+#' Field-observations-only training layer for WV2 (the 69.7% arm)
+#'
+#' Manuscript section 2.5: "training points buffered by 0.8 m to generate
+#' labels for WorldView-2 classification", and Fig 6B's +6.1% is the
+#' drone-derived training set against this one. The original read a combined
+#' layer (Boravast_all_train_val_combined_b30_WV2, not mirrored); here the
+#' seven sites' field polygons are combined, re-buffered to the stated radius
+#' from their centroids, restricted to the sensor's class roster, and written
+#' as .fgb. Not balanced: the original field arm was not.
+#'
+#' @param field_paths list of per-site shapefile file vectors (.shp first)
+#' @param buffer_m radius from the point centroid
+#' @param keep_classes the sensor's class roster
+#' @param out output path
+#' @return `out`
+build_field_layer <- function(field_paths, buffer_m, keep_classes, out) {
+  parts <- lapply(names(field_paths), function(site) {
+    v <- sf::st_read(field_paths[[site]][1], quiet = TRUE)
+    v <- v[v$Type %in% keep_classes, "Type", drop = FALSE]
+    g <- sf::st_buffer(sf::st_centroid(sf::st_geometry(v)), buffer_m)
+    sf::st_sf(site = site, Type = as.integer(v$Type), geometry = g)
+  })
+  v <- do.call(rbind, parts)
+  if (!nrow(v)) stop("Field layer is empty after class filtering.", call. = FALSE)
+  write_fgb(v, out)
+}

@@ -241,3 +241,67 @@ fig_accuracy <- function(best_models, score_index,
                   bg = "white", device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Figure 5 analogue: sub-pixel Neltuma cover per sensor grain
+#'
+#' One histogram per sensor of the Neltuma fraction inside each satellite
+#' pixel over the drone sites, from the purity extractions (raw drone
+#' surfaces). Zero-cover pixels dominate every sensor and would flatten the
+#' plot, so the panels show pixels with any Neltuma and state the zero share
+#' and the share reaching that sensor's training purity threshold directly -
+#' the numbers the caption's claim ("coarser grain sharply reduces
+#' high-cover pixels") actually rests on. Single series, so no legend; the
+#' Neltuma magenta is the only hue.
+#'
+#' @param exts named list (wv2, planet, s2) of purity-extraction tables with
+#'   a `frac_1` column
+#' @param sensors the sensors table (pixel_m, purity_threshold)
+#' @param out_png output path
+#' @return `out_png`
+fig_subpixel_cover <- function(exts, sensors, out_png = "data-out/figures/fig5_subpixel_cover.png") {
+  accent <- "#B5179E"
+  labels <- c(wv2 = "WorldView-2", planet = "PlanetScope", s2 = "Sentinel-2")
+  rows <- lapply(names(exts), function(s) {
+    fr <- exts[[s]]
+    if (inherits(fr, "sf")) fr <- sf::st_drop_geometry(fr)
+    cov <- fr$frac_1; cov[is.na(cov)] <- 0
+    px  <- sensors$pixel_m[sensors$sensor == s]
+    thr <- sensors$purity_threshold[sensors$sensor == s]
+    list(
+      data = data.frame(sensor = s, cover = cov[cov > 0]),
+      note = data.frame(
+        sensor = s,
+        label = sprintf("%s (%g m)\n%s pixels; %.1f%% with any Neltuma;\n%.2f%% at the %.0f%% purity threshold",
+                        labels[[s]], px, format(length(cov), big.mark = ","),
+                        100 * mean(cov > 0), 100 * mean(cov >= thr), 100 * thr),
+        thr = thr)
+    )
+  })
+  d <- do.call(rbind, lapply(rows, `[[`, "data"))
+  n <- do.call(rbind, lapply(rows, `[[`, "note"))
+  d$sensor <- factor(d$sensor, levels = names(exts)); n$sensor <- factor(n$sensor, levels = names(exts))
+
+  fig <- ggplot2::ggplot(d, ggplot2::aes(cover)) +
+    ggplot2::geom_histogram(binwidth = 0.05, boundary = 0, fill = accent,
+                            colour = "white", linewidth = 0.3) +
+    ggplot2::geom_vline(data = n, ggplot2::aes(xintercept = thr),
+                        linetype = "dashed", colour = "grey40", linewidth = 0.4) +
+    ggplot2::geom_text(data = n, ggplot2::aes(x = 0.02, y = Inf, label = label),
+                       hjust = 0, vjust = 1.15, size = 2.7, colour = "grey20", lineheight = 0.95) +
+    ggplot2::facet_wrap(~ sensor, ncol = 1, scales = "free_y") +
+    ggplot2::scale_x_continuous("Sub-pixel Neltuma cover (fraction of pixel)",
+                                limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
+    ggplot2::scale_y_continuous("Pixels with any Neltuma", labels = scales::comma) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(),
+                   panel.grid.major.y = ggplot2::element_line(colour = "grey90", linewidth = 0.3),
+                   strip.text = ggplot2::element_blank(),
+                   axis.title = ggplot2::element_text(colour = "grey30"))
+
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 6, height = 7.5, dpi = 200,
+                  bg = "white", device = grDevices::png, type = "cairo")
+  out_png
+}
