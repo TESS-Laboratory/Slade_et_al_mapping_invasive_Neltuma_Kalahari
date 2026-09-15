@@ -13,8 +13,19 @@
 #' @param best_models per site x stack winners
 #' @param class_areas raw-surface class areas
 #' @param training_index per-task training summaries
+#' @param class_index per-fit Neltuma recall/precision (drone arm)
+#' @param wv2_scores,sat_scores satellite benchmark scores, all arms
+#' @param sat_class_index per-fit Neltuma recall for the satellite arms
+#' @param wv2_drone_areas per-site drone vs WV2 class areas (S10 producer)
+#' @param wv2_confusion,wv2_confusion_raw the S10 matrices, smoothed and raw
+#' @param wv2_phase_table invasion-phase areas (Table 1 producer)
+#' @param plant_validation_summary plant-scale accuracy (Table S9 producer)
 #' @return named list consumed by paper/manuscript.qmd
-build_paper_values <- function(score_index, best_models, class_areas, training_index) {
+build_paper_values <- function(score_index, best_models, class_areas, training_index,
+                               class_index = NULL, wv2_scores = NULL, sat_scores = NULL,
+                               sat_class_index = NULL, wv2_drone_areas = NULL,
+                               wv2_confusion = NULL, wv2_confusion_raw = NULL,
+                               wv2_phase_table = NULL, plant_validation_summary = NULL) {
   pct0 <- function(x) sprintf("%.0f", 100 * x)
   pct1 <- function(x) sprintf("%.1f", 100 * x)
 
@@ -23,7 +34,7 @@ build_paper_values <- function(score_index, best_models, class_areas, training_i
   lrn_mean  <- lrn_mean[order(-lrn_mean$classif.acc), ]
   stack_mean <- stats::aggregate(classif.acc ~ tag, score_index, mean)
 
-  list(
+  out <- list(
     n_sites            = length(unique(score_index$site)),
     n_learners         = length(unique(score_index$learner)),
     n_outer_iterations = max(score_index$n_iters),
@@ -40,5 +51,79 @@ build_paper_values <- function(score_index, best_models, class_areas, training_i
     n_field_total      = sum(training_index$n[training_index$tag ==
                                training_index$tag[1]]),
     min_class_n        = min(training_index$min_class_n)
+  )
+  if (is.null(wv2_scores)) return(out)
+  c(out, satellite_paper_values(best_models, class_index, wv2_scores, sat_scores,
+                                sat_class_index, wv2_drone_areas, wv2_confusion,
+                                wv2_confusion_raw, wv2_phase_table,
+                                plant_validation_summary))
+}
+
+
+#' Satellite-side values for the manuscript (sections 3.2-3.4, abstract)
+#'
+#' Same substitution policy as above. Where the manuscript's number depends
+#' on the smoothing choice (S10, the phases) both surfaces are supplied and
+#' the qmd states which it shows.
+satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_scores,
+                                   sat_class_index, wv2_drone_areas, wv2_confusion,
+                                   wv2_confusion_raw, wv2_phase_table,
+                                   plant_validation_summary) {
+  pct0 <- function(x) sprintf("%.0f", 100 * x)
+  pct1 <- function(x) sprintf("%.1f", 100 * x)
+  sc <- rbind(wv2_scores, sat_scores)
+  best_of <- function(arm) { d <- sc[sc$site == arm, ]; d[which.max(d$classif.acc), ] }
+  lrn_of  <- function(arm, learner) sc[sc$site == arm & sc$learner == learner, ]
+  recall_of <- function(arm, learner) {
+    d <- sat_class_index[sat_class_index$site == arm & sat_class_index$learner == learner, ]
+    d$recall[1]
+  }
+  # Neltuma recall of the winning drone learner per site, averaged by stack
+  key <- paste(best_models$site, best_models$tag, best_models$learner)
+  ci  <- class_index[match(key, paste(class_index$site, class_index$tag, class_index$learner)), ]
+  nel_by_stack <- tapply(ci$recall, best_models$tag, mean, na.rm = TRUE)
+
+  m  <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion)
+  mr <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion_raw)
+  woody <- c("5", "6", "7")
+  nel_area <- function(sensor, surface) {
+    d <- wv2_drone_areas[wv2_drone_areas$Type == 1 & wv2_drone_areas$sensor == sensor &
+                         wv2_drone_areas$surface == surface, ]
+    sum(d$area_ha)
+  }
+  ph <- function(surface, phase) wv2_phase_table[wv2_phase_table$surface == surface &
+                                                 wv2_phase_table$phase == phase, ]
+  wa <- best_of("wv2_archived"); wf <- best_of("wv2_field")
+  pa <- best_of("planet_archived"); sa <- best_of("s2_archived")
+  s9 <- plant_validation_summary[plant_validation_summary$surface == "raw" &
+                                 plant_validation_summary$Type == 1, ]
+  list(
+    neltuma_drone_pct       = pct0(max(nel_by_stack)),
+    neltuma_drone_stack     = names(nel_by_stack)[which.max(nel_by_stack)],
+    neltuma_drone_chm_pct   = pct1(nel_by_stack[["5_CHM"]]),
+    wv2_best_pct            = pct1(wa$classif.acc), wv2_best_learner = wa$learner,
+    wv2_svm_pct             = pct1(lrn_of("wv2_archived", "svm")$classif.acc),
+    wv2_ensemble_pct        = pct1(lrn_of("wv2_archived", "ensemble")$classif.acc),
+    wv2_field_pct           = pct1(wf$classif.acc), wv2_field_learner = wf$learner,
+    wv2_field_minus_purity  = sprintf("%+.1f", 100 * (wf$classif.acc - wa$classif.acc)),
+    wv2_neltuma_recall_pct  = pct0(recall_of("wv2_archived", wa$learner)),
+    wv2_field_neltuma_recall_pct = pct0(recall_of("wv2_field", wf$learner)),
+    planet_best_pct         = pct1(pa$classif.acc), planet_best_learner = pa$learner,
+    s2_best_pct             = pct1(sa$classif.acc), s2_best_learner = sa$learner,
+    planet_neltuma_recall_pct = pct0(recall_of("planet_archived", pa$learner)),
+    s2_neltuma_recall_pct   = pct0(recall_of("s2_archived", sa$learner)),
+    s10_over_smooth_pct     = sprintf("%.1f", 100 * (nel_area("wv2", "smoothed") / nel_area("drone", "smoothed") - 1)),
+    s10_over_raw_pct        = sprintf("%.1f", 100 * (nel_area("wv2", "raw") / nel_area("drone", "raw") - 1)),
+    s10_woody_smooth_pct    = pct1(sum(m[woody, "1"]) / sum(m[, "1"])),
+    s10_woody_raw_pct       = pct1(sum(mr[woody, "1"]) / sum(mr[, "1"])),
+    s10_recall_smooth       = sprintf("%.2f", m["1", "1"] / sum(m[, "1"])),
+    s10_recall_raw          = sprintf("%.2f", mr["1", "1"] / sum(mr[, "1"])),
+    dominance_km2_raw       = sprintf("%.0f", ph("raw", "Dominance")$area_ha / 100),
+    dominance_pct_raw       = sprintf("%.1f", ph("raw", "Dominance")$pct_of_area),
+    dominance_pct_smooth    = sprintf("%.1f", ph("smooth", "Dominance")$pct_of_area),
+    expanding_km2_raw       = sprintf("%.0f", (ph("raw", "Expansion")$area_ha + ph("raw", "Initial Incursion")$area_ha) / 100),
+    expanding_pct_raw       = sprintf("%.1f", ph("raw", "Expansion")$pct_of_area + ph("raw", "Initial Incursion")$pct_of_area),
+    expanding_pct_smooth    = sprintf("%.1f", ph("smooth", "Expansion")$pct_of_area + ph("smooth", "Initial Incursion")$pct_of_area),
+    s9_neltuma_pct          = pct1(s9$accuracy), s9_neltuma_n = s9$n
   )
 }

@@ -411,3 +411,30 @@ select_best <- function(scores) {
     out
   }))
 }
+
+
+#' Per-class accuracy for one resample result - the "Neltuma-specific" figure
+#'
+#' The manuscript reports a "Neltuma-specific accuracy" (Fig 4C, section 3.3)
+#' without defining it; recall of the Neltuma class over the pooled
+#' cross-validation predictions is the reading that matches its numbers.
+#' Kept out of tidy_resample() on purpose: adding columns there would change
+#' best_models' rows and re-run every landscape prediction that depends on
+#' them.
+#'
+#' @param rr a ResampleResult
+#' @param site,tag,learner_id ids
+#' @param code the class code of interest (Neltuma = 1)
+#' @return one-row data.frame: recall, precision, n_truth for that class
+tidy_class_accuracy <- function(rr, site, tag, learner_id, code = 1L) {
+  p  <- rr$prediction()
+  cm <- table(truth = p$truth, response = p$response)
+  k  <- as.character(code)
+  tp <- if (k %in% rownames(cm) && k %in% colnames(cm)) cm[k, k] else 0
+  n_truth <- if (k %in% rownames(cm)) sum(cm[k, ]) else 0
+  n_pred  <- if (k %in% colnames(cm)) sum(cm[, k]) else 0
+  data.frame(site = site, tag = tag, learner = learner_id, class = code,
+             recall = if (n_truth) tp / n_truth else NA_real_,
+             precision = if (n_pred) tp / n_pred else NA_real_,
+             n_truth = as.integer(n_truth), stringsAsFactors = FALSE)
+}

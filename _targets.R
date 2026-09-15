@@ -227,7 +227,8 @@ per_fit <- tar_map(
              resources = ml_resources),
   tar_target(fit, run_resample(task_sym, spec_sym, eval_shared, tuned),
              resources = ml_resources),
-  tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id))
+  tar_target(fit_tidy, tidy_resample(fit, site, tag, learner_id)),
+  tar_target(fit_class, tidy_class_accuracy(fit, site, tag, learner_id, neltuma_code))
 )
 
 # Landscape prediction: one surface per site, winning learner for PRED_TAG,
@@ -301,7 +302,9 @@ wv2_fits <- tar_map(
   tar_target(wv2_fit, run_resample(task_sym, spec_sym, eval_shared, wv2_tuned),
              resources = ml_resources),
   tar_target(wv2_fit_tidy,
-             tidy_resample(wv2_fit, paste0("wv2_", arm), WV2_TAG, learner_id))
+             tidy_resample(wv2_fit, paste0("wv2_", arm), WV2_TAG, learner_id)),
+  tar_target(wv2_fit_class,
+             tidy_class_accuracy(wv2_fit, paste0("wv2_", arm), WV2_TAG, learner_id, neltuma_code))
 )
 
 # Per-site purity extraction against both drone surfaces, feeding the two
@@ -331,7 +334,9 @@ wv2_field_fits <- tar_map(
              run_resample(wv2_task_field, spec_sym, eval_shared, wv2_field_tuned),
              resources = ml_resources),
   tar_target(wv2_field_fit_tidy,
-             tidy_resample(wv2_field_fit, "wv2_field", WV2_TAG, learner_id))
+             tidy_resample(wv2_field_fit, "wv2_field", WV2_TAG, learner_id)),
+  tar_target(wv2_field_fit_class,
+             tidy_class_accuracy(wv2_field_fit, "wv2_field", WV2_TAG, learner_id, neltuma_code))
 )
 
 # Drone vs WV2 class areas per drone site - the Table S10 producer. All four
@@ -510,7 +515,9 @@ sat_fits <- tar_map(
   tar_target(sat_fit, run_resample(task_sym, spec_sym, eval_shared, sat_tuned),
              resources = ml_resources),
   tar_target(sat_fit_tidy,
-             tidy_resample(sat_fit, paste0(sensor, "_", arm), tag, learner_id))
+             tidy_resample(sat_fit, paste0(sensor, "_", arm), tag, learner_id)),
+  tar_target(sat_fit_class,
+             tidy_class_accuracy(sat_fit, paste0(sensor, "_", arm), tag, learner_id, neltuma_code))
 )
 
 list(
@@ -581,6 +588,9 @@ list(
 
   per_fit,
   tar_combine(score_index, per_fit[["fit_tidy"]], command = rbind(!!!.x)),
+  # Neltuma-specific accuracy per fit, kept separate from score_index so the
+  # landscape predictions' best_row dependency is untouched.
+  tar_combine(class_index, per_fit[["fit_class"]], command = rbind(!!!.x)),
 
   # Best learner per site x stack, with the margin over the runner-up and a
   # clear_win flag so wins inside the noise are not silently promoted.
@@ -684,6 +694,8 @@ list(
   wv2_field_fits,
   tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], wv2_field_fits[["wv2_field_fit_tidy"]],
               command = rbind(!!!.x)),
+  tar_combine(wv2_class_index, wv2_fits[["wv2_fit_class"]], wv2_field_fits[["wv2_field_fit_class"]],
+              command = rbind(!!!.x)),
   tar_target(wv2_best, select_best(wv2_scores)),
   # Prediction reproduces the reported product, so it runs on the archived arm.
   tar_target(wv2_best_archived,
@@ -785,6 +797,7 @@ list(
   per_sensor,
   sat_fits,
   tar_combine(sat_scores, sat_fits[["sat_fit_tidy"]], command = rbind(!!!.x)),
+  tar_combine(sat_class_index, sat_fits[["sat_fit_class"]], command = rbind(!!!.x)),
   tar_target(sat_best, select_best(sat_scores)),
   tar_combine(sat_drone_areas, sat_sites[["sat_site_areas"]], command = rbind(!!!.x)),
   tar_combine(sat_pred_index, per_sensor[["sat_pred_summary"]], command = rbind(!!!.x)),
@@ -824,6 +837,14 @@ list(
   # inline expressions, contradictions flagged for authorial decisions.
   # tar_quarto scans the qmd for tar_read() calls and wires the dependencies.
   tar_target(paper_values,
-             build_paper_values(score_index, best_models, class_areas, training_index)),
+             build_paper_values(score_index, best_models, class_areas, training_index,
+                                class_index = class_index,
+                                wv2_scores = wv2_scores, sat_scores = sat_scores,
+                                sat_class_index = rbind(wv2_class_index, sat_class_index),
+                                wv2_drone_areas = wv2_drone_areas,
+                                wv2_confusion = wv2_confusion_smooth_smooth,
+                                wv2_confusion_raw = wv2_confusion_raw_raw,
+                                wv2_phase_table = wv2_phase_table,
+                                plant_validation_summary = plant_validation_summary)),
   tarchetypes::tar_quarto(paper, "paper/manuscript.qmd")
 )
