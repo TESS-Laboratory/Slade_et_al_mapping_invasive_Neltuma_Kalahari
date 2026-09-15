@@ -1152,6 +1152,24 @@ indication that halving or doubling the fold count moves it by 5 points
 either way. The per-fold minima (~0.26 at every fold count) say there are
 regions the model simply cannot extrapolate to. **[ANDY]** - the honest
 report is the curve, or at least an accuracy with the fold geometry stated.
+**Extension (same day, tuned learners, 10 repeats each):**
+
+| learner | spcv 20-fold | plain 10-fold CV (non-spatial) |
+|---|---|---|
+| lightgbm (tuned) | 0.705 (sd 0.15, min 0.20) | **0.754** (sd 0.03, min 0.67) |
+| svm (tuned) | 0.608 (min 0.00) | 0.349 (min 0.14) - unreliable, see below |
+
+Non-spatial CV on the archived task gives lightgbm **0.754 - the original's
+75.8% to the decimal.** Read together with the fold curve above: the
+reported WV2 accuracy is what this data yields when spatial structure is
+ignored or nearly so, and every step toward honest spatial holdout costs
+points (0.754 -> 0.705 -> 0.643 for non-spatial -> 20 -> 10 folds). The svm
+row is not evidence of anything: a non-spatial score below its spatial
+score with a 0.000 fold means the tuned svm configuration is failing to fit
+in this standalone run (the pipeline's own svm evaluation scored 0.623),
+which is a diagnostic-script problem to chase, not a result. Results in
+data-out/results/wv2_fold_geometry.rds.
+
 ### 7.35 The WV2 landscape: S10's "24.8% overprediction" reproduces - and is a smoothing artefact
 
 Landscape prediction on the archived arm (lightgbm, 0.643 under 10x10
