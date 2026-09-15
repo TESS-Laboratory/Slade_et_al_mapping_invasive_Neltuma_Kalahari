@@ -1118,6 +1118,40 @@ disagreeing with contents:
 Also: `satellite.yml` is a separate config file because `resampling` feeds
 predict_site() for the drone surfaces - a resampling.yml edit invalidates
 seven banked landscape predictions. Found by nearly doing it.
+
+### 7.34 WV2 accuracy is a function of fold count, and 75.8% sits at the top
+
+Full-profile WV2 benchmark (10x10 spcv_coords, MBO 30): archived arm best
+0.643 (lightgbm), dr_raw 0.680 (svm), dr_smooth 0.640 - all well short of the
+original's reported 75.8% ensemble accuracy. Before treating that as a
+reproduction failure, the fold-geometry hypothesis was measured: same
+archived task, same untuned ranger, only the spcv_coords fold count varies
+(3 repeats each):
+
+| folds | mean acc | sd | min |
+|---|---|---|---|
+| 5 | 0.493 | 0.172 | 0.266 |
+| 10 | 0.633 | 0.183 | 0.269 |
+| 20 | **0.681** | 0.149 | 0.262 |
+| 40 | 0.706 | 0.144 | 0.422 |
+
+Accuracy climbs **21 points from 5 to 40 folds** with no change to model or
+data. Mechanism: the 2,400 training pixels sit in seven discontiguous site
+clusters; few, large folds hold out whole regions (extrapolation), many
+small folds hold out sub-site chunks (interpolation). The original evaluated
+at 20 folds - near the top of this curve - so its 75.8% measures the
+friendliest available geometry. At the original's own fold count an untuned
+baseline reaches 0.681; the remaining ~7-point gap plausibly includes that
+the archived 75.8% was computed from pooled confusion sums (micro-average,
+which up-weights the folds that succeed) rather than a mean over folds.
+
+Consistent with the drone arm's story (7.28: "~90%" 2-3 points optimistic)
+but much stronger at satellite scale, and directly relevant to R1's spatial
+validation concerns: the manuscript reports a single WV2 accuracy with no
+indication that halving or doubling the fold count moves it by 5 points
+either way. The per-fold minima (~0.26 at every fold count) say there are
+regions the model simply cannot extrapolate to. **[ANDY]** - the honest
+report is the curve, or at least an accuracy with the fold geometry stated.
 ---
 
 ## 8. Class scheme
@@ -1516,3 +1550,10 @@ manifest, lockfile and library in agreement.
   separate config so satellite churn cannot invalidate the banked drone
   predictions. Fast-profile smoke run green through the dr_smooth fits at
   time of writing.
+- **2026-09-15 (later still)** Full-profile WV2 benchmark + fold diagnostic.
+  **Finding 7.34**: archived 0.643 / dr_raw 0.680 / dr_smooth 0.640, all
+  short of the reported 75.8% - and the fold-count diagnostic shows why:
+  same task, same untuned ranger, accuracy climbs 0.49 -> 0.71 from 5 to 40
+  spcv folds. The original's 20-fold design sits near the top of the curve
+  and its 75.8% was a pooled-confusion micro-average. S9 plant-scale
+  validation reproduces (Neltuma ~96% raw, ~95% smoothed). [ANDY]
