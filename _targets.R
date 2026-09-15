@@ -110,6 +110,9 @@ PRED_TAG <- read_resampling()$prediction$stack
 PRED_AGG <- if (PROFILE == "fast") as.integer(read_resampling()$prediction$fast_aggregate) else 1L
 `%||%` <- function(a, b) if (is.null(a)) b else a
 PRED_SMOOTH <- as.integer(read_resampling()$prediction$smooth_window %||% 0L)
+# The WV2 benchmark task: four corrected reflectance bands + all five VIs,
+# named by analogy with the drone tags (there is no CHM at satellite scale).
+WV2_TAG <- "4_ALLVI"
 
 # Per-site input paths, checks, and eventually cubes and models. tar_map is used
 # in preference to dynamic branching because the sites are known up front: it
@@ -272,6 +275,21 @@ per_pred <- tar_map(
   tar_target(smooth_areas, class_area_table(pred_smooth, site, PRED_TAG, "smoothed"))
 )
 
+# Satellite arm, WV2 first: one task, every learner - the same tune-once +
+# fixed-config evaluation as the drone fits, sharing spec_/tune_settings/
+# eval_shared so a budget change invalidates both arms together. See
+# R/satellite.R for what is reproduced and on what evidence (finding 7.32).
+wv2_fits <- tar_map(
+  values = list(learner_id = LEARNER_IDS,
+                spec_sym = rlang::syms(paste0("spec_", LEARNER_IDS))),
+  names = learner_id,
+  tar_target(wv2_tuned, tune_config(wv2_task, spec_sym, tune_settings),
+             resources = ml_resources),
+  tar_target(wv2_fit, run_resample(wv2_task, spec_sym, eval_shared, wv2_tuned),
+             resources = ml_resources),
+  tar_target(wv2_fit_tidy, tidy_resample(wv2_fit, "wv2", WV2_TAG, learner_id))
+)
+
 list(
 
   # ---- configuration -------------------------------------------------------
@@ -350,6 +368,38 @@ list(
   tar_combine(class_areas, per_pred[["pred_summary"]], command = rbind(!!!.x)),
   tar_combine(class_areas_smooth, per_pred[["smooth_areas"]], command = rbind(!!!.x)),
   tar_target(area_comparison, compare_areas(class_areas, class_areas_smooth)),
+
+  # ---- satellite arm: WV2 -------------------------------------------------
+  # Inputs tracked as files: the six mirrored rasters and the archived training
+  # extraction with its sidecars (the .prj is present here, unlike WV2_clip).
+  tar_target(wv2_raster_paths, wv2_raster_files(), format = "file"),
+  tar_target(wv2_train_paths,
+             shapefile_files(file.path(WV2_DIR,
+                             "WV2_equal_class_size_500_train_95.shp")),
+             format = "file"),
+
+  tar_target(wv2_cube,
+             build_satellite_cube(wv2_raster_paths, WV2_BANDS, "wv2"),
+             format = "file"),
+
+  # Feature extraction over the archived pixel polygons, then attrition
+  # accounting and the balance-to-rarest that the reported run applied
+  # (500 requested, 400 effective - findings 7.19/7.32).
+  tar_target(wv2_training_raw,
+             build_training_table(wv2_cube, wv2_train_paths[1], "wv2", WV2_TAG,
+                                  classes = classes)),
+  tar_target(wv2_training_split, drop_incomplete(wv2_training_raw)),
+  tar_target(wv2_training_drops, wv2_training_split$summary),
+  tar_target(wv2_training,
+             balance_classes(wv2_training_split$data, seed = resampling$seed)),
+
+  tar_target(wv2_task,
+             make_task(wv2_training, "wv2", WV2_TAG,
+                       sites = data.frame(site = "wv2", epsg = 32734L))),
+
+  wv2_fits,
+  tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], command = rbind(!!!.x)),
+  tar_target(wv2_best, select_best(wv2_scores)),
 
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under
