@@ -370,3 +370,63 @@ phase_summary <- function(layer_path) {
   cbind(surface = rep(names(out), each = nrow(out[[1]])),
         do.call(rbind, out), row.names = NULL)
 }
+
+
+#' Plant-scale validation - the Table S9 producer
+#'
+#' `All_points_buffered_additional.shp` (mirrored with the WV2 set, no .prj,
+#' same CRS situation as WV2_clip) is the seven sites' field train+val point
+#' buffers plus 134 "additional" digitised points of only bare/grass/woody
+#' classes - matching Table S9's "every Neltuma plant ... and a representative
+#' selection of grass and bare ground". Neltuma count is 214 against the
+#' manuscript's n = 184; the difference is RECORDED, not resolved (finding
+#' 7.33) - plants outside the classified footprints drop out below, which may
+#' or may not close the gap.
+#'
+#' Table S9 extracted "the majority classification from a 20 cm radius circle
+#' at each plant's centre"; these buffers average ~1 m2. The layer is used as
+#' shipped rather than re-buffered - the majority over either disc differs
+#' only where a plant straddles a class boundary.
+#'
+#' @param site drone site id
+#' @param points_path the buffered points shapefile
+#' @param raw_tif,smooth_tif this site's class surfaces
+#' @param epsg CRS to declare on the layer
+#' @return data.frame: site, Type, pred_raw, pred_smooth for points on-site
+plant_scale_site <- function(site, points_path, raw_tif, smooth_tif,
+                             epsg = 32734L) {
+  v <- sf::st_read(points_path, quiet = TRUE)
+  if (is.na(sf::st_crs(v))) v <- sf::st_set_crs(v, epsg)
+
+  r_raw <- terra::rast(raw_tif[1])[[1]]
+  inside <- lengths(sf::st_intersects(
+    v, sf::st_as_sfc(sf::st_bbox(r_raw)))) > 0
+  v <- v[inside, , drop = FALSE]
+  if (!nrow(v)) {
+    return(data.frame(site = character(0), Type = integer(0),
+                      pred_raw = integer(0), pred_smooth = integer(0)))
+  }
+
+  maj <- function(r) as.integer(
+    exactextractr::exact_extract(r, v, "majority", progress = FALSE))
+  data.frame(site = site, Type = as.integer(v$Type),
+             pred_raw = maj(r_raw),
+             pred_smooth = maj(terra::rast(smooth_tif[1])[[1]]))
+}
+
+
+#' Per-class plant-scale accuracy, both surfaces
+#'
+#' @param df combined output of `plant_scale_site()`
+#' @return data.frame: surface, Type, n, n_correct, accuracy
+plant_scale_summary <- function(df) {
+  out <- lapply(c(raw = "pred_raw", smooth = "pred_smooth"), function(col) {
+    ok <- !is.na(df[[col]])
+    agg <- aggregate(list(n = ok, n_correct = ok & df[[col]] == df$Type),
+                     by = list(Type = df$Type), FUN = sum)
+    agg$accuracy <- agg$n_correct / agg$n
+    agg
+  })
+  cbind(surface = rep(names(out), vapply(out, nrow, 1L)),
+        do.call(rbind, out), row.names = NULL)
+}

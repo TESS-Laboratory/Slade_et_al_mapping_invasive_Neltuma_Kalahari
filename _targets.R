@@ -335,6 +335,13 @@ wv2_compare <- tar_map(
     compare_site_surfaces(site, aoi_sym[1],
                           drone = list(raw = pred_sym, smoothed = smooth_sym),
                           wv2   = list(raw = wv2_pred, smoothed = wv2_pred_smooth))
+  ),
+  # Plant-scale validation rows for this site (Table S9 producer): every
+  # buffered field point falling on this site's surface, majority class from
+  # both the raw and smoothed classification.
+  tar_target(
+    plant_scale,
+    plant_scale_site(site, s9_points_paths[1], pred_sym, smooth_sym)
   )
 )
 
@@ -558,6 +565,17 @@ list(
                                "data-out/wv2/prevalence.fgb"),
              format = "file"),
   tar_target(wv2_phase_table, phase_summary(wv2_phase_layer)),
+
+  # Plant-scale validation (Table S9). The input layer ships with the WV2
+  # mirror; n(Neltuma) = 214 here vs the manuscript's 184 - recorded as
+  # finding 7.33, not resolved.
+  tar_target(s9_points_paths,
+             shapefile_files(file.path(WV2_DIR,
+                             "All_points_buffered_additional.shp")),
+             format = "file"),
+  tar_combine(plant_validation, wv2_compare[["plant_scale"]],
+              command = rbind(!!!.x)),
+  tar_target(plant_validation_summary, plant_scale_summary(plant_validation)),
 
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under
