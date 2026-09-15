@@ -341,7 +341,7 @@ wv2_compare <- tar_map(
   # both the raw and smoothed classification.
   tar_target(
     plant_scale,
-    plant_scale_site(site, s9_points_paths[1], pred_sym, smooth_sym)
+    plant_scale_site(site, s9_points_paths[1], aoi_sym[1], pred_sym, smooth_sym)
   )
 )
 

@@ -397,18 +397,23 @@ phase_summary <- function(layer_path) {
 #'
 #' @param site drone site id
 #' @param points_path the buffered points shapefile
+#' @param aoi_path this site's boundary
 #' @param raw_tif,smooth_tif this site's class surfaces
 #' @param epsg CRS to declare on the layer
 #' @return data.frame: site, Type, pred_raw, pred_smooth for points on-site
-plant_scale_site <- function(site, points_path, raw_tif, smooth_tif,
+plant_scale_site <- function(site, points_path, aoi_path, raw_tif, smooth_tif,
                              epsg = 32734L) {
   v <- sf::st_read(points_path, quiet = TRUE)
   if (is.na(sf::st_crs(v))) v <- sf::st_set_crs(v, epsg)
 
-  r_raw <- terra::rast(raw_tif[1])[[1]]
-  inside <- lengths(sf::st_intersects(
-    v, sf::st_as_sfc(sf::st_bbox(r_raw)))) > 0
+  # Membership by the site AOI, not the raster bounding box: adjacent sites'
+  # rasters overlap at their margins and a bbox test counted boundary plants
+  # twice (234 Neltuma rows from a 214-plant layer on the first run).
+  aoi <- sf::st_read(aoi_path, quiet = TRUE)
+  if (is.na(sf::st_crs(aoi))) aoi <- sf::st_set_crs(aoi, epsg)
+  inside <- lengths(sf::st_intersects(v, sf::st_union(aoi))) > 0
   v <- v[inside, , drop = FALSE]
+  r_raw <- terra::rast(raw_tif[1])[[1]]
   if (!nrow(v)) {
     return(data.frame(site = character(0), Type = integer(0),
                       pred_raw = integer(0), pred_smooth = integer(0)))
@@ -427,6 +432,10 @@ plant_scale_site <- function(site, points_path, raw_tif, smooth_tif,
 #' @param df combined output of `plant_scale_site()`
 #' @return data.frame: surface, Type, n, n_correct, accuracy
 plant_scale_summary <- function(df) {
+  # One row per point: where a point sat inside two sites' bounding boxes,
+  # keep the row whose surface actually covered it (non-NA prediction).
+  df <- df[order(df$point_row, is.na(df$pred_raw)), , drop = FALSE]
+  df <- df[!duplicated(df$point_row), , drop = FALSE]
   out <- lapply(c(raw = "pred_raw", smooth = "pred_smooth"), function(col) {
     ok <- !is.na(df[[col]])
     agg <- aggregate(list(n = ok, n_correct = ok & df[[col]] == df$Type),
