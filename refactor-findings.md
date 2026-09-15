@@ -1031,6 +1031,58 @@ it presents as an infinite silent retry loop). smooth_prediction()
 strip-processes with a half-window overlap, verified cell-for-cell identical to
 a single pass. All seven sites smooth cleanly under strips (bokspits_3 in
 17m11s).
+
+### 7.32 The satellite arms' inputs survive - including the training tables
+
+The `--with-satellite` mirror (2026-09-15, 313 files, ~19 GB, all 14 source
+directories present) recovered far more than rasters. What landed, and what it
+settles:
+
+**The training extractions themselves survive as shapefiles.** Not just the
+imagery to re-derive them from - Glen's actual extraction outputs, with
+per-pixel class-fraction columns (`frac_1..frac_7`, i.e. the purity values):
+
+| Sensor | equal-class file | records | full extraction |
+|---|---|---|---|
+| WV2 | `WV2_equal_class_size_500_train_95` | 500 x 5 classes + **400** S.mellifera = 2,900 | 252,955 px @95 (98 also survives) |
+| Planet | `Planet_equal_class_size_400_train_85` | exactly 400 x 5 = 2,000 | 85 and 90 rungs survive |
+| S2 | `S2_equal_class_size_60_train_65` | exactly 60 x 4 = 240 | 65/75/85 rungs survive |
+
+Planet and S2 confirm 7.19's class sizes to the record. WV2 **refines** 7.19:
+the file requests 500 per class but S.mellifera yields only 400 at 95% purity,
+and balancing to the minimum gives the 400-per-class confusion column sums
+(4,000 = 400 x 10 repeats) that 7.19 read off the workbooks. So Table S7's
+"280" is wrong twice over: the request was 500, the effective size 400, and
+the cap is a property of the rarest class, not a design choice. Feeds the
+S7 correction **[ANDY]**.
+
+**Class rosters per sensor, read from the data:** WV2 {1,2,3,5,6,7},
+Planet {1,2,3,5,6}, S2 {1,2,3,6} - matching sensors.csv's n_classes 6/5/4.
+Gnidia (4) appears in no satellite training set; S.mellifera (7) is
+WV2-only; V.erioloba (5) drops out at S2.
+
+**`WV2_Corrected.tif` survives** (10330 x 19516, 4 bands, 1.6 m, EPSG:32734) -
+the co-registered mosaic the manifest flagged as "NO PRODUCER FOUND. Critical
+unknown". The WV2 arm therefore starts from the same corrected surface the
+original used; our tile mosaic becomes a verification exercise, not a
+reconstruction risk. The WV2 VI rasters (NDVI/SAVI/MSAVI/MSAVI2/MTVI) are
+also present, as are the S2 and Planet equivalents and three archived S2
+prediction maps (`S2_Predict_Map*.tif`) to bank our S2 surface against.
+
+**S2_Large_stack CRS worry cleared:** EPSG:32734, 10 m, 4 bands. The WGS84
+suspicion (from a commented-out reprojection in S2_Polygon_Grid_Creation.R)
+was unfounded.
+
+**One name, two files:** `S2_stack.tif` exists as a 152 MB Glenn `data_out`
+product (2024-01-24) and a different 101 MB, 9-band MLR3_pipeline `data_in`
+file (2024-02-12). The flat merge originally kept only the former;
+`mirror-results.sh` now lands `data_out/S2` in `s2/raw/glenn_out/` so both
+coexist. Every other cross-source basename clash (10 Planet files) checked
+byte-identical - MLR3_pipeline carries 2024 copies of the 2023 originals.
+
+Layout note: the WV2 set moved from the misnamed `wv2/aoi/` to `wv2/glenn/`;
+provenance.csv rewritten to match. Manifest rows for all ten recovered
+entries flipped to "mirrored" with verification notes.
 ---
 
 ## 8. Class scheme
@@ -1410,3 +1462,12 @@ manifest, lockfile and library in agreement.
   via tarchetypes::tar_quarto as a downstream node of score_index/best_models.
   First render: "85-90%" -> 87-97%, "five algorithms over 200 iterations" ->
   7 over 100, abstract "~90%" -> ~88%.
+- **2026-09-15** Satellite mirror. `mirror-results.sh --with-satellite` run by
+  Hugh: 313 files, ~19 GB, zero missing directories. **Finding 7.32**: the
+  satellite training extractions survive as shapefiles with purity columns
+  (WV2 500/class capped at 400 by S.mellifera - the mechanism behind 7.19's
+  400; Planet 400x5 and S2 60x4 exact), `WV2_Corrected.tif` survives so the
+  mosaic step becomes verification, the S2_Large_stack WGS84 suspicion is
+  cleared (EPSG:32734), and `S2_stack.tif` is two different files (Glenn
+  data_out vs MLR3_pipeline) now kept apart in `s2/raw/glenn_out/`. Ten
+  manifest rows flipped to "mirrored".

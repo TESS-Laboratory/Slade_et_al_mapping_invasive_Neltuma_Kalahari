@@ -69,13 +69,20 @@ for a in "$@"; do [ "$a" = "--with-training" ] && WITH_TRAINING=1; done
 # Satellite imagery for the WV2/Planet/S2 arms (sections 3.2-3.4). These
 # survive in Glen's tree (availability "external" described origin, not
 # location). Includes WV2_clip.shp - the AOI with no .prj (finding 7.13).
+#
+# Same-destination pairs merge FLAT, later source wins on a basename clash.
+# The Planet pair is safe: every clash checked byte-identical (MLR3_pipeline
+# holds 2024 copies of the 2023 originals). The S2 sources are NOT: both
+# MLR3_pipeline/data_in/S2 and Glenn data_out/S2 ship an S2_stack.tif with
+# different contents (101 MB / 9-band vs 152 MB), so data_out gets its own
+# subdirectory. Finding 7.32.
 SAT_SETS=(
   "$SRC_ROOT/Glenn-Prosopis-ML/data_in/Planet_2022|../planet/raw"
   "$SRC_ROOT/MLR3_pipeline/data_in/Planet|../planet/raw"
   "$SRC_ROOT/Glenn-Prosopis-ML/data_in/S2|../s2/raw"
   "$SRC_ROOT/MLR3_pipeline/data_in/S2|../s2/raw"
-  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/S2|../s2/raw"
-  "$SRC_ROOT/Glenn-Prosopis-ML/data_in/WV2|../wv2/aoi"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/S2|../s2/raw/glenn_out"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_in/WV2|../wv2/glenn"
 )
 WITH_SAT=0
 for a in "$@"; do [ "$a" = "--with-satellite" ] && WITH_SAT=1; done
@@ -189,7 +196,7 @@ fi
 owner="${SUDO_UID:-0}:${SUDO_GID:-0}"
 if [ "$owner" != "0:0" ]; then
   # data-in, not just results/: the satellite set writes into data-in/planet,
-  # data-in/s2 and data-in/wv2/aoi, which sit outside DEST_ROOT.
+  # data-in/s2 and data-in/wv2/glenn, which sit outside DEST_ROOT.
   chown -R "$owner" "$(dirname "$DEST_ROOT")"
   echo "chowned $(dirname "$DEST_ROOT") to $owner"
 fi
