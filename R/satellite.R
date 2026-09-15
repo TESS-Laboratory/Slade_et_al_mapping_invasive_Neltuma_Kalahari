@@ -280,3 +280,93 @@ balance_classes <- function(df, n = NULL, cap = NULL, seed) {
   rownames(out) <- NULL
   out
 }
+
+
+#' Hexagonal (or square) analysis grid over the study area
+#'
+#' The original's hex layers lived in a hand-made GIS_aggregate folder that is
+#' lost (manifest: hex_grids, unknown_lost), so the tessellation is
+#' regenerated with sf. Cover statistics over ~5 ha cells are insensitive to
+#' the tessellation origin; exact cell boundaries are not reproduced and no
+#' claim depends on them.
+#'
+#' @param aoi_path study-area boundary (the CRS-fixed .fgb)
+#' @param cell_m cell size in metres (hexagon short diameter)
+#' @param out output path (.fgb)
+#' @param square FALSE for hexagons (Fig 8B), TRUE for the square prevalence
+#'   grid (Fig 8A reads "100 m grid cells")
+#' @return `out`
+make_analysis_grid <- function(aoi_path, cell_m, out, square = FALSE) {
+  aoi <- sf::st_read(aoi_path, quiet = TRUE)
+  g <- sf::st_make_grid(aoi, cellsize = cell_m, square = square)
+  g <- g[lengths(sf::st_intersects(g, aoi)) > 0]
+  v <- sf::st_sf(cell_id = seq_along(g), geometry = g)
+  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
+  out
+}
+
+
+#' Neltuma cover and invasion phase per grid cell
+#'
+#' Cover is computed from BOTH the raw and the smoothed surface: finding 7.31
+#' showed the modal filter erases sparse Neltuma, and the phase thresholds
+#' bottom out at 0.1% cover - exactly the range the filter deletes - so the
+#' choice of input surface plausibly moves cells across the Pre-Incursion /
+#' Initial Incursion boundary and must be measured.
+#'
+#' Threshold conventions from Table S8: Dominance > 15, Expansion (1.5, 15],
+#' Initial Incursion [0.1, 1.5), Pre-Incursion < 0.1. The published table
+#' leaves the boundary membership ambiguous ("1.5 - 15%" vs "0.1 - 1.5%");
+#' boundaries here go to the LOWER phase, which only matters for cells landing
+#' exactly on a threshold.
+#'
+#' @param raw_tif,smooth_tif class raster paths
+#' @param grid_path analysis grid (.fgb)
+#' @param neltuma_code integer class code for Neltuma
+#' @param th thresholds list: dominance, expansion, incursion (percent)
+#' @param out output layer path (.fgb)
+#' @return `out`
+build_phase_layer <- function(raw_tif, smooth_tif, grid_path, neltuma_code,
+                              th, out) {
+  grid <- sf::st_read(grid_path, quiet = TRUE)
+
+  cover_of <- function(tif) {
+    r <- terra::rast(tif[1])[[1]] == neltuma_code
+    100 * exactextractr::exact_extract(r, grid, "mean", progress = FALSE)
+  }
+  phase_of <- function(cover) {
+    cut(cover,
+        breaks = c(-Inf, th$incursion, th$expansion, th$dominance, Inf),
+        labels = c("Pre-Incursion", "Initial Incursion", "Expansion",
+                   "Dominance"),
+        right = FALSE)
+  }
+
+  grid$cover_raw    <- cover_of(raw_tif)
+  grid$cover_smooth <- cover_of(smooth_tif)
+  grid$phase_raw    <- phase_of(grid$cover_raw)
+  grid$phase_smooth <- phase_of(grid$cover_smooth)
+
+  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+  sf::st_write(grid, out, delete_dsn = TRUE, quiet = TRUE)
+  out
+}
+
+
+#' Phase area accounting - the Table 1 producer
+#'
+#' @param layer_path output of `build_phase_layer()`
+#' @return data.frame: surface, phase, n_cells, area_ha, pct_of_area
+phase_summary <- function(layer_path) {
+  g <- sf::st_read(layer_path, quiet = TRUE)
+  area_ha <- as.numeric(sf::st_area(g)) / 1e4
+  out <- lapply(c(raw = "phase_raw", smooth = "phase_smooth"), function(col) {
+    a <- tapply(area_ha, g[[col]], sum, default = 0)
+    data.frame(phase = names(a), n_cells = as.integer(table(g[[col]])),
+               area_ha = as.numeric(a),
+               pct_of_area = 100 * as.numeric(a) / sum(area_ha))
+  })
+  cbind(surface = rep(names(out), each = nrow(out[[1]])),
+        do.call(rbind, out), row.names = NULL)
+}

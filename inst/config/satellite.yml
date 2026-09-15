@@ -23,3 +23,15 @@ wv2:
   # at 1.6 m pixels - while naming its outputs "MJ25"/"FMJ25". The code wins
   # over the filename, as usual in this project. 0 disables.
   smooth_window: 9
+  # Invasion phases (manuscript section 2.7, Table S8, after Mullerova et al.
+  # 2023): Neltuma % cover per 250 m hexagon -> phase; % cover per 100 m cell
+  # is Fig 8A's prevalence map. The original's hex layer ("hex_100m_wv2_clip",
+  # assigned to a variable named hex250 - another name/content mismatch) is
+  # lost, so the tessellation is regenerated; cover statistics are equivalent,
+  # exact cell boundaries are not.
+  phases:
+    cell_m: 250
+    prevalence_cell_m: 100
+    dominance: 15      # percent cover, exclusive lower bound
+    expansion: 1.5
+    incursion: 0.1

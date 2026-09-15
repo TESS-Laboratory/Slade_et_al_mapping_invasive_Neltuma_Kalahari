@@ -528,6 +528,37 @@ list(
   tar_combine(wv2_drone_areas, wv2_compare[["wv2_site_areas"]],
               command = rbind(!!!.x)),
 
+  # Invasion extent and phase (section 2.7, Table S8/Table 1, Figure 8).
+  # Cover from BOTH surfaces: the phase floor is 0.1% cover, squarely in the
+  # range the modal filter erases (7.31), so the input-surface choice is
+  # measured here, not assumed.
+  tar_target(neltuma_code,
+             {
+               code <- classes$Type[grepl("Neltuma", classes$Class)]
+               stopifnot(length(code) == 1L)
+               as.integer(code)
+             }),
+  tar_target(wv2_grid_phase,
+             make_analysis_grid(wv2_aoi, satcfg$wv2$phases$cell_m,
+                                "data-out/wv2/hex_phase.fgb", square = FALSE),
+             format = "file"),
+  tar_target(wv2_grid_prevalence,
+             make_analysis_grid(wv2_aoi, satcfg$wv2$phases$prevalence_cell_m,
+                                "data-out/wv2/grid_prevalence.fgb",
+                                square = TRUE),
+             format = "file"),
+  tar_target(wv2_phase_layer,
+             build_phase_layer(wv2_pred, wv2_pred_smooth, wv2_grid_phase,
+                               neltuma_code, satcfg$wv2$phases,
+                               "data-out/wv2/phases.fgb"),
+             format = "file"),
+  tar_target(wv2_prevalence_layer,
+             build_phase_layer(wv2_pred, wv2_pred_smooth, wv2_grid_prevalence,
+                               neltuma_code, satcfg$wv2$phases,
+                               "data-out/wv2/prevalence.fgb"),
+             format = "file"),
+  tar_target(wv2_phase_table, phase_summary(wv2_phase_layer)),
+
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under
   # both profiles (fast has one site; a hardcoded seven would not resolve).
