@@ -1083,6 +1083,41 @@ byte-identical - MLR3_pipeline carries 2024 copies of the 2023 originals.
 Layout note: the WV2 set moved from the misnamed `wv2/aoi/` to `wv2/glenn/`;
 provenance.csv rewritten to match. Manifest rows for all ten recovered
 entries flipped to "mirrored" with verification notes.
+
+### 7.33 The WV2 arm built, and three more name/content mismatches
+
+The WV2 arm is wired end to end (R/satellite.R, satellite.yml): 9-band cube
+(corrected mosaic + 5 VIs, one shared grid - no drone-style footprint trap),
+three training arms sharing the drone arm's budget and learner roster
+(archived = Glen's extraction balanced 500-to-400; dr_raw / dr_smooth =
+purity re-derivation from OUR raw and smoothed surfaces, carrying 7.31 into
+training), landscape prediction on the archived arm, the Table S10 area
+comparison in all four raw/smoothed combinations, the section 2.7 invasion
+phases (Table S8 thresholds recovered from the supplementary PDF: >15 /
+1.5-15 / 0.1-1.5 / <0.1 % cover), and the Table S9 plant-scale validation.
+
+Recorded along the way, in the project's now-familiar genre of names
+disagreeing with contents:
+
+- **The WV2 majority filter is w = 9, not 25.** WV_2_Majority_filter.R:52
+  runs `focal(w = 9)` - 14.4 m at 1.6 m - while writing files named
+  "MJ25"/"FMJ25". The drone filter was 25; the WV2 filter only looks like it.
+- **The hex layer named 100 m was assigned to a variable named hex250.**
+  The layer itself is lost (manifest: unknown_lost), so the tessellation is
+  regenerated; Table S8's own caption fixes the phase grid at 250 m.
+- **Table S9's n = 184 does not match the surviving layer.**
+  `All_points_buffered_additional.shp` is structurally S9's input - the seven
+  sites' field train+val buffers plus 134 additional bare/grass/woody points,
+  exactly the "representative selection" the caption describes - but holds
+  **214** Neltuma buffers against the caption's 184, and its buffers average
+  ~1 m^2 where the caption says a 20 cm radius (0.13 m^2). Points falling
+  outside the classified footprints drop out in our producer, which may or
+  may not close the 30-plant gap; whichever way it lands, caption and data
+  currently disagree. **[ANDY]**
+
+Also: `satellite.yml` is a separate config file because `resampling` feeds
+predict_site() for the drone surfaces - a resampling.yml edit invalidates
+seven banked landscape predictions. Found by nearly doing it.
 ---
 
 ## 8. Class scheme
@@ -1471,3 +1506,13 @@ manifest, lockfile and library in agreement.
   cleared (EPSG:32734), and `S2_stack.tif` is two different files (Glenn
   data_out vs MLR3_pipeline) now kept apart in `s2/raw/glenn_out/`. Ten
   manifest rows flipped to "mirrored".
+- **2026-09-15 (later)** WV2 arm wired end to end. **Finding 7.33**: cube +
+  three training arms (archived / dr_raw / dr_smooth) + prediction + Table
+  S10 comparison (all four reference combinations) + section 2.7 invasion
+  phases (Table S8 thresholds recovered from the supplementary PDF) + Table
+  S9 plant-scale validation from All_points_buffered_additional.shp (which
+  holds 214 Neltuma buffers against the caption's 184 - [ANDY]). WV2's
+  majority filter is focal(w=9) despite "MJ25" filenames. satellite.yml is a
+  separate config so satellite churn cannot invalidate the banked drone
+  predictions. Fast-profile smoke run green through the dr_smooth fits at
+  time of writing.
