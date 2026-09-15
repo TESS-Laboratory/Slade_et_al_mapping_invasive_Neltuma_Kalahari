@@ -54,7 +54,8 @@ class_plot_labels <- function(codes, path = CLASSES_JSON) {
 #' @param palette from class_palette()
 #' @param target_px approximate panel width in source pixels after aggregation
 #' @return a ggplot
-map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400) {
+map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400,
+                      scale_m = 100) {
   r <- terra::rast(class_tif)
   fact <- max(1L, floor(terra::ncol(r) / target_px))
   if (fact > 1L) r <- terra::aggregate(r, fact = fact, fun = "modal", na.rm = TRUE)
@@ -63,7 +64,7 @@ map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400) {
   names(df)[3] <- "code"
   df$code <- factor(as.integer(df$code))
 
-  # 100 m scale bar, bottom-left inside the panel
+  # Scale bar, bottom-left: 100 m for a drone site, km for a satellite scene.
   e <- terra::ext(r)
   bar_x <- e$xmin + 0.05 * (e$xmax - e$xmin)
   bar_y <- e$ymin + 0.05 * (e$ymax - e$ymin)
@@ -71,10 +72,10 @@ map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400) {
   ggplot2::ggplot(df, ggplot2::aes(x = x, y = y, fill = code)) +
     ggplot2::geom_raster() +
     ggplot2::scale_fill_manual(values = palette, drop = TRUE) +
-    ggplot2::annotate("segment", x = bar_x, xend = bar_x + 100,
+    ggplot2::annotate("segment", x = bar_x, xend = bar_x + scale_m,
                       y = bar_y, yend = bar_y, linewidth = 1.2, colour = "grey15") +
-    ggplot2::annotate("text", x = bar_x + 50, y = bar_y,
-                      label = "100 m", vjust = -0.8, size = 2.6, colour = "grey15") +
+    ggplot2::annotate("text", x = bar_x + scale_m / 2, y = bar_y,
+                      label = if (scale_m >= 1000) paste0(scale_m / 1000, " km") else paste0(scale_m, " m"), vjust = -0.8, size = 2.6, colour = "grey15") +
     ggplot2::coord_equal(expand = FALSE) +
     ggplot2::labs(title = gsub("_", " ", tools::toTitleCase(site)),
                   subtitle = subtitle) +
@@ -303,5 +304,46 @@ fig_subpixel_cover <- function(exts, sensors, out_png = "data-out/figures/fig5_s
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   ggplot2::ggsave(out_png, fig, width = 6, height = 7.5, dpi = 200,
                   bg = "white", device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure 6C / 7 analogue: a satellite classification of the study area
+#'
+#' One panel per surface (raw and, where a filter was applied, smoothed), the
+#' shared class legend, the Neltuma area in the subtitle. Aggregated to ~1400
+#' px wide by modal vote for plotting only; areas come from the full surface.
+#'
+#' @param surfaces named list: panel label -> class raster path
+#' @param sensor_label e.g. "WorldView-2 (1.6 m)"
+#' @param out_png output path
+#' @return `out_png`
+fig_satellite_map <- function(surfaces, sensor_label, out_png) {
+  palette <- class_palette()
+  panels <- lapply(names(surfaces), function(nm) {
+    r <- terra::rast(surfaces[[nm]][1])
+    px_ha <- prod(terra::res(r)) / 1e4
+    f <- terra::freq(r); nel <- f$count[f$value == 1]
+    nel_ha <- if (length(nel)) nel * px_ha else 0
+    map_panel(surfaces[[nm]][1], sensor_label,
+              sprintf("%s - Neltuma %s ha", nm, format(round(nel_ha), big.mark = ",")),
+              palette, target_px = 1400, scale_m = 5000)
+  })
+  codes <- sort(unique(unlist(lapply(surfaces, function(p)
+    terra::freq(terra::rast(p[1]))$value))))
+  legend_p <- ggplot2::ggplot(data.frame(code = factor(codes)),
+                              ggplot2::aes(x = 1, y = code, fill = code)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_manual(values = palette, labels = class_plot_labels(codes),
+                               name = NULL) +
+    ggplot2::theme_void(base_size = 9) +
+    ggplot2::theme(legend.position = "right", legend.key.size = ggplot2::unit(9, "pt"),
+                   legend.text = ggplot2::element_text(size = 8))
+  legend <- cowplot_get_legend(legend_p)
+  fig <- patchwork::wrap_plots(c(panels, list(legend)), nrow = 1,
+                               widths = c(rep(1, length(panels)), 0.35))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 3.6 * length(panels) + 1.6, height = 7,
+                  dpi = 200, bg = "white", device = grDevices::png, type = "cairo")
   out_png
 }

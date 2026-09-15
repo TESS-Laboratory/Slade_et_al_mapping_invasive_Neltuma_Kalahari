@@ -803,6 +803,13 @@ list(
   ),
 
   tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file"),
+  # Figure 6C analogue: the WV2 classification of the study area, raw and at
+  # the original's w=9 filter, Neltuma area in each subtitle.
+  tar_target(fig_wv2_map,
+             fig_satellite_map(list(raw = wv2_pred, "smoothed (w = 9)" = wv2_pred_smooth),
+                               "WorldView-2 (1.6 m)",
+                               "data-out/figures/fig6c_wv2_landscape.png"),
+             format = "file"),
   # Figure 5 analogue: sub-pixel Neltuma cover per sensor, from the raw-surface
   # purity extractions of all three sensors.
   tar_target(fig_cover,
