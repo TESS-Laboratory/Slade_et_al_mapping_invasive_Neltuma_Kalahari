@@ -535,6 +535,18 @@ list(
   tar_combine(wv2_drone_areas, wv2_compare[["wv2_site_areas"]],
               command = rbind(!!!.x)),
 
+  # The Table S10 matrix proper: WV2 class vs drone majority per WV2 pixel
+  # inside the sites. Drone reference raw or smoothed x WV2 raw or smoothed,
+  # so 7.35's "the filters roughly cancel" reading can be checked cell by cell.
+  tar_target(wv2_confusion_raw_raw,
+             wv2_drone_confusion(wv2_ext_raw_all, wv2_pred, satcfg$wv2$classes)),
+  tar_target(wv2_confusion_smooth_smooth,
+             wv2_drone_confusion(wv2_ext_smooth_all, wv2_pred_smooth,
+                                 satcfg$wv2$classes)),
+  tar_target(wv2_confusion_raw_smooth,
+             wv2_drone_confusion(wv2_ext_raw_all, wv2_pred_smooth,
+                                 satcfg$wv2$classes)),
+
   # Invasion extent and phase (section 2.7, Table S8/Table 1, Figure 8).
   # Cover from BOTH surfaces: the phase floor is 0.1% cover, squarely in the
   # range the modal filter erases (7.31), so the input-surface choice is

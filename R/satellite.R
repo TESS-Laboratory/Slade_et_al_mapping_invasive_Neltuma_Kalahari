@@ -444,3 +444,28 @@ plant_scale_summary <- function(df) {
   cbind(surface = rep(names(out), vapply(out, nrow, 1L)),
         do.call(rbind, out), row.names = NULL)
 }
+
+
+#' Pixel-level WV2 vs drone confusion - the Table S10 matrix itself
+#'
+#' The original's S10 is a confusion matrix over WV2 pixels inside the drone
+#' sites: rows = WV2 class, columns = majority drone class. The purity
+#' extraction already holds the drone majority per WV2 pixel polygon, so the
+#' matrix is one more extraction of the WV2 class over the same polygons.
+#'
+#' @param ext combined sf from `purity_extract()` (drone majority in `Type`)
+#' @param wv2_tif WV2 class raster path
+#' @param keep_classes the sensor's class roster
+#' @return data.frame: wv2_class, drone_class, n_pixels
+wv2_drone_confusion <- function(ext, wv2_tif, keep_classes) {
+  r <- terra::rast(wv2_tif[1])[[1]]
+  wv2 <- as.integer(exactextractr::exact_extract(r, ext, "majority",
+                                                  progress = FALSE))
+  ok <- !is.na(wv2) & ext$Type %in% keep_classes
+  tab <- table(wv2_class = wv2[ok], drone_class = ext$Type[ok])
+  out <- as.data.frame(tab, stringsAsFactors = FALSE)
+  names(out) <- c("wv2_class", "drone_class", "n_pixels")
+  out$wv2_class <- as.integer(out$wv2_class)
+  out$drone_class <- as.integer(out$drone_class)
+  out[out$n_pixels > 0, , drop = FALSE]
+}

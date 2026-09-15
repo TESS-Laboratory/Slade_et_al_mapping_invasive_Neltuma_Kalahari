@@ -1152,6 +1152,69 @@ indication that halving or doubling the fold count moves it by 5 points
 either way. The per-fold minima (~0.26 at every fold count) say there are
 regions the model simply cannot extrapolate to. **[ANDY]** - the honest
 report is the curve, or at least an accuracy with the fold geometry stated.
+### 7.35 The WV2 landscape: S10's "24.8% overprediction" reproduces - and is a smoothing artefact
+
+Landscape prediction on the archived arm (lightgbm, 0.643 under 10x10
+spcv; 202M pixels, 1h20m). Neltuma occupies **821 ha raw** (1.8% of the
+study area) and **564 ha after the original's w = 9 modal filter (-31%)**.
+The same filter removed 2.3% of drone-scale Neltuma (7.31); at 1.6 m its
+14.4 m window is an order of magnitude wider relative to the plants, so it
+deletes a third of the satellite-detected invasion. Mean winning-class
+probability 0.688, against 0.75-0.96 for the drone surfaces.
+
+**Table S10 reproduces exactly, for the wrong reason.** WV2 vs drone Neltuma
+area inside the seven site boundaries, all four reference combinations:
+
+| comparison | drone (ha) | WV2 (ha) | WV2 vs drone |
+|---|---|---|---|
+| smoothed vs smoothed (the original's setup) | 4.80 | 6.01 | **+25.1%** |
+| raw vs raw | 4.91 | 9.55 | **+94.5%** |
+| WV2 raw vs drone smoothed | 4.80 | 9.55 | +98.9% |
+
+The original's +24.8% (its S10 matrix: 32,056 WV2-Neltuma pixels against
+24,456 drone-Neltuma, precision 48%, recall 63%) comes back as +25.1% when
+both surfaces are smoothed as the original smoothed them. Unsmoothed, the
+overprediction is nearly double. The headline number is therefore a property
+of the two filters roughly cancelling, not of the sensor: the drone filter
+takes little, the WV2 filter takes a third, and what survives on each side
+happens to differ by a quarter. Per site the picture is wilder: WV2 raw
+over-predicts Bokspits by 155-357% and *under*-predicts struizendam_3 by
+42%; smoothed, struizendam_3's WV2 Neltuma goes to **zero** (-100%). The
+sparse sites - the paper's subject - are where WV2 both misses most and
+where the filter finishes the job. **[ANDY]** - S10 needs the surface choice
+stated, and the sparse-site rows shown.
+
+**Invasion phases (Table 1 / Fig 8) hinge on the same choice.** 250 m
+hexagons, Table S8 thresholds:
+
+| phase | raw surface | smoothed surface | manuscript |
+|---|---|---|---|
+| Dominance (>15%) | 14.0 km2, 3.0% | 12.2 km2, 2.6% | 16 km2, 3.6% |
+| Expansion (1.5-15%) | 17.6% | 7.4% | (with incursion) |
+| Initial Incursion (0.1-1.5%) | 42.9% | 12.6% | 79.9% combined, 356 km2 |
+| Pre-Incursion (<0.1%) | 36.5% | 77.3% | ~16.5% implied |
+
+Dominance reproduces on either surface. The "expanding across 79.9% of the
+landscape" claim does not: raw gives 60.5% expansion+incursion, smoothed
+20.0%, and **40% of the study area flips between Pre-Incursion and Initial
+Incursion depending on whether the filter was applied** - because the 0.1%
+phase floor is precisely the cover the filter erases. The raw surface is the
+nearer of the two to the manuscript, which suggests the original's phase map
+was NOT built from its smoothed product; which surface it used is not
+recorded anywhere. (Hex areas sum to 461 km2 against the 445 km2 boundary:
+edge cells overhang; percentages are of the hex total.) **[ANDY]**
+
+**Table S9 reproduces** (7.33 follow-up): plant-scale Neltuma accuracy
+**96.3% raw / 95.4% smoothed** (209/217) against the original's 156/164 =
+95.1%. Note the original's own caption says n = 184 while its table row
+totals 164; our layer holds 214 (217 after edge buffers). Three numbers for
+one sample size, none of which is wrong about the accuracy.
+
+Operational: the fold-geometry diagnostic (7.34's extension to lightgbm and
+svm) hung for 2.5 h at 0% CPU under `future::plan(multicore)` - forking a
+process after lightgbm has initialised its OpenMP pool deadlocks the next
+resample. Multisession is the right plan for anything that has touched
+lightgbm; recorded in the server-ops memory.
 ---
 
 ## 8. Class scheme
@@ -1557,3 +1620,11 @@ manifest, lockfile and library in agreement.
   spcv folds. The original's 20-fold design sits near the top of the curve
   and its 75.8% was a pooled-confusion micro-average. S9 plant-scale
   validation reproduces (Neltuma ~96% raw, ~95% smoothed). [ANDY]
+- **2026-09-15 (evening)** WV2 landscape products. **Finding 7.35**: Neltuma
+  821 ha raw / 564 ha smoothed (the w=9 filter deletes a third); Table S10's
+  +24.8% reproduces as +25.1% only when both sides are smoothed (raw: +94.5%),
+  struizendam_3's WV2 Neltuma smoothed to zero; phases: Dominance 3.0% matches
+  the manuscript's 3.6%, but 40% of the landscape flips Pre-Incursion <->
+  Incursion with the surface choice, and 79.9% "expanding" reproduces on
+  neither; S9 96.3% vs 95.1% reproduced. Fold-geometry diagnostic hang
+  diagnosed (multicore fork after lightgbm) and relaunched under multisession.
