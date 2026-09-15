@@ -275,19 +275,48 @@ per_pred <- tar_map(
   tar_target(smooth_areas, class_area_table(pred_smooth, site, PRED_TAG, "smoothed"))
 )
 
-# Satellite arm, WV2 first: one task, every learner - the same tune-once +
-# fixed-config evaluation as the drone fits, sharing spec_/tune_settings/
-# eval_shared so a budget change invalidates both arms together. See
-# R/satellite.R for what is reproduced and on what evidence (finding 7.32).
+# Satellite arm, WV2 first. Three training arms share the same cube, budget
+# and learner roster (spec_/tune_settings/eval_shared, so a budget change
+# invalidates the drone and satellite arms together):
+#
+#   archived    Glen's surviving extraction - the reproduction (finding 7.32)
+#   dr_raw      re-derived from OUR raw drone surfaces
+#   dr_smooth   re-derived from OUR smoothed drone surfaces
+#
+# dr_raw vs dr_smooth is finding 7.31 carried into training: the smoothing
+# deletes exactly the sparse-Neltuma pixels a purity filter would admit, so
+# the reference-side choice must be measured, not inherited.
+WV2_ARMS <- c("archived", "dr_raw", "dr_smooth")
+
+wv2_arm_grid <- expand.grid(arm = WV2_ARMS, learner_id = LEARNER_IDS,
+                            stringsAsFactors = FALSE)
+wv2_arm_grid$task_sym <- rlang::syms(paste0("wv2_task_", wv2_arm_grid$arm))
+wv2_arm_grid$spec_sym <- rlang::syms(paste0("spec_", wv2_arm_grid$learner_id))
+
 wv2_fits <- tar_map(
-  values = list(learner_id = LEARNER_IDS,
-                spec_sym = rlang::syms(paste0("spec_", LEARNER_IDS))),
-  names = learner_id,
-  tar_target(wv2_tuned, tune_config(wv2_task, spec_sym, tune_settings),
+  values = wv2_arm_grid,
+  names = c("arm", "learner_id"),
+  tar_target(wv2_tuned, tune_config(task_sym, spec_sym, tune_settings),
              resources = ml_resources),
-  tar_target(wv2_fit, run_resample(wv2_task, spec_sym, eval_shared, wv2_tuned),
+  tar_target(wv2_fit, run_resample(task_sym, spec_sym, eval_shared, wv2_tuned),
              resources = ml_resources),
-  tar_target(wv2_fit_tidy, tidy_resample(wv2_fit, "wv2", WV2_TAG, learner_id))
+  tar_target(wv2_fit_tidy,
+             tidy_resample(wv2_fit, paste0("wv2_", arm), WV2_TAG, learner_id))
+)
+
+# Per-site purity extraction against both drone surfaces, feeding the two
+# re-derived arms.
+wv2_ext_grid <- data.frame(site = SITES, stringsAsFactors = FALSE)
+wv2_ext_grid$pred_sym   <- rlang::syms(paste0("pred_", SITES))
+wv2_ext_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", SITES))
+wv2_ext_grid$grid_path  <- file.path("data-in/wv2/grids", paste0(SITES, ".shp"))
+
+wv2_extracts <- tar_map(
+  values = wv2_ext_grid,
+  names = site,
+  tar_target(wv2_grid_files, shapefile_files(grid_path), format = "file"),
+  tar_target(wv2_ext_raw,    purity_extract(pred_sym, wv2_grid_files[1], site)),
+  tar_target(wv2_ext_smooth, purity_extract(smooth_sym, wv2_grid_files[1], site))
 )
 
 # Drone vs WV2 class areas per drone site - the Table S10 producer. All four
@@ -401,24 +430,67 @@ list(
              build_satellite_cube(wv2_raster_paths, WV2_BANDS, "wv2"),
              format = "file"),
 
-  # Feature extraction over the archived pixel polygons, then attrition
-  # accounting and the balance-to-rarest that the reported run applied
+  # ARCHIVED ARM: feature extraction over Glen's pixel polygons, then
+  # attrition accounting and the balance-to-rarest the reported run applied
   # (500 requested, 400 effective - findings 7.19/7.32).
-  tar_target(wv2_training_raw,
+  tar_target(wv2_training_ext,
              build_training_table(wv2_cube, wv2_train_paths[1], "wv2", WV2_TAG,
                                   classes = classes)),
-  tar_target(wv2_training_split, drop_incomplete(wv2_training_raw)),
+  tar_target(wv2_training_split, drop_incomplete(wv2_training_ext)),
   tar_target(wv2_training_drops, wv2_training_split$summary),
-  tar_target(wv2_training,
+  tar_target(wv2_training_archived,
              balance_classes(wv2_training_split$data, seed = resampling$seed)),
+  tar_target(wv2_task_archived,
+             make_task(wv2_training_archived, "wv2", WV2_TAG,
+                       sites = data.frame(site = "wv2", epsg = 32734L))),
 
-  tar_target(wv2_task,
-             make_task(wv2_training, "wv2", WV2_TAG,
+  # RE-DERIVED ARMS: our drone surfaces -> purity layers -> training tables.
+  # Purity threshold and class size come from sensors.csv, the class roster
+  # from satellite.yml; balancing caps at the original's class size so the
+  # arms train at comparable scale.
+  wv2_extracts,
+  tar_combine(wv2_ext_raw_all, wv2_extracts[["wv2_ext_raw"]],
+              command = dplyr::bind_rows(!!!.x)),
+  tar_combine(wv2_ext_smooth_all, wv2_extracts[["wv2_ext_smooth"]],
+              command = dplyr::bind_rows(!!!.x)),
+  tar_target(wv2_sensor_row, sensors[sensors[["sensor"]] == "wv2", , drop = FALSE]),
+  tar_target(wv2_layer_dr_raw,
+             build_purity_layer(wv2_ext_raw_all,
+                                purity = wv2_sensor_row$purity_threshold,
+                                keep_classes = satcfg$wv2$classes,
+                                out = "data-out/wv2/wv2_train_dr_raw.fgb"),
+             format = "file"),
+  tar_target(wv2_layer_dr_smooth,
+             build_purity_layer(wv2_ext_smooth_all,
+                                purity = wv2_sensor_row$purity_threshold,
+                                keep_classes = satcfg$wv2$classes,
+                                out = "data-out/wv2/wv2_train_dr_smooth.fgb"),
+             format = "file"),
+  tar_target(wv2_training_dr_raw,
+             balance_classes(
+               drop_incomplete(
+                 build_training_table(wv2_cube, wv2_layer_dr_raw, "wv2",
+                                      WV2_TAG, classes = classes))$data,
+               cap = wv2_sensor_row$class_size, seed = resampling$seed)),
+  tar_target(wv2_training_dr_smooth,
+             balance_classes(
+               drop_incomplete(
+                 build_training_table(wv2_cube, wv2_layer_dr_smooth, "wv2",
+                                      WV2_TAG, classes = classes))$data,
+               cap = wv2_sensor_row$class_size, seed = resampling$seed)),
+  tar_target(wv2_task_dr_raw,
+             make_task(wv2_training_dr_raw, "wv2", WV2_TAG,
+                       sites = data.frame(site = "wv2", epsg = 32734L))),
+  tar_target(wv2_task_dr_smooth,
+             make_task(wv2_training_dr_smooth, "wv2", WV2_TAG,
                        sites = data.frame(site = "wv2", epsg = 32734L))),
 
   wv2_fits,
   tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], command = rbind(!!!.x)),
   tar_target(wv2_best, select_best(wv2_scores)),
+  # Prediction reproduces the reported product, so it runs on the archived arm.
+  tar_target(wv2_best_archived,
+             wv2_best[wv2_best[["site"]] == "wv2_archived", , drop = FALSE]),
 
   # Landscape prediction over the full WV2 scene, masked to the study area,
   # then the explicit majority filter at the original's ACTUAL window (9, not
@@ -433,13 +505,14 @@ list(
   tar_target(
     wv2_pred,
     predict_site(
-      wv2_cube, wv2_aoi, wv2_training,
-      best = wv2_best,
+      wv2_cube, wv2_aoi, wv2_training_archived,
+      best = wv2_best_archived,
       resampling = resampling,
-      tuned_configs = list(svm = wv2_tuned_svm, xgboost = wv2_tuned_xgboost,
-                           ranger = wv2_tuned_ranger,
-                           lightgbm = wv2_tuned_lightgbm,
-                           glmnet = wv2_tuned_glmnet),
+      tuned_configs = list(svm = wv2_tuned_archived_svm,
+                           xgboost = wv2_tuned_archived_xgboost,
+                           ranger = wv2_tuned_archived_ranger,
+                           lightgbm = wv2_tuned_archived_lightgbm,
+                           glmnet = wv2_tuned_archived_glmnet),
       site = "wv2", tag = WV2_TAG, aggregate = PRED_AGG
     ),
     format = "file", resources = ml_resources

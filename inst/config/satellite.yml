@@ -13,6 +13,9 @@ wv2:
   # >95% drone-class purity, 500 per class except S.mellifera which caps at
   # 400 - balanced down to the rarest class in-pipeline (findings 7.19, 7.32).
   training: WV2_equal_class_size_500_train_95.shp
+  # The sensor's class roster, read off the archived training data (7.32):
+  # Gnidia (4) and the rare classes never reach satellite scale.
+  classes: [1, 2, 3, 5, 6, 7]
   # The study-area boundary. Ships without a .prj (finding 7.13); its CRS is
   # declared from `epsg` above and rewritten as .fgb by the pipeline.
   aoi: WV2_clip.shp

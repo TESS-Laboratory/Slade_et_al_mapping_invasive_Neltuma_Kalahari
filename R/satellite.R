@@ -184,6 +184,68 @@ compare_site_surfaces <- function(site, aoi_path, drone, wv2) {
 }
 
 
+#' Purity extraction: drone class fractions per WV2 pixel, one site
+#'
+#' The re-derivation of extract_WV2_pixel.R against OUR drone surfaces: for
+#' each WV2 pixel polygon over a drone site, the majority drone class and the
+#' fractional cover of every class. Run twice per site - against the raw and
+#' the smoothed surface - because finding 7.31 showed the smoothing deletes
+#' exactly the sparse Neltuma pixels a purity filter would otherwise admit,
+#' and the original extracted from surfaces whose smoothing status is part of
+#' the open Table S10 question.
+#'
+#' @param class_tif drone class raster path
+#' @param grid_path WV2 pixel-grid shapefile for this site
+#' @param site site id, recorded in the output
+#' @return sf: site, Type (majority class), frac_* columns, polygon geometry
+purity_extract <- function(class_tif, grid_path, site) {
+  r    <- terra::rast(class_tif[1])[[1]]
+  grid <- sf::st_read(grid_path, quiet = TRUE)
+
+  maj <- exactextractr::exact_extract(r, grid, "majority", progress = FALSE)
+  fr  <- exactextractr::exact_extract(r, grid, "frac", progress = FALSE)
+  fr[is.na(fr)] <- 0
+
+  out <- sf::st_sf(site = site, Type = as.integer(maj), fr,
+                   geometry = sf::st_geometry(grid))
+  out[!is.na(out$Type), , drop = FALSE]
+}
+
+
+#' Filter a combined purity extraction into a training layer
+#'
+#' Keeps pixels whose OWN-class fraction exceeds the purity threshold - the
+#' same criterion as the original's per-class `filter(frac_c > A)` chain,
+#' expressed once. Classes outside the sensor's roster (7.32: WV2 trains on
+#' {1,2,3,5,6,7}; Gnidia and the rare classes never reach satellite scale) are
+#' dropped. Written as FlatGeobuf, and balancing to class size happens later
+#' on the extracted table, mirroring the archived arm.
+#'
+#' @param ext combined sf from `purity_extract()` across sites
+#' @param purity own-class fraction threshold, from sensors.csv
+#' @param keep_classes the sensor's class roster, from satellite.yml
+#' @param out output path
+#' @return `out`
+build_purity_layer <- function(ext, purity, keep_classes, out) {
+  frac_cols <- grep("^frac_", names(ext), value = TRUE)
+  fr <- as.matrix(sf::st_drop_geometry(ext)[, frac_cols, drop = FALSE])
+
+  own_col <- match(paste0("frac_", ext$Type), colnames(fr))
+  own <- fr[cbind(seq_len(nrow(ext)), own_col)]
+
+  keep <- !is.na(own) & own > purity & ext$Type %in% keep_classes
+  v <- ext[keep, c("site", "Type"), drop = FALSE]
+  if (!nrow(v)) {
+    stop("Purity filter at ", purity, " kept zero pixels - wrong surface, ",
+         "wrong grid, or a threshold typo.", call. = FALSE)
+  }
+
+  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
+  out
+}
+
+
 #' Balance a training table to equal class sizes
 #'
 #' The archived WV2 extraction holds 500 per class but S.mellifera caps at 400
@@ -195,11 +257,15 @@ compare_site_surfaces <- function(site, aoi_path, drone, wv2) {
 #'
 #' @param df a training table from `build_training_table()`
 #' @param n rows per class; default the size of the rarest class
+#' @param cap upper bound on n (the sensor's class size from sensors.csv), so
+#'   a re-derived extraction with plentiful pure pixels still trains at the
+#'   original's scale rather than swamping it
 #' @param seed RNG seed, from resampling.yml
 #' @return the balanced table, row order re-sorted by Type
-balance_classes <- function(df, n = NULL, seed) {
+balance_classes <- function(df, n = NULL, cap = NULL, seed) {
   counts <- table(df$Type)
   if (is.null(n)) n <- min(counts)
+  if (!is.null(cap)) n <- min(n, cap)
   short <- names(counts)[counts < n]
   if (length(short)) {
     stop("Cannot balance to ", n, " per class; short class(es): ",
