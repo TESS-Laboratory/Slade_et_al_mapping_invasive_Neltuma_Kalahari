@@ -1164,10 +1164,15 @@ Non-spatial CV on the archived task gives lightgbm **0.754 - the original's
 reported WV2 accuracy is what this data yields when spatial structure is
 ignored or nearly so, and every step toward honest spatial holdout costs
 points (0.754 -> 0.705 -> 0.643 for non-spatial -> 20 -> 10 folds). The svm
-row is not evidence of anything: a non-spatial score below its spatial
-score with a 0.000 fold means the tuned svm configuration is failing to fit
-in this standalone run (the pipeline's own svm evaluation scored 0.623),
-which is a diagnostic-script problem to chase, not a result. Results in
+row is a different finding, not a script fault: its tuned configuration is
+**cost = 0.0017, radial, gamma = 0.2** - the bottom of the rbv2 cost range.
+Tuning under 5-fold spatial CV, where every inner fold is an extrapolation,
+rewarded near-maximal regularisation; that model predicts only two to four
+of the six classes on random folds (single hold-out check: 0.26-0.55) and
+collapses. So spatial tuning and spatial evaluation interact: the
+configuration that survives spatial inner folds is not the configuration a
+non-spatial comparison would pick, and the two svm numbers are not on the
+same footing as the lightgbm pair. Results in
 data-out/results/wv2_fold_geometry.rds.
 
 ### 7.35 The WV2 landscape: S10's "24.8% overprediction" reproduces - and is a smoothing artefact
