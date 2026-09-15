@@ -66,6 +66,20 @@ TRAINING_SETS=(
 WITH_TRAINING=0
 for a in "$@"; do [ "$a" = "--with-training" ] && WITH_TRAINING=1; done
 
+# Satellite imagery for the WV2/Planet/S2 arms (sections 3.2-3.4). These
+# survive in Glen's tree (availability "external" described origin, not
+# location). Includes WV2_clip.shp - the AOI with no .prj (finding 7.13).
+SAT_SETS=(
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_in/Planet_2022|../planet/raw"
+  "$SRC_ROOT/MLR3_pipeline/data_in/Planet|../planet/raw"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_in/S2|../s2/raw"
+  "$SRC_ROOT/MLR3_pipeline/data_in/S2|../s2/raw"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_out/S2|../s2/raw"
+  "$SRC_ROOT/Glenn-Prosopis-ML/data_in/WV2|../wv2/aoi"
+)
+WITH_SAT=0
+for a in "$@"; do [ "$a" = "--with-satellite" ] && WITH_SAT=1; done
+
 if [ "$(id -u)" -ne 0 ]; then
   if [ "$DRY_RUN" = "0" ]; then
     echo "needs sudo to read $SRC_ROOT - re-run as: sudo $0" >&2
@@ -137,6 +151,34 @@ if [ "$WITH_TRAINING" = "1" ]; then
   done
 fi
 
+# --- satellite rasters, opt-in ----------------------------------------------
+if [ "$WITH_SAT" = "1" ]; then
+  echo
+  for entry in "${SAT_SETS[@]}"; do
+    src="${entry%%|*}"; sub="${entry##*|}"; dst="$DEST_ROOT/$sub"
+    if [ ! -d "$src" ]; then
+      echo "MISSING DIR  $src"; missing=$((missing + 1)); continue
+    fi
+    n=$(find "$src" -maxdepth 1 -type f \( -iname '*.tif' -o -iname '*.shp' -o \
+        -iname '*.shx' -o -iname '*.dbf' -o -iname '*.prj' -o -iname '*.cpg' \) | wc -l)
+    sz=$(find "$src" -maxdepth 1 -type f \( -iname '*.tif' -o -iname '*.shp' -o \
+         -iname '*.shx' -o -iname '*.dbf' -o -iname '*.prj' -o -iname '*.cpg' \) \
+         -printf '%s\n' | awk '{t+=$1} END {printf "%.1f GB", t/1073741824}')
+    echo "$sub  <-  $src  ($n files, $sz)"
+    total=$((total + n))
+    [ "$DRY_RUN" = "1" ] && continue
+    mkdir -p "$dst"
+    while IFS= read -r f; do
+      base=$(basename "$f")
+      cp -p "$f" "$dst/$base"
+      printf '"%s","%s","%s","%s"\n' \
+        "$sub/$base" "$f" "$(stat -c%s "$f")" "$(stat -c '%y' "$f" | cut -d. -f1)" >> "$PROV"
+      copied=$((copied + 1))
+    done < <(find "$src" -maxdepth 1 -type f \( -iname '*.tif' -o -iname '*.shp' -o \
+             -iname '*.shx' -o -iname '*.dbf' -o -iname '*.prj' -o -iname '*.cpg' \) | sort)
+  done
+fi
+
 echo
 if [ "$DRY_RUN" = "1" ]; then
   echo "DRY RUN - $total file(s) would be copied, $missing directories missing"
@@ -146,8 +188,10 @@ fi
 # Do not leave root-owned files behind.
 owner="${SUDO_UID:-0}:${SUDO_GID:-0}"
 if [ "$owner" != "0:0" ]; then
-  chown -R "$owner" "$DEST_ROOT"
-  echo "chowned $DEST_ROOT to $owner"
+  # data-in, not just results/: the satellite set writes into data-in/planet,
+  # data-in/s2 and data-in/wv2/aoi, which sit outside DEST_ROOT.
+  chown -R "$owner" "$(dirname "$DEST_ROOT")"
+  echo "chowned $(dirname "$DEST_ROOT") to $owner"
 fi
 
 echo "copied $copied file(s), $missing directories missing"
