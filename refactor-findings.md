@@ -1254,6 +1254,26 @@ svm) hung for 2.5 h at 0% CPU under `future::plan(multicore)` - forking a
 process after lightgbm has initialised its OpenMP pool deadlocks the next
 resample. Multisession is the right plan for anything that has touched
 lightgbm; recorded in the server-ops memory.
+### 7.36 The svm polynomial kernel was the tuning bottleneck; dropped
+
+Every svm tuning target was the long tail (WV2: 1h34m to tune, 93 s to
+evaluate the chosen config over 100 fits), and one Planet tuning stalled a
+fast-profile smoke test for 45 minutes on 15 fits. Timed on the 2,000-row
+Planet task: linear and radial configurations across the whole cost/gamma
+range fit in 0.3-2.5 s; polynomial degree 5 at gamma 10 takes 107 s and
+hits libsvm's iteration cap. Of the 31 svm configurations banked across the
+drone and WV2 arms, 3 were polynomial (all degree 2) and none a clear win.
+The polynomial kernel is removed from the space **[HUGH]**: "I doubt the
+polynomial kernels come out better than linear ... let's not try too hard
+to repeat for something that is unlikely to give real benefit." This
+invalidates every tuned target (targets tracks the tuning module
+transitively), which is the price of a one-line change; downstream fits
+whose configuration comes back unchanged are skipped by value.
+
+Also noted: mlr3's "evaluate" encapsulation cannot interrupt a fit inside
+libsvm's C loop, so a timeout would not have helped without switching to
+callr encapsulation and paying a process spawn per fit. Trimming the space
+is the cheaper and the more honest fix.
 ---
 
 ## 8. Class scheme
@@ -1667,3 +1687,7 @@ manifest, lockfile and library in agreement.
   Incursion with the surface choice, and 79.9% "expanding" reproduces on
   neither; S9 96.3% vs 95.1% reproduced. Fold-geometry diagnostic hang
   diagnosed (multicore fork after lightgbm) and relaunched under multisession.
+- **2026-09-15 (night)** Planet/S2 arms wired and smoke-tested, field-only
+  WV2 arm and Fig 5 / Fig 6C producers added. **Finding 7.36**: polynomial
+  svm kernel measured as the sole tuning bottleneck (107 s vs <3 s per fit)
+  and dropped [HUGH]; full retune launched.

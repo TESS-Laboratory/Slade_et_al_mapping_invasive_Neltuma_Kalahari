@@ -63,12 +63,17 @@ make_task <- function(df, site, tag, sites = read_sites()) {
 #'
 #' @return a paradox::ParamSet
 svm_search_space <- function() {
+  # No polynomial kernel (decision 2026-09-15 [HUGH]). Measured on the
+  # 2,000-row Planet task: every linear/radial configuration in this space
+  # fits in under 3 s; polynomial degree 5 takes ~107 s and hits libsvm's
+  # iteration cap, which is what turned one tuning target into a 45-minute
+  # smoke-test stall and a 1.5 h full-budget one. Of 31 banked svm winners,
+  # 3 were polynomial, all degree 2, none by a clear margin. Finding 7.36.
   paradox::ps(
     cost      = paradox::p_dbl(1e-4, 1e3, logscale = TRUE),
-    kernel    = paradox::p_fct(c("linear", "polynomial", "radial")),
+    kernel    = paradox::p_fct(c("linear", "radial")),
     gamma     = paradox::p_dbl(1e-4, 1e3, logscale = TRUE,
-                               depends = kernel %in% c("polynomial", "radial")),
-    degree    = paradox::p_int(2, 5, depends = kernel == "polynomial")
+                               depends = kernel == "radial")
   )
 }
 
