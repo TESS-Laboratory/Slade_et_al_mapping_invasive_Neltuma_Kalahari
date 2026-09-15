@@ -115,6 +115,75 @@ build_satellite_cube <- function(srcs, bands, sensor,
 }
 
 
+#' Declare the CRS on the WV2 study-area boundary
+#'
+#' `WV2_clip.shp` ships without a `.prj` (finding 7.13), but its coordinates
+#' are unambiguously UTM 34S - the bbox sits inside the corrected mosaic's
+#' extent. The CRS is declared, never transformed, and the result is written
+#' as FlatGeobuf: new vector products do not get minted as shapefiles
+#' (decision 2026-09-15 [HUGH]; the wholesale .shp conversion waits for the
+#' next refactor phase).
+#'
+#' @param shp path to the boundary shapefile
+#' @param epsg the CRS to declare
+#' @param out output path
+#' @return `out`
+fix_wv2_aoi <- function(shp, epsg, out = "data-out/wv2/wv2_aoi.fgb") {
+  v <- sf::st_read(shp, quiet = TRUE)
+  if (is.na(sf::st_crs(v))) {
+    v <- sf::st_set_crs(v, epsg)
+  } else if (!identical(sf::st_crs(v), sf::st_crs(epsg))) {
+    stop("WV2 AOI has grown a CRS that is not EPSG:", epsg,
+         " - re-check finding 7.13 before trusting this layer.", call. = FALSE)
+  }
+  dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
+  sf::st_write(v, out, delete_dsn = TRUE, quiet = TRUE)
+  out
+}
+
+
+#' Class areas of one surface inside one boundary
+#'
+#' @param class_tif path to a class raster (any resolution)
+#' @param aoi a SpatVector boundary in the same CRS
+#' @return data.frame of Type and area_ha for classes present
+masked_class_areas <- function(class_tif, aoi) {
+  r <- terra::rast(class_tif)[[1]]
+  r <- terra::mask(terra::crop(r, aoi), aoi)
+  f <- terra::freq(r)
+  data.frame(Type = as.integer(f$value),
+             area_ha = f$count * prod(terra::res(r)) / 1e4)
+}
+
+
+#' Drone vs WV2 class areas for one site - the Table S10 producer
+#'
+#' The original's Table S10 compared WV2 areas against SMOOTHED drone maps,
+#' a reference from which part of the sparse Neltuma had already been erased
+#' (finding 7.31). All four surface combinations are produced here so the
+#' reference-side choice is an explicit authorial decision [ANDY], not an
+#' artefact of what happened to be on disk.
+#'
+#' @param site drone site id
+#' @param aoi_path the drone site boundary
+#' @param drone named list: raw and smoothed drone prediction paths
+#' @param wv2 named list: raw and smoothed WV2 prediction paths
+#' @return long data.frame: site, sensor, surface, Type, area_ha
+compare_site_surfaces <- function(site, aoi_path, drone, wv2) {
+  aoi <- terra::vect(aoi_path)
+  sets <- list(
+    drone_raw      = drone$raw[1],      drone_smoothed = drone$smoothed[1],
+    wv2_raw        = wv2$raw[1],        wv2_smoothed   = wv2$smoothed[1]
+  )
+  out <- lapply(names(sets), function(nm) {
+    a <- masked_class_areas(sets[[nm]], aoi)
+    parts <- strsplit(nm, "_")[[1]]
+    cbind(site = site, sensor = parts[1], surface = parts[2], a)
+  })
+  do.call(rbind, out)
+}
+
+
 #' Balance a training table to equal class sizes
 #'
 #' The archived WV2 extraction holds 500 per class but S.mellifera caps at 400

@@ -290,6 +290,25 @@ wv2_fits <- tar_map(
   tar_target(wv2_fit_tidy, tidy_resample(wv2_fit, "wv2", WV2_TAG, learner_id))
 )
 
+# Drone vs WV2 class areas per drone site - the Table S10 producer. All four
+# raw/smoothed combinations, so the reference-side choice (finding 7.31) is
+# explicit rather than inherited from what was on disk.
+wv2_cmp_grid <- data.frame(site = SITES, stringsAsFactors = FALSE)
+wv2_cmp_grid$pred_sym   <- rlang::syms(paste0("pred_", SITES))
+wv2_cmp_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", SITES))
+wv2_cmp_grid$aoi_sym    <- rlang::syms(paste0("aoi_paths_", SITES))
+
+wv2_compare <- tar_map(
+  values = wv2_cmp_grid,
+  names = site,
+  tar_target(
+    wv2_site_areas,
+    compare_site_surfaces(site, aoi_sym[1],
+                          drone = list(raw = pred_sym, smoothed = smooth_sym),
+                          wv2   = list(raw = wv2_pred, smoothed = wv2_pred_smooth))
+  )
+)
+
 list(
 
   # ---- configuration -------------------------------------------------------
@@ -400,6 +419,41 @@ list(
   wv2_fits,
   tar_combine(wv2_scores, wv2_fits[["wv2_fit_tidy"]], command = rbind(!!!.x)),
   tar_target(wv2_best, select_best(wv2_scores)),
+
+  # Landscape prediction over the full WV2 scene, masked to the study area,
+  # then the explicit majority filter at the original's ACTUAL window (9, not
+  # the 25 its filenames claim - see satellite.yml).
+  tar_file(satellite_file, file.path(CONFIG_DIR, "satellite.yml")),
+  tar_target(satcfg, read_satellite(satellite_file)),
+  tar_target(wv2_aoi_paths,
+             shapefile_files(file.path(WV2_DIR, "WV2_clip.shp")),
+             format = "file"),
+  tar_target(wv2_aoi, fix_wv2_aoi(wv2_aoi_paths[1], satcfg$wv2$epsg),
+             format = "file"),
+  tar_target(
+    wv2_pred,
+    predict_site(
+      wv2_cube, wv2_aoi, wv2_training,
+      best = wv2_best,
+      resampling = resampling,
+      tuned_configs = list(svm = wv2_tuned_svm, xgboost = wv2_tuned_xgboost,
+                           ranger = wv2_tuned_ranger,
+                           lightgbm = wv2_tuned_lightgbm,
+                           glmnet = wv2_tuned_glmnet),
+      site = "wv2", tag = WV2_TAG, aggregate = PRED_AGG
+    ),
+    format = "file", resources = ml_resources
+  ),
+  tar_target(wv2_pred_summary, summarise_prediction(wv2_pred, "wv2", WV2_TAG)),
+  tar_target(wv2_pred_smooth,
+             smooth_prediction(wv2_pred, satcfg$wv2$smooth_window, "wv2", WV2_TAG),
+             format = "file", resources = ml_resources),
+  tar_target(wv2_smooth_areas,
+             class_area_table(wv2_pred_smooth, "wv2", WV2_TAG, "smoothed")),
+
+  wv2_compare,
+  tar_combine(wv2_drone_areas, wv2_compare[["wv2_site_areas"]],
+              command = rbind(!!!.x)),
 
   # ---- figures -------------------------------------------------------------
   # The pred_* dependency list is built from SITES so the same code works under

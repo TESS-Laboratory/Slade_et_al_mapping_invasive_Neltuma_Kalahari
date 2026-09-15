@@ -1,0 +1,22 @@
+# Satellite-arm configuration - deliberately a SEPARATE file from
+# resampling.yml. The `resampling` config object feeds predict_site() for the
+# drone surfaces, so any edit to resampling.yml invalidates seven banked
+# landscape predictions (hours of recompute). Satellite settings will keep
+# changing while these arms are built out; the drone arm must not pay for that.
+#
+# Planet and S2 sections will join wv2 here as those arms are wired.
+
+wv2:
+  epsg: 32734
+  dir: data-in/wv2/glenn
+  # The archived extraction the reported run consumed: WV2 pixel polygons at
+  # >95% drone-class purity, 500 per class except S.mellifera which caps at
+  # 400 - balanced down to the rarest class in-pipeline (findings 7.19, 7.32).
+  training: WV2_equal_class_size_500_train_95.shp
+  # The study-area boundary. Ships without a .prj (finding 7.13); its CRS is
+  # declared from `epsg` above and rewritten as .fgb by the pipeline.
+  aoi: WV2_clip.shp
+  # WV_2_Majority_filter.R line 52 runs focal(w = 9, fun = "modal") - 14.4 m
+  # at 1.6 m pixels - while naming its outputs "MJ25"/"FMJ25". The code wins
+  # over the filename, as usual in this project. 0 disables.
+  smooth_window: 9

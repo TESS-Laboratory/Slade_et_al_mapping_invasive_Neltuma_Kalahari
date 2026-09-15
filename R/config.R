@@ -165,6 +165,30 @@ read_resampling <- function(path = file.path(CONFIG_DIR, "resampling.yml")) {
 }
 
 
+#' Satellite-arm settings
+#'
+#' A separate file from resampling.yml on purpose: the `resampling` object
+#' feeds predict_site() for the drone surfaces, so resampling.yml edits
+#' invalidate seven banked landscape predictions. Satellite settings churn
+#' while those arms are built; this file isolates that churn.
+#'
+#' @param path location of satellite.yml
+#' @return named list, one entry per sensor
+read_satellite <- function(path = file.path(CONFIG_DIR, "satellite.yml")) {
+  assert_config_exists(path, "Satellite configuration")
+  y <- yaml::read_yaml(path)
+  for (sensor in names(y)) {
+    missing <- setdiff(c("epsg", "dir", "training", "aoi", "smooth_window"),
+                       names(y[[sensor]]))
+    if (length(missing)) {
+      stop("satellite.yml entry '", sensor, "' is missing key(s): ",
+           paste(missing, collapse = ", "), call. = FALSE)
+    }
+  }
+  y
+}
+
+
 #' Resampling settings with a profile applied
 #'
 #' The `fast` profile exercises the whole graph end to end on reduced budgets.
