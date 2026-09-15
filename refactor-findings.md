@@ -1202,6 +1202,22 @@ sparse sites - the paper's subject - are where WV2 both misses most and
 where the filter finishes the job. **[ANDY]** - S10 needs the surface choice
 stated, and the sparse-site rows shown.
 
+**The S10 matrix itself** (WV2 class vs drone-majority class per WV2 pixel,
+~830k pixels inside the seven sites) settles what the filter does to
+detection rather than to area:
+
+| surfaces | WV2 Neltuma vs drone | precision | recall | overall agreement |
+|---|---|---|---|---|
+| smoothed vs smoothed (original's setup) | +21.4% | 0.41 | 0.49 | 0.668 |
+| raw vs raw | +88.6% | 0.40 | **0.76** | 0.609 |
+| original S10 | +24.8% (their figure) | 0.48 | 0.63 | - |
+
+Same shape as the original's matrix, and the mechanism laid bare: the raw
+WV2 surface finds three quarters of the drone-mapped Neltuma pixels at 40%
+precision; the w = 9 filter halves that recall and leaves precision where it
+was. For a sparse-invasion detector the filter is not a smoothing step, it
+is a recall penalty with no offsetting benefit.
+
 **Invasion phases (Table 1 / Fig 8) hinge on the same choice.** 250 m
 hexagons, Table S8 thresholds:
 
