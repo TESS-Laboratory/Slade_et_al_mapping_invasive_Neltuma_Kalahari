@@ -33,9 +33,20 @@ if (ML_WORKERS * FUTURE_WORKERS > 64L) {
   warning("ML_WORKERS x NELTUMA_FUTURE = ", ML_WORKERS * FUTURE_WORKERS,
           " exceeds the 64 cores on this machine.", call. = FALSE)
 }
+# Landscape predictions fork NELTUMA_PREDICT_CORES terra workers EACH, so they
+# get their own controller with a worker cap: seven concurrent predictions x
+# 8 cores put the load average at 90 on 64 cores (Phase A gate, 2026-09-16).
+PREDICT_WORKERS <- as.integer(Sys.getenv("NELTUMA_PREDICT_WORKERS", "3"))
+PREDICT_CORES   <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+if (ML_WORKERS * FUTURE_WORKERS + PREDICT_WORKERS * PREDICT_CORES > 64L) {
+  warning("ML + prediction cores = ", ML_WORKERS * FUTURE_WORKERS + PREDICT_WORKERS * PREDICT_CORES,
+          " exceeds the 64 cores on this machine.", call. = FALSE)
+}
 controller_general <- crew::crew_controller_local(name = "general", workers = GENERAL_WORKERS, seconds_idle = 60)
 controller_ml      <- crew::crew_controller_local(name = "ml", workers = ML_WORKERS, seconds_idle = 300)
-ml_resources <- tar_resources(crew = tar_resources_crew(controller = "ml"))
+controller_predict <- crew::crew_controller_local(name = "predict", workers = PREDICT_WORKERS, seconds_idle = 300)
+ml_resources      <- tar_resources(crew = tar_resources_crew(controller = "ml"))
+predict_resources <- tar_resources(crew = tar_resources_crew(controller = "predict"))
 
 tar_option_set(
   packages = c("terra", "sf", "exactextractr",
@@ -44,7 +55,7 @@ tar_option_set(
                "mlr3extralearners", "mlr3mbo",
                "dplyr", "tidyr", "purrr", "jsonlite", "yaml"),
   format = "qs",
-  controller = crew::crew_controller_group(controller_general, controller_ml),
+  controller = crew::crew_controller_group(controller_general, controller_ml, controller_predict),
   resources = tar_resources(crew = tar_resources_crew(controller = "general")),
   # Rasters move between targets as file paths, never as SpatRaster objects.
   memory = "transient", garbage_collection = TRUE,
@@ -240,10 +251,10 @@ preds <- tar_map(
   tar_target(pred,
              predict_site(cube_sym, aoi_path, train_sym, spec = pred_spec, shared = eval_shared,
                           config = pred_config, site = pred_id, tag = tag, aggregate = PRED_AGG),
-             format = "file", resources = ml_resources),
+             format = "file", resources = predict_resources),
   tar_target(pred_summary, summarise_prediction(pred, pred_id, tag)),
   tar_target(pred_smooth, smooth_prediction(pred, window, pred_id, tag),
-             format = "file", resources = ml_resources),
+             format = "file", resources = predict_resources),
   tar_target(smooth_areas, class_area_table(pred_smooth, pred_id, tag, "smoothed"))
 )
 
