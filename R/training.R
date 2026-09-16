@@ -160,3 +160,41 @@ validate_training_table <- function(df, site, sites = read_sites(),
     stringsAsFactors = FALSE
   ))
 }
+
+
+#' Build one task's training table from its source (refactor-3.0 4.1)
+#'
+#' One entry point for every (sensor, unit, tag, source) row of the task
+#' grid, so the graph has a single training target family:
+#'
+#'   field     areal mean over the field polygons (drone: as shipped; satellite:
+#'             the seven sites' polygons re-buffered, see build_field_layer),
+#'             unbalanced - as the original's field arms were
+#'   archived  Glen's purity extraction, balanced to the rarest class (the
+#'             500-requested / 400-effective of 7.32)
+#'   purity    a purity layer re-derived from our drone surfaces, balanced to
+#'             the sensor's class size
+#'
+#' @param source_type field | archived | purity
+#' @param cube_path predictor cube (VRT)
+#' @param layer_path polygon layer with a Type column
+#' @param unit,tag ids recorded in the table
+#' @param classes class lookup
+#' @param balance "min" or "none" (archived)
+#' @param class_size cap for purity balancing
+#' @param seed RNG seed for balancing
+#' @return list(training = data.frame, drops = attrition summary)
+build_source_training <- function(source_type, cube_path, layer_path, unit, tag,
+                                  classes, balance = "none", class_size = NA,
+                                  seed) {
+  raw   <- build_training_table(cube_path, layer_path, unit, tag, classes = classes)
+  split <- drop_incomplete(raw)
+  tr <- split$data
+  if (identical(source_type, "archived") && identical(balance, "min")) {
+    tr <- balance_classes(tr, seed = seed)
+  } else if (identical(source_type, "purity")) {
+    tr <- balance_classes(tr, cap = if (is.na(class_size)) NULL else as.integer(class_size),
+                          seed = seed)
+  }
+  list(training = tr, drops = split$summary)
+}

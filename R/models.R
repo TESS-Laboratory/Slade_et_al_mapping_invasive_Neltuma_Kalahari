@@ -393,9 +393,11 @@ run_resample <- function(task, spec, shared, config = NULL) {
 #' @param tag stack tag
 #' @param learner_id the configured learner id
 #' @return one-row data.frame
-tidy_resample <- function(rr, site, tag, learner_id) {
+tidy_resample <- function(rr, site, tag, learner_id, sensor = NA_character_,
+                          unit = NA_character_, source = NA_character_) {
   sc <- rr$score(mlr3::msr("classif.acc"))$classif.acc
   data.frame(
+    sensor = sensor, unit = unit, source = source,
     site = site, tag = tag, learner = learner_id,
     classif.acc = mean(sc), classif.ce = 1 - mean(sc),
     acc_sd = stats::sd(sc), acc_min = min(sc), acc_max = max(sc),
@@ -439,14 +441,17 @@ select_best <- function(scores) {
 #' @param site,tag,learner_id ids
 #' @param code the class code of interest (Neltuma = 1)
 #' @return one-row data.frame: recall, precision, n_truth for that class
-tidy_class_accuracy <- function(rr, site, tag, learner_id, code = 1L) {
+tidy_class_accuracy <- function(rr, site, tag, learner_id, code = 1L,
+                                sensor = NA_character_, unit = NA_character_,
+                                source = NA_character_) {
   p  <- rr$prediction()
   cm <- table(truth = p$truth, response = p$response)
   k  <- as.character(code)
   tp <- if (k %in% rownames(cm) && k %in% colnames(cm)) cm[k, k] else 0
   n_truth <- if (k %in% rownames(cm)) sum(cm[k, ]) else 0
   n_pred  <- if (k %in% colnames(cm)) sum(cm[, k]) else 0
-  data.frame(site = site, tag = tag, learner = learner_id, class = code,
+  data.frame(sensor = sensor, unit = unit, source = source,
+             site = site, tag = tag, learner = learner_id, class = code,
              recall = if (n_truth) tp / n_truth else NA_real_,
              precision = if (n_pred) tp / n_pred else NA_real_,
              n_truth = as.integer(n_truth), stringsAsFactors = FALSE)

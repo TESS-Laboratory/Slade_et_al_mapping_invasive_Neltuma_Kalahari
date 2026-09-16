@@ -1,0 +1,129 @@
+# One configuration for every sensor (refactor-3.0, section 4.1): the drone is
+# the finest sensor, not a special case. The graph in _targets.R is GENERATED
+# from this file by R/graph.R - a sensor is a set of "units" (drone: the seven
+# sites; satellites: the one scene), each with predictor stacks and training
+# sources, and every unit x stack x source is one task run through every
+# learner.
+#
+# Replaces satellite.yml and sensors.csv. sites.csv (measured per-site facts)
+# and stacks.csv (the drone band lists) remain as the drone's detail tables.
+#
+# Purity thresholds and class sizes were recovered from the archived workbooks
+# (findings 7.18, 7.19, 7.32), not from Table S7, which is wrong on class size.
+
+drone:
+  pixel_m: 0.05            # per-site values live in sites.csv
+  epsg: 32734
+  units: sites             # one unit per row of sites.csv
+  stacks: stacks_csv       # all tags in stacks.csv
+  cube: drone              # build_cube(site, tag) from per-site rasters
+  sources:
+    field:                 # areal mean over the buffered field polygons
+      layer: data-in/drone/{unit}/field_points.fgb
+  aoi: data-in/drone/{unit}/aoi.fgb
+  domain: unit             # the map is the site: prediction domain = its AOI
+  primary_source: field
+  classes: all
+
+wv2:
+  pixel_m: 1.6
+  epsg: 32734
+  units: scene
+  cube: satellite
+  dir: data-in/wv2/glenn
+  base: WV2_Corrected.tif
+  bands: [blue, green, red, nir]
+  vis: [msavi, msavi2, mtvi, ndvi, savi]
+  vi_files: {msavi: WV2_MSAVI.tif, msavi2: WV2_MSAVI2.tif, mtvi: WV2_MTVI.tif,
+             ndvi: WV2_NDVI.tif, savi: WV2_SAVI.tif}
+  stacks: [4_ALLVI]
+  sources:
+    archived:              # Glen's extraction: 500/class requested, 400 effective (7.32)
+      layer: data-in/wv2/glenn/WV2_equal_class_size_500_train_95.fgb
+      balance: min
+    purity_raw:            # re-derived from OUR raw drone surfaces
+      purity: 0.95
+      class_size: 400
+      grids: data-in/wv2/grids/{site}.fgb
+      surface: raw
+    purity_smooth:         # ... and from the filtered ones (7.31 test; retires in Phase B)
+      purity: 0.95
+      class_size: 400
+      grids: data-in/wv2/grids/{site}.fgb
+      surface: smoothed
+    field:                 # section 2.5: field points re-buffered to 0.8 m, unbalanced
+      buffer_m: 0.8
+  aoi: data-in/wv2/glenn/WV2_clip.fgb
+  domain: aoi              # the map is the 445 km2 study area
+  primary_source: archived
+  classes: [1, 2, 3, 5, 6, 7]
+  smooth_window: 9         # WV_2_Majority_filter.R:52, focal(w = 9) despite "MJ25" names
+  s9_points: data-in/wv2/glenn/All_points_buffered_additional.fgb
+  phases:                  # Table S8, after Mullerova et al. 2023
+    cell_m: 250
+    prevalence_cell_m: 100
+    dominance: 15
+    expansion: 1.5
+    incursion: 0.1
+
+planet:
+  pixel_m: 3
+  epsg: 32734
+  units: scene
+  cube: satellite
+  dir: data-in/planet/raw
+  base: Planet_stack.tif
+  bands: [blue, green, red, nir, ndvi]      # band 5 verified = NDVI(b4, b3)
+  vis: [msavi, msavi2, mtvi, savi]          # computed with Glen's formulas (verified ~1e-8)
+  stacks: [4_ALLVI]
+  sources:
+    archived:
+      layer: data-in/planet/raw/Planet_equal_class_size_400_train_85.fgb
+      balance: min
+    purity_raw:
+      purity: 0.85
+      class_size: 400
+      grids: data-in/planet/grids/{site}.fgb
+      surface: raw
+    purity_smooth:
+      purity: 0.85
+      class_size: 400
+      grids: data-in/planet/grids/{site}.fgb
+      surface: smoothed
+  aoi: data-in/wv2/glenn/WV2_clip.fgb
+  domain: aoi
+  primary_source: archived
+  classes: [1, 2, 3, 5, 6]
+  smooth_window: 0
+
+s2:
+  pixel_m: 10
+  epsg: 32734
+  units: scene
+  cube: satellite
+  dir: data-in/s2/raw
+  base: S2_Large_stack.tif
+  bands: [blue, green, red, nir]
+  vis: [msavi, msavi2, mtvi, ndvi, savi]
+  vi_files: {msavi: S2_MSAVI.tif, msavi2: S2_MSAVI2.tif, mtvi: S2_MTVI.tif,
+             ndvi: S2_NDVI.tif, savi: S2_SAVI.tif}
+  stacks: [4_ALLVI]
+  sources:
+    archived:
+      layer: data-in/s2/raw/S2_equal_class_size_60_train_65.fgb
+      balance: min
+    purity_raw:
+      purity: 0.65
+      class_size: 60
+      grids: data-in/s2/grids/{site}.fgb
+      surface: raw
+    purity_smooth:
+      purity: 0.65
+      class_size: 60
+      grids: data-in/s2/grids/{site}.fgb
+      surface: smoothed
+  aoi: data-in/wv2/glenn/WV2_clip.fgb
+  domain: aoi
+  primary_source: archived
+  classes: [1, 2, 3, 6]
+  smooth_window: 0

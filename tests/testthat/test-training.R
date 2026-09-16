@@ -1,0 +1,10 @@
+testthat::test_that("balance_classes balances to the rarest class, capped, seeded", {
+  df <- data.frame(Type = factor(rep(c(1, 2, 3), c(50, 30, 10))), x = 1:90, y = 1:90, b = rnorm(90))
+  b <- balance_classes(df, seed = 1)
+  testthat::expect_equal(as.vector(table(b$Type)), c(10, 10, 10))
+  b2 <- balance_classes(df, seed = 1)
+  testthat::expect_identical(b$x, b2$x)
+  b3 <- balance_classes(df, cap = 5, seed = 1)
+  testthat::expect_equal(as.vector(table(b3$Type)), c(5, 5, 5))
+  testthat::expect_error(balance_classes(df, n = 40, seed = 1), "short class")
+})
