@@ -839,6 +839,17 @@ list(
                  quote(fig7_scores)),
     format = "file"
   ),
+  # Figure 1 analogue: study area and sites (dependency list built from SITES).
+  targets::tar_target_raw(
+    "fig_study",
+    rlang::call2("fig_study_area", quote(wv2_aoi),
+                 rlang::call2("setNames",
+                              rlang::call2("list", !!!rlang::syms(paste0("aoi_paths_", SITES))),
+                              SITES)),
+    format = "file"
+  ),
+  # Figure 6A/B analogue: WV2 learner benchmark and the training-arm test.
+  tar_target(fig_wv2_bench, fig_wv2_benchmark(wv2_scores), format = "file"),
   # Figure 8 analogue: prevalence and phase maps from the phase layers.
   tar_target(fig_phases, fig_phase_maps(wv2_prevalence_layer, wv2_phase_layer),
              format = "file"),

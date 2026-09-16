@@ -1767,3 +1767,11 @@ manifest, lockfile and library in agreement.
   71.1/70.3 with 50.4, 34.6%), Figure 5 + 6C embedded, Table 1 analogue
   rendered. Per-fit Neltuma-recall targets added without touching
   best_models. 7.35 numbers corrected in place after the retune.
+- **2026-09-16 (morning)** Reproduction draft complete. Decision [HUGH]:
+  contradictions shown IN COLOUR in the rendered manuscript (pipeline.css,
+  legend; red = contradicted claim, green = substituted value, boxes for
+  contradicts / not-reproduced / notes), number mismatches expected, draft
+  kept rough ahead of the next refactor. Figures 1, 5, 6A/B/C, 7, 8 and Table
+  1 are pipeline products; Figures 2 (workflow diagram) and 3 (photographs)
+  stay amber as authoring, not data. 1,515 targets; the full graph rebuilds
+  from raw inputs.

@@ -33,6 +33,8 @@ fig_wv2_map_path <- targets::tar_read(fig_wv2_map)
 phase_table      <- targets::tar_read(wv2_phase_table)
 fig_sensors_path <- targets::tar_read(fig_sensors)
 fig_phases_path  <- targets::tar_read(fig_phases)
+fig_study_path   <- targets::tar_read(fig_study)
+fig_wv2_bench_path <- targets::tar_read(fig_wv2_bench)
 ```
 
 ::: {.pipeline-legend}
@@ -102,8 +104,12 @@ We used a hierarchical multi-scale Earth observation design to investigate spars
 
 The study was conducted across approximately 445 km² of Kgalagadi rangelands in southwest Botswana surrounding the villages of Bokspits, Struizendam and Vaalhoek, bounded to the south by the Molopo and to the west by the Nossob ephemeral river valleys, which also mark the Botswana– South Africa border (Figure 1). The region comprises a semi-arid savanna system of deep sandy soils, variable grazing pressure and heterogeneous vegetation structured by NW–SE dune systems, dune valleys and dry river corridors. Vegetation is dominated by Kalahari Duneveld shrub-grassland, with dune crests supporting Stipagrostis amabilis and scattered trees such as Vachellia haematoxylon and Boscia albitrunca, while dune valleys contain grassland and low-density bush savanna with species including Schmidtia kalahariensis, Stipagrostis uniplumis, Eragrostis lehmanniana and Aristida meridionalis, interspersed with denser shrub patches of Rhigozum trichotomum and Senegalia mellifera. Dry river valleys support more open tree savanna including V. erioloba (Van Rooyen and Van Rooyen 2019). Communal pastoralism is the dominant land use, with continuous grazing by livestock shaping vegetation structure and disturbance regimes (Kgosikoma and Batisani 2014). Within this dynamic dryland mosaic, Neltuma, introduced during sand dune stabilisation near Bokspits in 1980 (van der Poel and Timberlake 1980), has spread from initial planting sites into settlements and surrounding savanna (Mosweu et al. 2013), occurring across a continuum from isolated individuals and low-density populations to dense established stands, making it a suitable system for evaluating scale-dependent detection. 
 
-::: {.pipeline-pending}
-: Figure 1 not yet reproduced by the refactored pipeline; original caption retained below.
+```{r fig1-panel, echo=FALSE, out.width="60%"}
+knitr::include_graphics(fig_study_path)
+```
+
+::: {.pipeline-note}
+Pipeline analogue of Figure 1: boundary and the seven sites only; basemap, settlements and photographs are not pipeline products.
 :::
 
 
@@ -250,8 +256,12 @@ knitr::include_graphics(fig_cover_path)
 
 Figure 5. Coarser sensor grain sharply reduces the availability of high-Neltuma-cover pixels for training and detection. (A) Distribution of sub-pixel Neltuma cover within 1.6 m WorldView-2 pixels. (B) Corresponding distributions for 3 m PlanetScope pixels. (C) Corresponding distributions for 10 m Sentinel-2 pixels. Increasing pixel size reduces the frequency of high-cover pixels and illustrates the scale mismatch constraining detection of sparse invasions. 
 
-::: {.pipeline-pending}
-: Figure 6 not yet reproduced by the refactored pipeline; original caption retained below.
+```{r fig6ab-panels, echo=FALSE, out.width="100%"}
+knitr::include_graphics(fig_wv2_bench_path)
+```
+
+::: {.pipeline-note}
+Pipeline analogue of Figure 6A/B (panel C follows the caption): learners on the archived arm, and the four training arms with the field-only arm on top (finding 7.37).
 :::
 
 

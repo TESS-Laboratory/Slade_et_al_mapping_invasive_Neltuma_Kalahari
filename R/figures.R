@@ -437,3 +437,81 @@ fig_phase_maps <- function(prevalence_path, phase_path,
                   device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Figure 1 analogue: the study area and the seven drone sites
+#'
+#' Boundary from the CRS-fixed WV2 clip, site AOIs from the drone inputs.
+#' Rough draft: no basemap, no settlements (those layers are not in the
+#' pipeline); enough to place the sites.
+#'
+#' @param aoi_path study-area .fgb
+#' @param site_aois named list site -> aoi shapefile path
+#' @param out_png output path
+#' @return `out_png`
+fig_study_area <- function(aoi_path, site_aois, out_png = "data-out/figures/fig1_study_area.png") {
+  accent <- "#B5179E"
+  aoi <- sf::st_read(aoi_path, quiet = TRUE)
+  sites <- do.call(rbind, lapply(names(site_aois), function(s) {
+    v <- sf::st_read(site_aois[[s]][1], quiet = TRUE); v <- sf::st_union(v)
+    sf::st_sf(site = gsub("_", " ", tools::toTitleCase(s)), geometry = sf::st_transform(v, sf::st_crs(aoi)))
+  }))
+  cen <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(sites)))
+  sites$x <- cen[, 1]; sites$y <- cen[, 2]
+  fig <- ggplot2::ggplot() +
+    ggplot2::geom_sf(data = aoi, fill = "grey96", colour = "grey40", linewidth = 0.4) +
+    ggplot2::geom_sf(data = sites, fill = accent, colour = accent, alpha = 0.6, linewidth = 0.8) +
+    ggplot2::geom_text(data = sf::st_drop_geometry(sites), ggplot2::aes(x, y, label = site),
+                       size = 2.8, hjust = -0.15, colour = "grey15") +
+    ggplot2::labs(title = "Study area (WV2 boundary, 445 km²) and the seven drone survey sites",
+                  subtitle = "EPSG:32734; sites drawn at true size (0.1-1 km²) so they read as dots at this scale") +
+    ggplot2::theme_void(base_size = 9) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 10),
+                   plot.subtitle = ggplot2::element_text(size = 8, colour = "grey35"))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 6, height = 9, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure 6A/B analogue: WV2 learner benchmark and training-arm comparison
+#'
+#' A: overall accuracy per learner on the archived arm (mean over 100
+#' spatial-CV iterations, min-max range). B: the four WV2 training arms, best
+#' learner each - the field-only arm against the drone-purity arms, i.e. the
+#' +6.1% test (finding 7.37). Rough draft by design.
+#'
+#' @param wv2_scores all WV2 arm scores
+#' @param out_png output path
+#' @return `out_png`
+fig_wv2_benchmark <- function(wv2_scores, out_png = "data-out/figures/fig6ab_wv2_benchmark.png") {
+  accent <- "#B5179E"
+  a <- wv2_scores[wv2_scores$site == "wv2_archived", ]; a <- a[order(a$classif.acc), ]
+  a$learner <- factor(a$learner, levels = a$learner)
+  pa <- ggplot2::ggplot(a, ggplot2::aes(x = classif.acc, y = learner)) +
+    ggplot2::geom_segment(ggplot2::aes(x = acc_min, xend = acc_max, yend = learner), colour = "grey75", linewidth = 0.6) +
+    ggplot2::geom_point(colour = accent, size = 2.8) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%", 100 * classif.acc)), vjust = -1, size = 2.5, colour = "grey20") +
+    ggplot2::scale_x_continuous("Overall accuracy (mean; bar = min-max over 100 iterations)", labels = scales::percent, limits = c(0, 1)) +
+    ggplot2::labs(title = "A  WV2 learners, archived training arm", y = NULL) +
+    ggplot2::theme_minimal(base_size = 9) + ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                                                            plot.title = ggplot2::element_text(face = "bold", size = 9))
+  best <- do.call(rbind, lapply(split(wv2_scores, wv2_scores$site), function(d) d[which.max(d$classif.acc), ]))
+  best$arm <- factor(sub("^wv2_", "", best$site), levels = c("field", "archived", "dr_raw", "dr_smooth"),
+                     labels = c("Field points only\n(0.8 m buffers)", "Drone purity\n(archived extraction)",
+                                "Drone purity\n(our raw surfaces)", "Drone purity\n(our filtered surfaces)"))
+  pb <- ggplot2::ggplot(best, ggplot2::aes(x = arm, y = classif.acc)) +
+    ggplot2::geom_col(fill = accent, width = 0.55) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%\n%s", 100 * classif.acc, learner)), vjust = -0.3, size = 2.5, colour = "grey20") +
+    ggplot2::scale_y_continuous("Overall accuracy, best learner", labels = scales::percent, limits = c(0, 1)) +
+    ggplot2::labs(title = "B  Training arm comparison (the +6.1% test)", x = NULL) +
+    ggplot2::theme_minimal(base_size = 9) + ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                                                            panel.grid.major.x = ggplot2::element_blank(),
+                                                            plot.title = ggplot2::element_text(face = "bold", size = 9))
+  fig <- patchwork::wrap_plots(pa, pb, nrow = 1, widths = c(1, 1.1))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 11, height = 4.6, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
