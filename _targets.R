@@ -823,6 +823,25 @@ list(
                                "WorldView-2 (1.6 m)",
                                "data-out/figures/fig6c_wv2_landscape.png"),
              format = "file"),
+  # Figure 7 analogue: one site through four sensors, plus accuracy per
+  # sensor. The site is the first in SITES so the fast profile resolves too.
+  tar_target(fig7_scores,
+             sensor_accuracy_summary(SITES[1], PRED_TAG, best_models, class_index,
+                                     wv2_scores, sat_scores, wv2_class_index,
+                                     sat_class_index)),
+  targets::tar_target_raw(
+    "fig_sensors",
+    rlang::call2("fig_sensor_comparison", SITES[1],
+                 rlang::call2("[", rlang::sym(paste0("aoi_paths_", SITES[1])), 1L),
+                 rlang::call2("list", drone = rlang::sym(paste0("pred_", SITES[1])),
+                              wv2 = quote(wv2_pred), planet = quote(sat_pred_planet),
+                              s2 = quote(sat_pred_s2)),
+                 quote(fig7_scores)),
+    format = "file"
+  ),
+  # Figure 8 analogue: prevalence and phase maps from the phase layers.
+  tar_target(fig_phases, fig_phase_maps(wv2_prevalence_layer, wv2_phase_layer),
+             format = "file"),
   # Figure 5 analogue: sub-pixel Neltuma cover per sensor, from the raw-surface
   # purity extractions of all three sensors.
   tar_target(fig_cover,

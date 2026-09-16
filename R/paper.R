@@ -127,3 +127,25 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
     s9_neltuma_pct          = pct1(s9$accuracy), s9_neltuma_n = s9$n
   )
 }
+
+
+#' Overall accuracy and Neltuma recall per sensor, for Figure 7E
+#'
+#' Drone = the chosen site's winner on the prediction stack; satellites =
+#' the archived arm's best learner. Returns a named list sensor -> c(overall,
+#' neltuma_recall) in the order the figure draws them.
+sensor_accuracy_summary <- function(site, tag, best_models, class_index,
+                                    wv2_scores, sat_scores, wv2_class_index,
+                                    sat_class_index) {
+  b <- best_models[best_models$site == site & best_models$tag == tag, ][1, ]
+  ci <- class_index[class_index$site == site & class_index$tag == tag &
+                    class_index$learner == b$learner, ][1, ]
+  sc <- rbind(wv2_scores, sat_scores); cx <- rbind(wv2_class_index, sat_class_index)
+  arm <- function(a) {
+    d <- sc[sc$site == a, ]; w <- d[which.max(d$classif.acc), ]
+    r <- cx[cx$site == a & cx$learner == w$learner, ]$recall[1]
+    c(w$classif.acc, r)
+  }
+  list(drone = c(b$classif.acc, ci$recall), wv2 = arm("wv2_archived"),
+       planet = arm("planet_archived"), s2 = arm("s2_archived"))
+}

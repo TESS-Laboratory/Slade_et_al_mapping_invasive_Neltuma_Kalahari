@@ -347,3 +347,93 @@ fig_satellite_map <- function(surfaces, sensor_label, out_png) {
                   dpi = 200, bg = "white", device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Figure 7 analogue: one drone site seen by four sensors, plus accuracies
+#'
+#' Panels A-D: the same site classified from drone, WV2, Planet and S2 (raw
+#' surfaces - the pipeline's stance, stated in the subtitle). Panel E: overall
+#' accuracy and Neltuma recall per sensor from the archived-arm benchmarks
+#' (drone = the site's own winner). Rough by design (decision 2026-09-16
+#' [HUGH]): the reproduction draft, not the refactored paper.
+#'
+#' @param site the drone site to show
+#' @param aoi_path its boundary
+#' @param surfaces named list sensor -> class raster path (drone first)
+#' @param scores named list sensor -> c(overall, neltuma_recall)
+#' @param out_png output path
+#' @return `out_png`
+fig_sensor_comparison <- function(site, aoi_path, surfaces, scores,
+                                  out_png = "data-out/figures/fig7_sensor_comparison.png") {
+  palette <- class_palette(); accent <- "#B5179E"
+  aoi <- terra::vect(aoi_path)
+  tmp <- file.path(dirname(out_png), "tmp_fig7"); dir.create(tmp, recursive = TRUE, showWarnings = FALSE)
+  labels <- c(drone = "Drone (7 cm)", wv2 = "WorldView-2 (1.6 m)",
+              planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+  panels <- lapply(names(surfaces), function(s) {
+    r <- terra::rast(surfaces[[s]][1])[[1]]
+    r <- terra::mask(terra::crop(r, aoi), aoi)
+    p <- file.path(tmp, paste0(site, "_", s, ".tif")); terra::writeRaster(r, p, overwrite = TRUE)
+    map_panel(p, labels[[s]], "raw surface", palette, target_px = 900, scale_m = 100)
+  })
+  sc <- data.frame(sensor = rep(names(scores), each = 2),
+                   measure = rep(c("Overall accuracy", "Neltuma recall"), length(scores)),
+                   value = unlist(scores, use.names = FALSE))
+  sc$sensor <- factor(sc$sensor, levels = names(scores), labels = labels[names(scores)])
+  panel_e <- ggplot2::ggplot(sc, ggplot2::aes(x = sensor, y = value, colour = measure, group = measure)) +
+    ggplot2::geom_line(linewidth = 0.6) + ggplot2::geom_point(size = 2.6) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("%.0f%%", 100 * value)), vjust = -1, size = 2.6, show.legend = FALSE) +
+    ggplot2::scale_colour_manual(values = c("Overall accuracy" = "#3B6EA8", "Neltuma recall" = accent), name = NULL) +
+    ggplot2::scale_y_continuous(NULL, labels = scales::percent, limits = c(0, 1)) +
+    ggplot2::labs(x = NULL, title = "E  Accuracy by sensor", subtitle = "10 x 10 spatial CV, archived training arms") +
+    ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(legend.position = "bottom", panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(),
+                   plot.title = ggplot2::element_text(face = "bold", size = 9))
+  codes <- sort(unique(unlist(lapply(surfaces, function(p) terra::freq(terra::rast(p[1])[[1]])$value))))
+  legend_p <- ggplot2::ggplot(data.frame(code = factor(codes)), ggplot2::aes(x = 1, y = code, fill = code)) +
+    ggplot2::geom_tile() + ggplot2::scale_fill_manual(values = palette, labels = class_plot_labels(codes), name = NULL) +
+    ggplot2::theme_void(base_size = 9) + ggplot2::theme(legend.position = "right", legend.key.size = ggplot2::unit(9, "pt"))
+  legend <- cowplot_get_legend(legend_p)
+  top <- patchwork::wrap_plots(c(panels, list(legend)), nrow = 1, widths = c(1, 1, 1, 1, 0.45))
+  fig <- patchwork::wrap_plots(top, panel_e, ncol = 1, heights = c(1.4, 1))
+  ggplot2::ggsave(out_png, fig, width = 12, height = 8.5, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure 8 analogue: Neltuma prevalence (100 m) and invasion phase (250 m)
+#'
+#' Both from the RAW WV2 surface (7.35: the phase floor is exactly what the
+#' filter erases; the smoothed variants are in the same layers). Prevalence
+#' is one hue light-to-dark; phases are the same hue as an ordered 4-step
+#' ramp with a neutral floor. Rough draft by design.
+#'
+#' @param prevalence_path,phase_path the .fgb layers from build_phase_layer()
+#' @param out_png output path
+#' @return `out_png`
+fig_phase_maps <- function(prevalence_path, phase_path,
+                           out_png = "data-out/figures/fig8_phase_maps.png") {
+  prev <- sf::st_read(prevalence_path, quiet = TRUE)
+  phs  <- sf::st_read(phase_path, quiet = TRUE)
+  phase_cols <- c("Pre-Incursion" = "#EFE9E4", "Initial Incursion" = "#E9A9D8",
+                  "Expansion" = "#B5179E", "Dominance" = "#5A0B4E")
+  base <- ggplot2::theme_void(base_size = 9) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 9),
+                   legend.key.size = ggplot2::unit(9, "pt"), legend.text = ggplot2::element_text(size = 8))
+  pa <- ggplot2::ggplot(prev) +
+    ggplot2::geom_sf(ggplot2::aes(fill = pmin(cover_raw, 30)), colour = NA) +
+    ggplot2::scale_fill_gradient(low = "#F6E3F1", high = "#5A0B4E", name = "Neltuma cover (%)\n100 m cells, capped at 30",
+                                 breaks = c(0, 10, 20, 30), labels = c("0", "10", "20", "30+")) +
+    ggplot2::labs(title = "A  Neltuma prevalence (raw WV2 surface)") + base
+  pb <- ggplot2::ggplot(phs) +
+    ggplot2::geom_sf(ggplot2::aes(fill = phase_raw), colour = NA) +
+    ggplot2::scale_fill_manual(values = phase_cols, name = "Invasion phase\n250 m hexagons, Table S8", drop = FALSE) +
+    ggplot2::labs(title = "B  Invasion phase (raw WV2 surface)") + base
+  fig <- patchwork::wrap_plots(pa, pb, nrow = 1)
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 11, height = 8, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}

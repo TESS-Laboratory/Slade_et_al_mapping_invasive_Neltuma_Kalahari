@@ -1,0 +1,13 @@
+/* Reproduction-draft markup (decision 2026-09-16 [HUGH]): pipeline findings
+   are shown IN COLOUR in the rendered manuscript rather than hidden in
+   comments. Number mismatches are expected at this stage. */
+.pipeline-legend { border: 1px solid #bbb; padding: 0.6em 1em; margin: 1em 0; font-size: 0.9em; background: #fafafa; }
+.pipeline-legend span { padding: 0.1em 0.4em; border-radius: 3px; margin-right: 0.6em; }
+.substituted { background: #d9f2d9; }          /* green: pipeline value, sentence stays true */
+.contradicted { background: #f9d0d0; }         /* red: original claim the pipeline contradicts */
+.pipeline-contradicts { border-left: 5px solid #c62828; background: #fdecec; padding: 0.4em 0.8em; margin: 0.4em 0 0.8em; font-size: 0.9em; }
+.pipeline-pending { border-left: 5px solid #ef8f00; background: #fff4e0; padding: 0.4em 0.8em; margin: 0.4em 0 0.8em; font-size: 0.9em; }
+.pipeline-note { border-left: 5px solid #607d8b; background: #eef2f4; padding: 0.4em 0.8em; margin: 0.4em 0 0.8em; font-size: 0.9em; }
+.pipeline-contradicts::before { content: "PIPELINE CONTRADICTS  "; font-weight: bold; color: #c62828; }
+.pipeline-pending::before { content: "NOT YET REPRODUCED  "; font-weight: bold; color: #ef8f00; }
+.pipeline-note::before { content: "PIPELINE NOTE  "; font-weight: bold; color: #607d8b; }

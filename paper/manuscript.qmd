@@ -5,6 +5,7 @@ date: today
 format:
   html:
     embed-resources: true
+    css: pipeline.css
     toc: true
 execute:
   echo: false
@@ -30,19 +31,50 @@ fig_acc_path  <- targets::tar_read(fig_acc)
 fig_cover_path   <- targets::tar_read(fig_cover)
 fig_wv2_map_path <- targets::tar_read(fig_wv2_map)
 phase_table      <- targets::tar_read(wv2_phase_table)
+fig_sensors_path <- targets::tar_read(fig_sensors)
+fig_phases_path  <- targets::tar_read(fig_phases)
 ```
+
+::: {.pipeline-legend}
+**Reproduction draft (refactor-v2.0).** Colour key: [pipeline value substituted, sentence still true]{.substituted} · [original claim the pipeline contradicts]{.contradicted} · red box = the pipeline's numbers and the finding behind them · amber box = not yet reproduced · grey box = note. Number mismatches are expected at this stage; the analysis and text are refactored next.
+:::
+
 
 # Abstract:
 
 Biological invasions are transforming dryland ecosystems worldwide, yet detecting sparse invasive plants remains a fundamental Earth observation challenge because ecological targets often occur below the grain of operational sensors. Here, we develop a hierarchical drone–satellite remote sensing framework to detect and map invasive Neltuma (formerly Prosopis) across heterogeneous dryland ecosystems, integrating UAV imagery, field observations and optical satellite data within a linked multi-scale machine learning workflow.
 
-Using drone surveys, we achieved classification accuracies of ~`r values$fig4_headline_pct`% overall and ~`r values$neltuma_drone_pct`% for Neltuma
-<!-- PIPELINE-NOTE (7.37): Neltuma recall of the winning learner, averaged over sites, best stack `r values$neltuma_drone_stack`; original said ~87%. Fig 4C's "highest using multispectral + CHM (87.2%)" does not hold: 5_CHM gives `r values$neltuma_drone_chm_pct`% here, below the all-VI stack [ANDY]. --> detection, while showing that fine-resolution observations alone are difficult to scale directly. Integrating drone-derived products with satellite predictors improved landscape-scale classification performance by 6.1% over satellite-only approaches (69.7% to 75.8%), while improving lower-bound model performance even more strongly, raising minimum ensemble accuracy by 10 percentage points (61% to 71%) and demonstrating greater robustness through cross-scale calibration.
-<!-- PIPELINE-CONTRADICTS (finding 7.37): under the same 10x10 spatial CV the field-observations-only WV2 model scores `r values$wv2_field_pct`% (`r values$wv2_field_learner`) and the drone-purity-trained model `r values$wv2_best_pct`% (`r values$wv2_best_learner`): a difference of `r values$wv2_field_minus_purity` points, i.e. the gain reverses. Neltuma recall `r values$wv2_field_neltuma_recall_pct`% vs `r values$wv2_neltuma_recall_pct`%. The 75.8% itself reproduces only under non-spatial CV (finding 7.34). This sentence and the "lower-bound" claim need rewriting [ANDY]. --> Detection accuracy increased strongly with finer sensor grain, from ~50% using Sentinel-2 (10 m), to ~62% using PlanetScope (3 m) and ~77% using WorldView-2 (1.6 m), identifying scale mismatch as a major constraint on observing sparse ecological targets. Models evaluated using spatial block cross-validation
-<!-- PIPELINE-NOTE (finding 1.2): the resampling implemented (then and now) is spcv_coords, coordinate k-means clustering, not block CV. Wording is an authorial decision [ANDY]. --> produced lower, but likely more realistic, accuracy estimates than random cross-validation, highlighting the importance of accounting for spatial dependence when assessing model performance.
+Using drone surveys, we achieved classification accuracies of ~[`r values$fig4_headline_pct`]{.substituted}% overall and ~[`r values$neltuma_drone_pct`]{.substituted}% for Neltuma
 
-Landscape-scale mapping showed Neltuma is already established across `r values$dominance_km2_raw` km² (`r values$dominance_pct_raw`%) of the study area and is expanding across a further 356 km² (79.9%),
-<!-- PIPELINE-CONTRADICTS (finding 7.35): Dominance reproduces (raw surface `r values$dominance_pct_raw`%, filtered `r values$dominance_pct_smooth`%; original 3.6%). "Expanding" (Expansion + Initial Incursion) is `r values$expanding_pct_raw`% (`r values$expanding_km2_raw` km²) on the raw surface and `r values$expanding_pct_smooth`% on the filtered one - neither is 79.9%, and the two differ by 40 points of landscape because the 0.1% phase floor is exactly what the modal filter erases. Surface choice is an authorial decision [ANDY]. --> highlighting substantial but uneven invasion risk across rangelands important for people and wildlife. Beyond species mapping, our results show how integrating fine-resolution ecological observations with satellite Earth observation via a hierarchical drone–satellite remote sensing framework can help overcome scale mismatch, improving early detection and management of sparse biological invasions. This multi-scale framework has wider relevance for biodiversity surveillance, woody encroachment, degradation monitoring and dryland early-warning systems.
+
+::: {.pipeline-note}
+(7.37): Neltuma recall of the winning learner, averaged over sites, best stack [`r values$neltuma_drone_stack`]{.substituted}; original said ~87%. Fig 4C's "highest using multispectral + CHM (87.2%)" does not hold: 5_CHM gives [`r values$neltuma_drone_chm_pct`]{.substituted}% here, below the all-VI stack [ANDY].
+:::
+
+ detection, while showing that fine-resolution observations alone are difficult to scale directly. Integrating drone-derived products with satellite predictors improved landscape-scale classification performance [by 6.1% over satellite-only approaches (69.7% to 75.8%)]{.contradicted}, while improving lower-bound model performance even more strongly, [raising minimum ensemble accuracy by 10 percentage points (61% to 71%)]{.contradicted} and demonstrating greater robustness through cross-scale calibration.
+
+
+::: {.pipeline-contradicts}
+(finding 7.37): under the same 10x10 spatial CV the field-observations-only WV2 model scores [`r values$wv2_field_pct`]{.substituted}% ([`r values$wv2_field_learner`]{.substituted}) and the drone-purity-trained model [`r values$wv2_best_pct`]{.substituted}% ([`r values$wv2_best_learner`]{.substituted}): a difference of [`r values$wv2_field_minus_purity`]{.substituted} points, i.e. the gain reverses. Neltuma recall [`r values$wv2_field_neltuma_recall_pct`]{.substituted}% vs [`r values$wv2_neltuma_recall_pct`]{.substituted}%. The 75.8% itself reproduces only under non-spatial CV (finding 7.34). This sentence and the "lower-bound" claim need rewriting [ANDY].
+:::
+
+ Detection accuracy increased strongly with finer sensor grain, from ~50% using Sentinel-2 (10 m), to ~62% using PlanetScope (3 m) and ~77% using WorldView-2 (1.6 m), identifying scale mismatch as a major constraint on observing sparse ecological targets. Models evaluated using [spatial block cross-validation]{.contradicted}
+
+
+::: {.pipeline-note}
+(finding 1.2): the resampling implemented (then and now) is spcv_coords, coordinate k-means clustering, not block CV. Wording is an authorial decision [ANDY].
+:::
+
+ produced lower, but likely more realistic, accuracy estimates than random cross-validation, highlighting the importance of accounting for spatial dependence when assessing model performance.
+
+Landscape-scale mapping showed Neltuma is already established across [`r values$dominance_km2_raw`]{.substituted} km² ([`r values$dominance_pct_raw`]{.substituted}%) of the study area and is expanding across a further [356 km² (79.9%)]{.contradicted},
+
+
+::: {.pipeline-contradicts}
+(finding 7.35): Dominance reproduces (raw surface [`r values$dominance_pct_raw`]{.substituted}%, filtered [`r values$dominance_pct_smooth`]{.substituted}%; original 3.6%). "Expanding" (Expansion + Initial Incursion) is [`r values$expanding_pct_raw`]{.substituted}% ([`r values$expanding_km2_raw`]{.substituted} km²) on the raw surface and [`r values$expanding_pct_smooth`]{.substituted}% on the filtered one - neither is 79.9%, and the two differ by 40 points of landscape because the 0.1% phase floor is exactly what the modal filter erases. Surface choice is an authorial decision [ANDY].
+:::
+
+ highlighting substantial but uneven invasion risk across rangelands important for people and wildlife. Beyond species mapping, our results show how integrating fine-resolution ecological observations with satellite Earth observation via a hierarchical drone–satellite remote sensing framework can help overcome scale mismatch, improving early detection and management of sparse biological invasions. This multi-scale framework has wider relevance for biodiversity surveillance, woody encroachment, degradation monitoring and dryland early-warning systems.
 
 # Keywords:
 
@@ -68,7 +100,13 @@ This exploratory study assessed whether Neltuma can be mapped in ways useful to 
 
 We used a hierarchical multi-scale Earth observation design to investigate sparse Neltuma invasion, integrating field observations with drone and optical satellite imagery. The study was structured to evaluate plant-scale detection, assess how fine-resolution observations could improve broader-scale satellite classification, quantify the effects of sensor grain on invasion detection, and characterise spatial patterns of invasion across the study area. Fine-resolution drone observations provided detailed ecological information for calibrating and evaluating satellite-based classifications, while satellite imagery enabled assessment of how detection performance changed as spatial resolution decreased. By linking these observation scales, the design allowed us to examine both the value of fine-resolution data for improving landscape-scale inference and the limitations introduced when sparse invasion patterns are observed at coarser spatial grains.
 
-The study was conducted across approximately 445 km² of Kgalagadi rangelands in southwest Botswana surrounding the villages of Bokspits, Struizendam and Vaalhoek, bounded to the south by the Molopo and to the west by the Nossob ephemeral river valleys, which also mark the Botswana– South Africa border (Figure 1). The region comprises a semi-arid savanna system of deep sandy soils, variable grazing pressure and heterogeneous vegetation structured by NW–SE dune systems, dune valleys and dry river corridors. Vegetation is dominated by Kalahari Duneveld shrub-grassland, with dune crests supporting Stipagrostis amabilis and scattered trees such as Vachellia haematoxylon and Boscia albitrunca, while dune valleys contain grassland and low-density bush savanna with species including Schmidtia kalahariensis, Stipagrostis uniplumis, Eragrostis lehmanniana and Aristida meridionalis, interspersed with denser shrub patches of Rhigozum trichotomum and Senegalia mellifera. Dry river valleys support more open tree savanna including V. erioloba (Van Rooyen and Van Rooyen 2019). Communal pastoralism is the dominant land use, with continuous grazing by livestock shaping vegetation structure and disturbance regimes (Kgosikoma and Batisani 2014). Within this dynamic dryland mosaic, Neltuma, introduced during sand dune stabilisation near Bokspits in 1980 (van der Poel and Timberlake 1980), has spread from initial planting sites into settlements and surrounding savanna (Mosweu et al. 2013), occurring across a continuum from isolated individuals and low-density populations to dense established stands, making it a suitable system for evaluating scale-dependent detection. <!-- PIPELINE-PENDING: Figure 1 not yet reproduced by the refactored pipeline; original caption retained below. -->
+The study was conducted across approximately 445 km² of Kgalagadi rangelands in southwest Botswana surrounding the villages of Bokspits, Struizendam and Vaalhoek, bounded to the south by the Molopo and to the west by the Nossob ephemeral river valleys, which also mark the Botswana– South Africa border (Figure 1). The region comprises a semi-arid savanna system of deep sandy soils, variable grazing pressure and heterogeneous vegetation structured by NW–SE dune systems, dune valleys and dry river corridors. Vegetation is dominated by Kalahari Duneveld shrub-grassland, with dune crests supporting Stipagrostis amabilis and scattered trees such as Vachellia haematoxylon and Boscia albitrunca, while dune valleys contain grassland and low-density bush savanna with species including Schmidtia kalahariensis, Stipagrostis uniplumis, Eragrostis lehmanniana and Aristida meridionalis, interspersed with denser shrub patches of Rhigozum trichotomum and Senegalia mellifera. Dry river valleys support more open tree savanna including V. erioloba (Van Rooyen and Van Rooyen 2019). Communal pastoralism is the dominant land use, with continuous grazing by livestock shaping vegetation structure and disturbance regimes (Kgosikoma and Batisani 2014). Within this dynamic dryland mosaic, Neltuma, introduced during sand dune stabilisation near Bokspits in 1980 (van der Poel and Timberlake 1980), has spread from initial planting sites into settlements and surrounding savanna (Mosweu et al. 2013), occurring across a continuum from isolated individuals and low-density populations to dense established stands, making it a suitable system for evaluating scale-dependent detection. 
+
+::: {.pipeline-pending}
+: Figure 1 not yet reproduced by the refactored pipeline; original caption retained below.
+:::
+
+
 Figure 1. Multi-scale remote sensing of sparse Neltuma invasion is situated within a heterogeneous Kalahari dryland landscape. (A–C) Location of the study area within Africa, Botswana and the Kgalagadi District. (D) The 445 km² study area surrounding Bokspits, Struizendam and Vaalhoek, showing Kalahari dune systems, settlements, drone survey sites and study area boundaries over Sentinel-2 imagery. (E) Representative Kalahari Duneveld vegetation illustrating the heterogeneous shrub–grassland mosaic in which sparse Neltuma occurs. (F) Dense Neltuma invasion near settlements and transport corridors.
 
 ## 2.2 Ground observations
@@ -78,7 +116,13 @@ Ground observations provided reference data for model training, independent vali
 Field observations were collected between 1 September and 2 October 2022 (Table S2), during the late dry season when predominantly evergreen Neltuma contrasted strongly with largely quiescent or marcescent vegetation, reducing phenological mismatch with remotely sensed data. Surveys spanned all seven drone survey areas and recorded representative observations for the principal land-cover and vegetation classes used in classification (Tables S3 and S4).
 
 Training and validation points were digitised in the field using QField v2.6.2 on GNSS-enabled tablets displaying orthomosaics generated from drone surveys processed on site in Pix4DMapper v4.8.0 (Pix4Dmapper 2022). Sampling points were selected so an 80 cm radius contained only a single land-cover class, with a minimum of 20 observations per class
-<!-- PIPELINE-CONTRADICTS (findings 1.7, 7.21): counted from the field layers, 8 of 41 site-class combinations fall below 20; the minimum is `r values$min_class_n` (V. erioloba, Struizendam 4). Sentence retained pending an authorial decision [ANDY]. --> in each drone survey area. Spectral values associated with each field point were extracted using the R package exactextractr (Baston 2023), sampling pixels within 30 cm of point centres to calculate weighted averages of reflectance values; each field point represented approximately 80–105 image pixels depending on terrain and flight height. Independent plant-scale validation surveys were conducted in two 100 × 200 m plots within drone survey areas, where the central location and maximum height of every Neltuma individual (n = 184) were recorded alongside representative observations of other vegetation classes and bare ground. These data were used to assess plant-level detection performance across growth forms and phenological states and to complement pixel-based accuracy assessment. Additional field observations were used to interpret ecological associations relevant to invasion dynamics, including frequent co-occurrence of Neltuma beneath native woody canopies. Together, these observations provided the ecological reference data underpinning classification development, validation and interpretation across scales.
+
+
+::: {.pipeline-contradicts}
+(findings 1.7, 7.21): counted from the field layers, 8 of 41 site-class combinations fall below 20; the minimum is [`r values$min_class_n`]{.substituted} (V. erioloba, Struizendam 4). Sentence retained pending an authorial decision [ANDY].
+:::
+
+ in each drone survey area. Spectral values associated with each field point were extracted using the R package exactextractr (Baston 2023), sampling pixels within 30 cm of point centres to calculate weighted averages of reflectance values; each field point represented approximately 80–105 image pixels depending on terrain and flight height. Independent plant-scale validation surveys were conducted in two 100 × 200 m plots within drone survey areas, where the central location and maximum height of every Neltuma individual (n = 184) were recorded alongside representative observations of other vegetation classes and bare ground. These data were used to assess plant-level detection performance across growth forms and phenological states and to complement pixel-based accuracy assessment. Additional field observations were used to interpret ecological associations relevant to invasion dynamics, including frequent co-occurrence of Neltuma beneath native woody canopies. Together, these observations provided the ecological reference data underpinning classification development, validation and interpretation across scales.
 
 ## 2.3 Drone observations and image processing
 
@@ -106,8 +150,14 @@ Scale mismatch was assessed by comparing classification performance among sensor
 
 We implemented a hierarchical multi-scale classification framework to integrate field, drone and satellite observations for detecting and mapping Neltuma across nested spatial scales (Figure 2). The framework comprised two linked machine-learning pipelines: a drone workflow generating fine-resolution classifications and drone-derived ecological products, and a satellite workflow evaluating sensor performance and the contribution of cross-scale calibration.
 
-Drone classifications combined calibrated multispectral bands, vegetation indices and canopy height model predictors with field-derived training and validation data. To identify the best-performing classifier, we compared default RF, tuned RF, XGBoost (XGB), support vector machines (SVM) and ensemble (EN) models across four drone predictor stacks: (1) 5-band multispectral (Drone), (2) Drone + canopy height model (Drone+CHM), (3) Drone + CHM + NDVI, and (4) Drone + CHM + full vegetation index suite (Drone+CHM+All VI). Supervised classification was implemented in R using the mlr3 framework (Lang et al. 2019), benchmarking models using `r values$n_outer_iterations`-iteration spatial block cross-validation (SPCV) with Bayesian optimisation
-<!-- PIPELINE-NOTE (finding 7.25): originally false (the archived runs used random search, finding 1.4); the refactored pipeline now genuinely uses Bayesian optimisation (mlr3mbo), so this claim is TRUE as written. -->. We implemented stacked generalisation, in which cross-validated out-of-fold predictions from multiple base learners were used to train a meta-learner that generated the final classification, improving predictive robustness.
+Drone classifications combined calibrated multispectral bands, vegetation indices and canopy height model predictors with field-derived training and validation data. To identify the best-performing classifier, we compared default RF, tuned RF, XGBoost (XGB), support vector machines (SVM) and ensemble (EN) models across four drone predictor stacks: (1) 5-band multispectral (Drone), (2) Drone + canopy height model (Drone+CHM), (3) Drone + CHM + NDVI, and (4) Drone + CHM + full vegetation index suite (Drone+CHM+All VI). Supervised classification was implemented in R using the mlr3 framework (Lang et al. 2019), benchmarking models using [`r values$n_outer_iterations`]{.substituted}-iteration [spatial block cross-validation]{.contradicted} (SPCV) with Bayesian optimisation
+
+
+::: {.pipeline-note}
+(finding 7.25): originally false (the archived runs used random search, finding 1.4); the refactored pipeline now genuinely uses Bayesian optimisation (mlr3mbo), so this claim is TRUE as written.
+:::
+
+. We implemented stacked generalisation, in which cross-validated out-of-fold predictions from multiple base learners were used to train a meta-learner that generated the final classification, improving predictive robustness.
 
 An analogous workflow was applied to WorldView-2, PlanetScope and Sentinel-2 using both satellite-only predictors and predictor sets augmented with drone-derived calibration products. Field observations were aligned to each sensor, with training points buffered by 0.8 m to generate labels for WorldView-2 classification. The same SPCV and optimisation framework was applied across sensors to identify optimal learner–predictor combinations.
 
@@ -123,18 +173,36 @@ To support interpretation of species co-occurrence patterns, we assessed potenti
 
 ## 2.7 Mapping invasion extent and invasion phase
 
-We used the best-performing satellite classifications to generate landscape-scale maps of Neltuma invasion extent and invasion phase across the 445 km² study area. We quantified invasion extent from final classified outputs and classified Neltuma prevalence into invasion phases based on cover thresholds to aid land manager interpretation (Table S8; after Müllerová et al. 2023), distinguishing areas of advanced invasion from broader zones of active expansion and treating invasion as a dynamic landscape process rather than presence–absence alone. We used the mapped invasion patterns to explore spatial variation in Neltuma occurrence and density in relation to settlement proximity, geomorphic setting and vegetation structure. These exploratory observations informed interpretation of invasion dynamics and potential management relevance across the study system. <!-- PIPELINE-PENDING: Figure 2 not yet reproduced by the refactored pipeline; original caption retained below. -->
+We used the best-performing satellite classifications to generate landscape-scale maps of Neltuma invasion extent and invasion phase across the 445 km² study area. We quantified invasion extent from final classified outputs and classified Neltuma prevalence into invasion phases based on cover thresholds to aid land manager interpretation (Table S8; after Müllerová et al. 2023), distinguishing areas of advanced invasion from broader zones of active expansion and treating invasion as a dynamic landscape process rather than presence–absence alone. We used the mapped invasion patterns to explore spatial variation in Neltuma occurrence and density in relation to settlement proximity, geomorphic setting and vegetation structure. These exploratory observations informed interpretation of invasion dynamics and potential management relevance across the study system. 
+
+::: {.pipeline-pending}
+: Figure 2 not yet reproduced by the refactored pipeline; original caption retained below.
+:::
+
+
 Figure 2. Hierarchical machine-learning workflows integrate drone and satellite observations for multi-scale classification of sparse Neltuma invasion. Parallel workflows compile predictor and training data, optimise and benchmark algorithms in mlr3 using spatial cross-validation across 200 iterations, and generate final classifications with repeated accuracy assessment. Drone-derived products inform satellite models through cross-scale calibration.
 
 # 3. Results
 
 ## 3.1 Drone data enable accurate detection of sparse Neltuma at local scales in the Kalahari
 
-Classifications across the seven drone survey areas achieved high performance, with mean overall accuracies of `r values$site_best_min`–`r values$site_best_max`% against field observations. Final classification maps for all survey areas are shown in Figures S1–S7, with an example from Bokspits_1 in <!-- PIPELINE-PENDING: Figure 3 not yet reproduced by the refactored pipeline; original caption retained below. -->
+Classifications across the seven drone survey areas achieved high performance, with mean overall accuracies of [`r values$site_best_min`]{.substituted}–[`r values$site_best_max`]{.substituted}% against field observations. Final classification maps for all survey areas are shown in Figures S1–S7, with an example from Bokspits_1 in 
+
+::: {.pipeline-pending}
+: Figure 3 not yet reproduced by the refactored pipeline; original caption retained below.
+:::
+
+
 Figure 3. At centimetre grain, classifications resolved sparse Neltuma and associated vegetation effectively, although some misclassification occurred at the scale of individual branches, particularly along canopy margins and in shadowed areas where reflectance differed from the canopy as a whole.
 
-Benchmarking across survey areas and predictor stacks showed consistently strong performance, with SVM and ensemble models achieving the highest mean overall accuracies of 91.3% and 90.3%, respectively
-<!-- PIPELINE-CONTRADICTS (finding 7.28): under the refactored pipeline the top two learners by mean accuracy are `r values$learner_top1` (`r values$learner_top1_pct`%) and `r values$learner_top2` (`r values$learner_top2_pct`%), not SVM and ensemble. Original sentence and numbers retained pending an authorial decision [ANDY]. --> (Figure 4A). The multispectral + CHM + NDVI predictor stack yielded the highest overall accuracy (Figure 4B), whereas Neltuma-specific accuracy was highest using multispectral data combined with CHM (87.2%; Figure 4C). Principal component analysis and band-level boxplots further indicated strong spectral separability between Neltuma and other vegetation classes (Figures S8–S9).
+Benchmarking across survey areas and predictor stacks showed consistently strong performance, with [SVM and ensemble models achieving the highest mean overall accuracies of 91.3% and 90.3%]{.contradicted}, respectively
+
+
+::: {.pipeline-contradicts}
+(finding 7.28): under the refactored pipeline the top two learners by mean accuracy are [`r values$learner_top1`]{.substituted} ([`r values$learner_top1_pct`]{.substituted}%) and [`r values$learner_top2`]{.substituted} ([`r values$learner_top2_pct`]{.substituted}%), not SVM and ensemble. Original sentence and numbers retained pending an authorial decision [ANDY].
+:::
+
+ (Figure 4A). The multispectral + CHM + NDVI predictor stack yielded the highest overall accuracy (Figure 4B), whereas [Neltuma-specific accuracy was highest using multispectral data combined with CHM (87.2%]{.contradicted}; Figure 4C). Principal component analysis and band-level boxplots further indicated strong spectral separability between Neltuma and other vegetation classes (Figures S8–S9).
 
 Most Neltuma plants were correctly classified at pixel level, although shaded canopy edges were occasionally confused with R. trichotomum and V. erioloba (Figure 3D). Independent plant-scale validation showed 84.7% detection accuracy (Table S9), with reliable detection across a range of plant heights and growth stages. Phenological variation, from leaf-off to flowering states, was the principal source of error. Misclassification occurred in 8.7% of cases, typically involving shaded or senescent plants, while 3.8% of Neltuma individuals were misclassified as V. erioloba, all in flower. Beyond classification performance, Neltuma occurred beneath or within 1 m of the canopy of 63% of V. erioloba trees (n = 192), indicating frequent co-occurrence consistent with native tree canopies acting as loci of invasion, with implications for interpreting invasion dynamics and targeting management. Figure 3. Drone multispectral classification resolves sparse Neltuma and species associations at plant scales in heterogeneous Kalahari vegetation. (A) Example SVM classification from the Bokspits_1 survey area showing fine-scale discrimination of Neltuma, V. erioloba, R. trichotomum, grass, and bare sand. (B) Field photograph illustrating Neltuma occurring beneath a V. erioloba canopy on a dune margin. (C) True-colour orthomosaic detail with field training points. (D) Corresponding classified close-up showing species-level discrimination, including minor edge misclassification at canopy margins.
 
@@ -146,25 +214,55 @@ knitr::include_graphics(c(fig_maps_path, fig_acc_path))
 
 <!-- PIPELINE: the two panels above are the refactored pipeline's Figure 4 analogues (fig_maps: per-site classified surfaces; fig_acc: accuracy by stack and by learner). Original caption below, numbers updated where computed. -->
 
-Figure 4. Drone multispectral classification achieved ~`r values$fig4_headline_pct`% overall accuracy for vegetation mapping and reliable detection of sparse Neltuma. (A) Classification performance across `r values$n_learners` machine-learning algorithms over `r values$n_outer_iterations` spatial cross-validation iterations, with SVM achieving the highest mean overall accuracy. (B) Overall accuracy was highest using the multispectral, canopy height model (CHM) and NDVI (Drone = 5-band multispectral, ALL VI = combined vegetation indices) predictor stack. (C) Neltuma-specific accuracy was highest using multispectral data combined with canopy height information.
+Figure 4. Drone multispectral classification achieved ~[`r values$fig4_headline_pct`]{.substituted}% overall accuracy for vegetation mapping and reliable detection of sparse Neltuma. (A) Classification performance across [`r values$n_learners`]{.substituted} machine-learning algorithms over [`r values$n_outer_iterations`]{.substituted} spatial cross-validation iterations, with SVM achieving the highest mean overall accuracy. (B) Overall accuracy was highest using the multispectral, canopy height model (CHM) and NDVI (Drone = 5-band multispectral, ALL VI = combined vegetation indices) predictor stack. (C) Neltuma-specific accuracy was highest using multispectral data combined with canopy height information.
 
 ## 3.2 Cross-scale calibration with drone data improves satellite-derived classifications of Neltuma
 
 Cross-scale calibration addressed a major constraint in satellite detection of Neltuma: its low fractional cover within coarse pixels. Across the seven drone survey areas, only 67 Sentinel-2 pixels (0.003%) contained > 75% Neltuma cover, showing that at 10 m grain Neltuma rarely dominates pixel reflectance (Figure 5). As pixel size increased, high-cover Neltuma pixels became progressively rarer, forcing classifications to rely largely on mixed-cover training data and illustrating a fundamental scale mismatch in detecting sparse invasions. Fine-resolution drone observations helped overcome this constraint by providing ecologically representative calibration data for satellite models.
 
-Applied to WorldView-2 imagery, the mlr3 workflow produced robust landscape-scale classifications, with mean overall accuracy of 75.8% (Figure 6). SVM and ensemble models again performed best, achieving mean accuracies of 75.9% and 75.1%, respectively. Incorporating drone-derived calibration data improved predictive accuracy by 6.1%, from approximately 69.7% to 75.8%, while reducing variability and raising minimum ensemble accuracy by 10 percentage points, from approximately 61% to 71% (Figure 6). These results show that cross-scale calibration substantially strengthened satellite detection performance.
-<!-- PIPELINE-CONTRADICTS (findings 7.34, 7.37): on Glen's own training extraction under 10x10 spatial CV the best WV2 learner is `r values$wv2_best_learner` at `r values$wv2_best_pct`% (svm `r values$wv2_svm_pct`%, ensemble `r values$wv2_ensemble_pct`%). 75.8% is reproduced to the decimal by non-spatial CV (0.754) and approached at 20 spatial folds (0.705): the reported figure is the friendliest fold geometry. The field-only arm scores `r values$wv2_field_pct`%, ABOVE the drone-calibrated `r values$wv2_best_pct`% - the +6.1% does not reproduce. Paragraph needs rewriting around the fold-geometry curve [ANDY]. -->
+Applied to WorldView-2 imagery, the mlr3 workflow produced robust landscape-scale classifications, with [mean overall accuracy of 75.8%]{.contradicted} (Figure 6). SVM and ensemble models again performed best, achieving [mean accuracies of 75.9% and 75.1%]{.contradicted}, respectively. Incorporating drone-derived calibration data [improved predictive accuracy by 6.1%, from approximately 69.7% to 75.8%]{.contradicted}, while reducing variability and raising minimum ensemble accuracy by 10 percentage points, [from approximately 61% to 71%]{.contradicted} (Figure 6). These results show that cross-scale calibration substantially strengthened satellite detection performance.
 
-Independent comparison with the drone-derived classification revealed discrepancies that were not fully reflected by the satellite classification's internal validation metrics. The satellite classification overpredicted Neltuma extent by `r values$s10_over_smooth_pct`% relative to drone classifications (Table S10), while 34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation in satellite imagery.
-<!-- PIPELINE-NOTE (finding 7.35): `r values$s10_over_smooth_pct`% is the smoothed-vs-smoothed comparison the original made (it reported 24.8%); raw against raw the over-prediction is `r values$s10_over_raw_pct`% - the headline is two filters roughly cancelling, and the WV2 filter halves Neltuma recall (`r values$s10_recall_raw` -> `r values$s10_recall_smooth`) for no precision gain. PIPELINE-CONTRADICTS: the woody-confusion share of drone-Neltuma pixels is `r values$s10_woody_smooth_pct`% (smoothed) / `r values$s10_woody_raw_pct`% (raw) here, not 34.6%; the original's definition of that figure is not recoverable from the S10 matrix [ANDY]. --> These comparisons indicate greater classification error than suggested by internal training and validation statistics alone, while reinforcing both the value of drone-informed calibration and the importance of spatially explicit validation.
+
+::: {.pipeline-contradicts}
+(findings 7.34, 7.37): on Glen's own training extraction under 10x10 spatial CV the best WV2 learner is [`r values$wv2_best_learner`]{.substituted} at [`r values$wv2_best_pct`]{.substituted}% (svm [`r values$wv2_svm_pct`]{.substituted}%, ensemble [`r values$wv2_ensemble_pct`]{.substituted}%). 75.8% is reproduced to the decimal by non-spatial CV (0.754) and approached at 20 spatial folds (0.705): the reported figure is the friendliest fold geometry. The field-only arm scores [`r values$wv2_field_pct`]{.substituted}%, ABOVE the drone-calibrated [`r values$wv2_best_pct`]{.substituted}% - the +6.1% does not reproduce. Paragraph needs rewriting around the fold-geometry curve [ANDY].
+:::
+
+
+
+Independent comparison with the drone-derived classification revealed discrepancies that were not fully reflected by the satellite classification's internal validation metrics. The satellite classification overpredicted Neltuma extent by [`r values$s10_over_smooth_pct`]{.substituted}% relative to drone classifications (Table S10), while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted} in satellite imagery.
+
+
+::: {.pipeline-note}
+(finding 7.35): [`r values$s10_over_smooth_pct`]{.substituted}% is the smoothed-vs-smoothed comparison the original made (it reported 24.8%); raw against raw the over-prediction is [`r values$s10_over_raw_pct`]{.substituted}% - the headline is two filters roughly cancelling, and the WV2 filter halves Neltuma recall ([`r values$s10_recall_raw`]{.substituted} -> [`r values$s10_recall_smooth`]{.substituted}) for no precision gain. PIPELINE-CONTRADICTS: the woody-confusion share of drone-Neltuma pixels is [`r values$s10_woody_smooth_pct`]{.substituted}% (smoothed) / [`r values$s10_woody_raw_pct`]{.substituted}% (raw) here, not 34.6%; the original's definition of that figure is not recoverable from the S10 matrix [ANDY].
+:::
+
+ These comparisons indicate greater classification error than suggested by internal training and validation statistics alone, while reinforcing both the value of drone-informed calibration and the importance of spatially explicit validation.
 
 ```{r fig5-panels, echo=FALSE, out.width="70%"}
 knitr::include_graphics(fig_cover_path)
 ```
-<!-- PIPELINE-NOTE (7.37): pipeline analogue of Figure 5 from the raw-surface purity extractions; the three panels are stacked with the zero-cover share and the at-threshold share stated on each. -->
-Figure 5. Coarser sensor grain sharply reduces the availability of high-Neltuma-cover pixels for training and detection. (A) Distribution of sub-pixel Neltuma cover within 1.6 m WorldView-2 pixels. (B) Corresponding distributions for 3 m PlanetScope pixels. (C) Corresponding distributions for 10 m Sentinel-2 pixels. Increasing pixel size reduces the frequency of high-cover pixels and illustrates the scale mismatch constraining detection of sparse invasions. <!-- PIPELINE-PENDING: Figure 6 not yet reproduced by the refactored pipeline; original caption retained below. -->
-Figure 6. Cross-scale calibration with drone data increased satellite classification accuracy and improved landscape-scale mapping of sparse Neltuma. (A) Classification performance across `r values$n_learners` machine-learning algorithms over `r values$n_outer_iterations` spatial cross-validation iterations, with ensemble models achieving the highest overall accuracy. (B) Incorporating drone-derived calibration data increased WorldView-2 classification accuracy by 6.1% relative to field observations alone.
-<!-- PIPELINE-CONTRADICTS (7.37): field observations alone `r values$wv2_field_pct`% vs drone-calibrated `r values$wv2_best_pct`% here - see the section 3.2 comment [ANDY]. Panel C analogue follows. -->
+
+
+::: {.pipeline-note}
+(7.37): pipeline analogue of Figure 5 from the raw-surface purity extractions; the three panels are stacked with the zero-cover share and the at-threshold share stated on each.
+:::
+
+
+Figure 5. Coarser sensor grain sharply reduces the availability of high-Neltuma-cover pixels for training and detection. (A) Distribution of sub-pixel Neltuma cover within 1.6 m WorldView-2 pixels. (B) Corresponding distributions for 3 m PlanetScope pixels. (C) Corresponding distributions for 10 m Sentinel-2 pixels. Increasing pixel size reduces the frequency of high-cover pixels and illustrates the scale mismatch constraining detection of sparse invasions. 
+
+::: {.pipeline-pending}
+: Figure 6 not yet reproduced by the refactored pipeline; original caption retained below.
+:::
+
+
+Figure 6. Cross-scale calibration with drone data increased satellite classification accuracy and improved landscape-scale mapping of sparse Neltuma. (A) Classification performance across [`r values$n_learners`]{.substituted} machine-learning algorithms over [`r values$n_outer_iterations`]{.substituted} spatial cross-validation iterations, with ensemble models achieving the highest overall accuracy. (B) Incorporating drone-derived calibration data [increased WorldView-2 classification accuracy by 6.1% relative to field observations alone]{.contradicted}.
+
+
+::: {.pipeline-contradicts}
+(7.37): field observations alone [`r values$wv2_field_pct`]{.substituted}% vs drone-calibrated [`r values$wv2_best_pct`]{.substituted}% here - see the section 3.2 comment [ANDY]. Panel C analogue follows.
+:::
+
+
 ```{r fig6c-panel, echo=FALSE, out.width="100%"}
 knitr::include_graphics(fig_wv2_map_path)
 ```
@@ -172,17 +270,49 @@ knitr::include_graphics(fig_wv2_map_path)
 
 ## 3.3 Detection of sparse Neltuma in the Kalahari is constrained by satellite image grain
 
-Increasing sensor grain reduced Neltuma detectability, increased confusion with V. erioloba and other woody vegetation, and caused progressive loss of spatial detail in mapped invasion patterns (Figure 7). Although mean overall classification accuracy declined only slightly from PlanetScope to Sentinel-2 imagery, from 71.1% to 70.3%, Neltuma-specific accuracy declined much more sharply with increasing pixel size, falling to just 50.4% in the Sentinel-2 classification (Figure 7E).
-<!-- PIPELINE-CONTRADICTS (finding 7.37): on the archived training extractions under 10x10 spatial CV, PlanetScope `r values$planet_best_pct`% (`r values$planet_best_learner`) and Sentinel-2 `r values$s2_best_pct`% (`r values$s2_best_learner`) - S2 ABOVE Planet, though S2's 240 training pixels make it the least stable estimate. Neltuma recall: WV2 `r values$wv2_neltuma_recall_pct`%, Planet `r values$planet_neltuma_recall_pct`%, S2 `r values$s2_neltuma_recall_pct`% - not monotone in grain. The grain story survives in the pixel-level comparison against the drone maps (Neltuma precision 0.40 -> 0.24 -> 0.15), which is the safer basis for this paragraph [ANDY]. --> This divergence shows that conventional overall accuracy can mask substantial losses in sensitivity to sparse ecological targets. <!-- PIPELINE-PENDING: Figure 7 not yet reproduced by the refactored pipeline; original caption retained below. -->
+Increasing sensor grain reduced Neltuma detectability, increased confusion with V. erioloba and other woody vegetation, and caused progressive loss of spatial detail in mapped invasion patterns (Figure 7). Although mean overall classification accuracy declined only slightly from PlanetScope to Sentinel-2 imagery, [from 71.1% to 70.3%]{.contradicted}, Neltuma-specific accuracy declined much more sharply with increasing pixel size, [falling to just 50.4% in the Sentinel-2 classification]{.contradicted} (Figure 7E).
+
+
+::: {.pipeline-contradicts}
+(finding 7.37): on the archived training extractions under 10x10 spatial CV, PlanetScope [`r values$planet_best_pct`]{.substituted}% ([`r values$planet_best_learner`]{.substituted}) and Sentinel-2 [`r values$s2_best_pct`]{.substituted}% ([`r values$s2_best_learner`]{.substituted}) - S2 ABOVE Planet, though S2's 240 training pixels make it the least stable estimate. Neltuma recall: WV2 [`r values$wv2_neltuma_recall_pct`]{.substituted}%, Planet [`r values$planet_neltuma_recall_pct`]{.substituted}%, S2 [`r values$s2_neltuma_recall_pct`]{.substituted}% - not monotone in grain. The grain story survives in the pixel-level comparison against the drone maps (Neltuma precision 0.40 -> 0.24 -> 0.15), which is the safer basis for this paragraph [ANDY].
+:::
+
+ This divergence shows that conventional overall accuracy can mask substantial losses in sensitivity to sparse ecological targets. 
+
+```{r fig7-panels, echo=FALSE, out.width="100%"}
+knitr::include_graphics(fig_sensors_path)
+```
+
+::: {.pipeline-note}
+Pipeline analogue of Figure 7: one drone site (bokspits_1) through four sensors on the raw surfaces, panel E from the archived-arm benchmarks (finding 7.37).
+:::
+
+
 Figure 7. Detectability of sparse Neltuma declines sharply as sensor grain becomes coarser. Classification outputs for the same area using (A) drone multispectral imagery (7 cm), (B) WorldView- 2 (1.6 m), (C) PlanetScope (4 m), and (D) Sentinel-2 (10 m), illustrating progressive loss of spatial detail and increasing confusion among vegetation classes with coarser resolution. (E) Overall and Neltuma-specific accuracies from the best-performing algorithm, showing a disproportionately strong decline in Neltuma detection with increasing pixel size.
 
 ## 3.4 Neltuma invasion is widespread and expanding across the Kalahari study landscape
 
-Neltuma invasion was widespread across the study area, with much of the landscape falling within initial incursion or expansion phases (Figures 6 and 8; Table 1). To support management interpretation, we simplified the multi-species WorldView-2 classification (Figure 6) into maps of Neltuma prevalence (Figure 8A) and invasion phase (Figure 8B; Table 1), highlighting broad low-density distributions alongside concentrated zones of advanced invasion. Although Neltuma occurred widely at relatively low cover, both invasion density and maturity increased in and around settlements and along roads, declining with distance from these features (Figures S10 and S11). This spatial distribution is consistent with field observations implicating livestock as a key vector of Neltuma spread. <!-- PIPELINE-PENDING: Figure 8 not yet reproduced by the refactored pipeline; original caption retained below. -->
+Neltuma invasion was widespread across the study area, with much of the landscape falling within initial incursion or expansion phases (Figures 6 and 8; Table 1). To support management interpretation, we simplified the multi-species WorldView-2 classification (Figure 6) into maps of Neltuma prevalence (Figure 8A) and invasion phase (Figure 8B; Table 1), highlighting broad low-density distributions alongside concentrated zones of advanced invasion. Although Neltuma occurred widely at relatively low cover, both invasion density and maturity increased in and around settlements and along roads, declining with distance from these features (Figures S10 and S11). This spatial distribution is consistent with field observations implicating livestock as a key vector of Neltuma spread. 
+
+```{r fig8-panels, echo=FALSE, out.width="100%"}
+knitr::include_graphics(fig_phases_path)
+```
+
+::: {.pipeline-note}
+Pipeline analogue of Figure 8 from the raw WV2 surface; the filtered-surface variants are in the same layers (finding 7.35).
+:::
+
+
 Figure 8. Spatial patterns of Neltuma prevalence reveal widespread invasion and extensive areas vulnerable to further spread. (A) Percentage cover of Neltuma mapped in 100 m grid cells from WorldView-2 classification. (B) Invasion phases derived from percentage cover in 250 m grid cells distinguish dominance from expansion and early incursion zones, supporting management prioritisation.
 
 Table 1. Most of the study landscape is already affected by incipient or expanding Neltuma invasion.
-<!-- PIPELINE-NOTE (7.35): pipeline Table 1 analogue, both surfaces, 250 m hexagons at Table S8 thresholds. Which surface the original used is unrecorded [ANDY]. -->
+
+
+::: {.pipeline-note}
+(7.35): pipeline Table 1 analogue, both surfaces, 250 m hexagons at Table S8 thresholds. Which surface the original used is unrecorded [ANDY].
+:::
+
+
 ```{r table1, echo=FALSE}
 knitr::kable(phase_table[, c("surface", "phase", "n_cells", "area_ha", "pct_of_area")],
              digits = c(0, 0, 0, 0, 1), col.names = c("Surface", "Invasion phase", "Cells", "Area (ha)", "% of area"))
@@ -196,7 +326,7 @@ Exotic invasive plants such as Neltuma threaten African rangelands by degrading 
 
 Multispectral drone observations provided accurate plant-scale detection of sparse Neltuma, demonstrating the capacity of fine-resolution Earth observation to resolve invasion signals that are often difficult to detect with coarser sensors (Slade et al. 2023). High classification performance across diverse growth forms indicates that combining spectral and structural information can discriminate Neltuma effectively within heterogeneous dryland vegetation, although detection was weaker for leaf-off individuals, highlighting phenology as a persistent source of uncertainty. Improved performance when vegetation indices were included reflects the value of phenologically sensitive predictors in dryland systems, while canopy height information reduced confusion with V. erioloba and other woody species by capturing structural differences not resolved by spectral information alone. These results were obtained using a pixel-based classification framework and therefore include some misclassification associated with canopy margins, mixed pixels and shadowed areas that may be reduced by object-based approaches incorporating spatial context.
 
-Although all algorithms performed well, the marginally stronger performance of SVM, together with gains from ensemble modelling, suggests that predictor composition and robust model evaluation were more important than classifier choice alone. The block-based spatial cross-validation (SPCV) framework was particularly important because spatially structured observations can lead to overly optimistic estimates of predictive performance when conventional random train–test splits are used (Roberts et al. 2017). By repeatedly evaluating models across spatially distinct training and test partitions, our approach provides a more realistic assessment of how well classifications may generalise beyond the locations used for model development (Milà et al. 2022). Considering variation across 200 spatial cross-validation iterations, rather than mean accuracy alone, provided a more informative assessment of model stability across spatial contexts.
+Although all algorithms performed well, the marginally stronger performance of SVM, together with gains from ensemble modelling, suggests that predictor composition and robust model evaluation were more important than classifier choice alone. The block-based spatial cross-validation (SPCV) framework was particularly important because spatially structured observations can lead to overly optimistic estimates of predictive performance when conventional random train–test splits are used (Roberts et al. 2017). By repeatedly evaluating models across spatially distinct training and test partitions, our approach provides a more realistic assessment of how well classifications may generalise beyond the locations used for model development (Milà et al. 2022). Considering variation across [200 spatial cross-validation iterations]{.contradicted}, rather than mean accuracy alone, provided a more informative assessment of model stability across spatial contexts.
 
 These findings demonstrate that drone observations as a powerful ecological observation layer for detecting sparse invasions and characterising invasion structure at local scales. While object-based approaches may further improve crown delineation and reduce local pixel-level errors, the pixel-based framework adopted here was sufficient to achieve accurate plant-scale detection and to support the subsequent cross-scale analyses. However, their principal value in this study lies not as a stand-alone monitoring solution, but as the fine-resolution foundation of a hierarchical multi-scale framework. Given the spatial extent of invasion in landscapes such as the 105,200 km2 Kgalagadi District, drone surveys alone do not provide operationally scalable monitoring, but they can supply the ecological detail and calibration needed to strengthen broader-scale satellite mapping.
 
@@ -204,7 +334,7 @@ These findings demonstrate that drone observations as a powerful ecological obse
 
 Cross-scale calibration with drone data improved satellite classification of Neltuma, demonstrating how fine-resolution ecological observations can strengthen inference at broader spatial scales. Incorporating drone-derived training information increased both classification accuracy and robustness in WorldView-2 analyses, suggesting that the improvement was not simply a consequence of increasing the number of training observations, but also reflected better representation of the spectral and structural variability associated with invasion targets and surrounding vegetation. This is particularly important for sparse invasions, where limited field samples may underrepresent the heterogeneous and mixed-cover conditions typical of real landscapes (Slade et al. 2023). These findings contribute to a small but growing body of work integrating observations across spatial scales, with geolocated fine-scale data from UAVs used to improve classification and prediction in agricultural applications (Maimaitijiang et al. 2020; Ogungbuyi et al. 2024), strengthen aboveground biomass estimation (Cheng et al. 2024; Kolluru et al. 2026), and support invasive plant mapping (Holden, Rebelo, and New 2021; Page et al. 2022). However, comparable hierarchical calibration frameworks remain rare in sparse invasive plant detection (Singh, Surasinghe, and Frazier 2024).
 
-The benefits of cross-scale calibration should, however, be interpreted alongside uncertainty in transferring information between observation scales. The WorldView-2 classification achieved a mean overall accuracy of 75.8% following drone-derived calibration, but comparison with independent drone classifications revealed discrepancies not captured by internal validation. The satellite classification overpredicted Neltuma extent by 24.8%, while 34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation. These differences demonstrate that improved cross-validated performance does not eliminate the challenges of mapping sparse targets at coarser sensor grains, and highlight the value of independent fine-resolution observations for revealing ecologically meaningful errors not captured by conventional accuracy metrics. Future multi-scale invasion mapping should therefore move beyond assigning each coarse pixel to a single discrete class towards models that predict proportional cover of invasive species (Shiferaw et al. 2019; Frazier and Wang 2011). Such approaches could better capture uncertainty and spatial heterogeneity across observation scales, particularly where mixed pixels become increasingly prevalent and confidence in species presence varies continuously. Conformal prediction approaches offer one potential framework for quantifying predictive uncertainty around model outputs and could therefore provide a useful avenue for developing more informative uncertainty representations in future multi-scale invasion mapping (Angelopoulos and Bates 2022).
+The benefits of cross-scale calibration should, however, be interpreted alongside uncertainty in transferring information between observation scales. The WorldView-2 classification achieved a [mean overall accuracy of 75.8%]{.contradicted} following drone-derived calibration, but comparison with independent drone classifications revealed discrepancies not captured by internal validation. The satellite classification overpredicted Neltuma extent by 24.8%, while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted}. These differences demonstrate that improved cross-validated performance does not eliminate the challenges of mapping sparse targets at coarser sensor grains, and highlight the value of independent fine-resolution observations for revealing ecologically meaningful errors not captured by conventional accuracy metrics. Future multi-scale invasion mapping should therefore move beyond assigning each coarse pixel to a single discrete class towards models that predict proportional cover of invasive species (Shiferaw et al. 2019; Frazier and Wang 2011). Such approaches could better capture uncertainty and spatial heterogeneity across observation scales, particularly where mixed pixels become increasingly prevalent and confidence in species presence varies continuously. Conformal prediction approaches offer one potential framework for quantifying predictive uncertainty around model outputs and could therefore provide a useful avenue for developing more informative uncertainty representations in future multi-scale invasion mapping (Angelopoulos and Bates 2022).
 
 More broadly, these findings illustrate how hierarchical multi-scale workflows can bridge scale mismatches in Earth observation. Drone surveys alone are unlikely to support monitoring across landscapes of this extent, while coarser satellite systems may lack sufficient resolution to reliably detect sparse invasion fronts. A targeted UAV calibration layer can link these scales, allowing detailed observations to inform spatially extensive satellite mapping without requiring fine-resolution surveys across the entire landscape. Rather than treating UAV acquisition as a one-off calibration exercise, future recursive approaches could iteratively target surveys towards locations where additional fine-resolution observations are expected to provide the greatest reduction in model uncertainty or constraint on classification error. This could provide a practical optimisation strategy for allocating UAV effort, concentrating surveys in representative locations, areas of particular ecological interest, or regions where model uncertainty is greatest, while reducing the spatial coverage and logistical requirements of systematic drone mapping across the full monitoring area (Holden, Rebelo, and New 2021). Such targeted acquisition may offer a practical compromise between the ecological detail of fine-resolution observations and the spatial coverage required for operational monitoring.
 
