@@ -74,6 +74,10 @@ TG <- task_grid(SENSORS, SITES, TAGS)
 FG <- fit_grid(TG, LEARNER_IDS)
 PG <- pred_grid(TG, SENSORS, PRED_TAG, TUNED_IDS)
 PG$window <- ifelse(PG$sensor == "drone", PRED_SMOOTH, PG$smooth_window)
+# Each unit's winner comes from ITS sensor's score table: the satellite purity
+# arms depend on the drone predictions, so a single all-sensor best table
+# would make the drone predictions depend on themselves (a cycle).
+PG$best_sym <- rlang::syms(paste0("best_", PG$sensor))
 
 # ---------------------------------------------------------------------------
 # DRONE INPUTS: per-site rasters and vectors, tracked and validated.
@@ -204,14 +208,27 @@ fits <- tar_map(
                                             sensor, unit, source))
 )
 
+# Per-sensor score and class-accuracy tables, and the per-sensor winners.
+per_sensor_scores <- unlist(lapply(names(SENSORS), function(s) {
+  ids <- FG$fit_id[FG$sensor == s]
+  list(
+    targets::tar_target_raw(paste0("score_index_", s),
+      rlang::call2("rbind", !!!rlang::syms(paste0("fit_tidy_", ids)))),
+    targets::tar_target_raw(paste0("class_index_", s),
+      rlang::call2("rbind", !!!rlang::syms(paste0("fit_class_", ids)))),
+    targets::tar_target_raw(paste0("best_", s),
+      rlang::call2("select_best", rlang::sym(paste0("score_index_", s))))
+  )
+}), recursive = FALSE)
+
 # ---------------------------------------------------------------------------
 # PREDICTIONS: one surface per unit on its primary source and prediction
 # stack; the winner's spec and configuration are the only tuning inputs.
 preds <- tar_map(
   values = PG[, c("sensor", "unit", "tag", "site_label", "pred_id", "cube_sym", "train_sym",
-                  "aoi_path", "window", paste0("cfg_", TUNED_IDS))],
+                  "aoi_path", "window", "best_sym", paste0("cfg_", TUNED_IDS))],
   names = c("sensor", "unit"),
-  tar_target(best_row, best_all[best_all[["site"]] == site_label & best_all[["tag"]] == tag, , drop = FALSE]),
+  tar_target(best_row, best_sym[best_sym[["site"]] == site_label & best_sym[["tag"]] == tag, , drop = FALSE]),
   tar_target(pred_spec, learner_spec(resampling, best_row[["learner"]])),
   tar_target(pred_config,
              list(svm = cfg_svm, xgboost = cfg_xgboost, ranger = cfg_ranger,
@@ -318,20 +335,22 @@ list(
   tar_combine(training_index, tasks[["train_drops"]], command = rbind(!!!.x)),
   per_spec,
   fits,
-  tar_combine(score_index_all, fits[["fit_tidy"]],  command = rbind(!!!.x)),
-  tar_combine(class_index_all, fits[["fit_class"]], command = rbind(!!!.x)),
-  tar_target(best_all, select_best(score_index_all)),
+  per_sensor_scores,
+  # Reporting views (nothing upstream of a prediction may read these).
+  targets::tar_target_raw("score_index_all", rlang::call2("rbind", !!!rlang::syms(paste0("score_index_", names(SENSORS))))),
+  targets::tar_target_raw("class_index_all", rlang::call2("rbind", !!!rlang::syms(paste0("class_index_", names(SENSORS))))),
+  targets::tar_target_raw("best_all", rlang::call2("rbind", !!!rlang::syms(paste0("best_", names(SENSORS))))),
 
   # v2.0-compatible views, consumed by the figures and the paper until Phase E
-  tar_target(score_index, score_index_all[score_index_all$sensor == "drone", ]),
-  tar_target(class_index, class_index_all[class_index_all$sensor == "drone", ]),
-  tar_target(best_models, best_all[best_all$sensor == "drone", ]),
-  tar_target(wv2_scores,  score_index_all[score_index_all$sensor == "wv2", ]),
-  tar_target(sat_scores,  score_index_all[score_index_all$sensor %in% c("planet", "s2"), ]),
-  tar_target(wv2_class_index, class_index_all[class_index_all$sensor == "wv2", ]),
-  tar_target(sat_class_index, class_index_all[class_index_all$sensor %in% c("planet", "s2"), ]),
-  tar_target(wv2_best, best_all[best_all$sensor == "wv2", ]),
-  tar_target(sat_best, best_all[best_all$sensor %in% c("planet", "s2"), ]),
+  tar_target(score_index, score_index_drone),
+  tar_target(class_index, class_index_drone),
+  tar_target(best_models, best_drone),
+  tar_target(wv2_scores,  score_index_wv2),
+  tar_target(sat_scores,  rbind(score_index_planet, score_index_s2)),
+  tar_target(wv2_class_index, class_index_wv2),
+  tar_target(sat_class_index, rbind(class_index_planet, class_index_s2)),
+  tar_target(wv2_best, best_wv2),
+  tar_target(sat_best, rbind(best_planet, best_s2)),
 
   # ---- predictions and their accounting -----------------------------------
   preds,
