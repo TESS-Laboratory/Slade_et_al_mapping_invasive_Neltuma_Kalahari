@@ -344,7 +344,7 @@ split [ANDY].
 
 | Phase | Content | Gate |
 |---|---|---|
-| A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. **Status 2026-09-16: A1-A3 done, A4 started; fast gate running.** | full run reproduces v2.0 numbers (data-out/results/v2_baseline/); wall time down |
+| A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. **Status 2026-09-16: A1-A4 done; fast gate green (652 targets, 8m22s vs >1 h in v2.0); full-profile gate running.** | full run reproduces v2.0 numbers (data-out/results/v2_baseline/); wall time down |
 | B. Evaluation (1-2 wk) | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
 | C. Uncertainty (2 wk) | 3.1-3.3, 3.7: conformal calibration from resample predictions, set-size / Neltuma-possible / area-bound rasters, coverage validation, PPI areas, probabilistic phases | coverage >= nominal on holdout per class; area intervals in Table 1 |
 | C3. AOA x conformal (2 wk, after C/C2) | 3.9: DI/LPD/AOA on kNNDM folds, DI-stratified conformal, coverage-vs-DI, typology map | coverage holds inside AOA per stratum; the curve figure |
