@@ -102,6 +102,7 @@ points. For a sparse target the interesting outputs are:
 | Levels | alpha in {0.05, 0.10, 0.20}; report coverage curves | The paper should show the trade-off, not one number. |
 | Validation | empirical coverage per class and per site on spatial holdout; calibration reliability diagrams for p(Neltuma) | Coverage-by-site is the honest statement of spatial transfer. |
 | Implementation | `R/conformal.R`, ours | Nothing installed does Mondrian split conformal for mlr3 classification; the maths is small and we want it auditable. |
+| Not `learner_pi_cvplus` | regression-only (wraps LearnerRegr) - used for the fractional-cover arm (3.8), not here | For classification the recipe is: score s_i = 1 - p_i[y_i] on the out-of-fold probabilities, per-class threshold q_c = the ceil((n_c+1)(1-alpha))/n_c quantile, set = {c : 1 - p[c] <= q_c} on the landscape rasters. Cross-conformal (fold thresholds, full-data model) by default; exact CV+ (each fold model predicts the landscape, 10x cost) as a one-sensor check. |
 
 ### 3.3 Inference on the maps: prediction-powered inference **[HUGH]**
 
