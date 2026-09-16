@@ -1339,6 +1339,33 @@ LIST of all tuned configurations, so any svm change re-predicted all seven
 sites (six of them to identical surfaces, skipped downstream by value).
 The dependency should be the winner's configuration only; deferred to the
 next invalidation point rather than paying another one now.
+### 7.38 kNNDM on our points: two prediction regimes, measured
+
+CAST::knndm (1.1.2, via mlr3spatiotempcv's `repeated_spcv_knndm`) run on
+the real training points against the prediction domain each map claims
+(tools/knndm-testdrive.R; results in data-out/results/knndm_testdrive.rds):
+
+| task | domain | k | W (m) | what the folds are |
+|---|---|---|---|---|
+| WV2 archived (2,400 pts, 7 sites) | 445 km2 study area | 10 | 4,890 | every fold lies inside ONE site; large sites split in two |
+| same | same | 5 | 3,719 | sites grouped: {bokspits_1+3}, {struizendam_1+2}, {b2}, {s3}, {s4} |
+| drone bokspits_1 (136 pts) | the site AOI | 10 | **1.8** | balanced 12-15 per fold, near-random |
+
+Reading: for the satellite arms the honest evaluation *is* leave-site-out
+in all but name - kNNDM never mixes sites, and fewer, larger folds (k = 5)
+match the kilometre-scale prediction distances better (lower W), exactly as
+Linnenbrink et al. advise for severely clustered samples. W stays in the
+thousands of metres whichever k: the training design cannot reproduce the
+prediction situation, which is the quantitative form of "we are
+extrapolating from seven small sites to 445 km2" and belongs in the paper
+next to an area-of-applicability map. For the drone arm, predicting the
+site it was trained in, kNNDM reproduces near-random folds with W = 1.8 m:
+the ~87-90% site accuracies are the honest number for that question, and
+spcv_coords' 5-25-point folds were adding noise, not rigour.
+
+Consequence for 7.34: the fold-count curve was not a choice to be made; it
+was two questions being asked with one design. Decision D2 (kNNDM, domain
+per question) closes it.
 ---
 
 ## 8. Class scheme
@@ -1775,3 +1802,10 @@ manifest, lockfile and library in agreement.
   1 are pipeline products; Figures 2 (workflow diagram) and 3 (photographs)
   stay amber as authoring, not data. 1,515 targets; the full graph rebuilds
   from raw inputs.
+- **2026-09-16 (afternoon)** refactor-3.0 planning. docs/refactor-3.0-plan.md:
+  conformal (Mondrian split on OOF probabilities), PPI, fractional-cover
+  regression with CV+ intervals (3.8), unified graph. D2 decided: kNNDM via
+  CAST [HUGH]; blockCV rejected (no mlr3 path). CAST added to the env.
+  **Finding 7.38**: kNNDM on our points gives single-site folds for the
+  satellites (W ~3.7-4.9 km, k=5 better) and near-random folds for the drone
+  within-site question (W 1.8 m) - the two regimes, measured.

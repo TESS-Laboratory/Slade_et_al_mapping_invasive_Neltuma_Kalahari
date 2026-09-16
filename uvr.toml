@@ -2,6 +2,7 @@
 name = "Slade_et_al_mapping_invasive_Neltuma_Kalahari"
 
 [dependencies]
+CAST = "*"
 DT = "*"
 DiceKriging = "*"
 crew = "*"

@@ -2,6 +2,24 @@
 version = "4.6.0"
 
 [[package]]
+name = "CAST"
+version = "1.1.2"
+source = "cran"
+raw_version = "1.1.2"
+url = "https://cran.r-project.org/src/contrib/CAST_1.1.2.tar.gz"
+checksum = "md5:53484016680478708e64ceb6f8b056e0"
+requires = [
+    "caret",
+    "data.table",
+    "FNN",
+    "ggplot2",
+    "sf",
+    "twosamples",
+    "terra",
+    "zoo",
+]
+
+[[package]]
 name = "DBI"
 version = "1.3.0"
 source = "cran"
@@ -33,6 +51,14 @@ source = "cran"
 raw_version = "1.6.1"
 url = "https://cran.r-project.org/src/contrib/DiceKriging_1.6.1.tar.gz"
 checksum = "md5:43540ac986833443d68dba488598eafe"
+
+[[package]]
+name = "FNN"
+version = "1.1.4-4.1"
+source = "cran"
+raw_version = "1.1.4.1"
+url = "https://cran.r-project.org/src/contrib/FNN_1.1.4.1.tar.gz"
+checksum = "md5:92df8f0a011ef9795b31b62450304b4e"
 
 [[package]]
 name = "Formula"
@@ -103,6 +129,19 @@ checksum = "md5:b87060f8af9cd5a82e56c4d14c7624fe"
 requires = [
     "Matrix",
     "Matrix",
+]
+
+[[package]]
+name = "ModelMetrics"
+version = "1.2.2-4.2"
+source = "cran"
+raw_version = "1.2.2.2"
+url = "https://cran.r-project.org/src/contrib/ModelMetrics_1.2.2.2.tar.gz"
+checksum = "md5:3f3d10e443dab1a0e8e399bcd6be6d1b"
+requires = [
+    "Rcpp",
+    "data.table",
+    "Rcpp",
 ]
 
 [[package]]
@@ -350,6 +389,27 @@ requires = [
 ]
 
 [[package]]
+name = "caret"
+version = "7.0.1"
+source = "cran"
+raw_version = "7.0-1"
+url = "https://cran.r-project.org/src/contrib/caret_7.0-1.tar.gz"
+checksum = "md5:c11d2d954241566f577841a58d101f75"
+requires = [
+    "ggplot2",
+    "lattice",
+    "e1071",
+    "foreach",
+    "ModelMetrics",
+    "nlme",
+    "plyr",
+    "pROC",
+    "recipes",
+    "reshape2",
+    "withr",
+]
+
+[[package]]
 name = "cellranger"
 version = "1.1.0"
 source = "cran"
@@ -398,6 +458,23 @@ source = "cran"
 raw_version = "3.6.6"
 url = "https://cran.r-project.org/src/contrib/cli_3.6.6.tar.gz"
 checksum = "md5:eedc08ba864ae6cd640b05eff1a607ee"
+
+[[package]]
+name = "clock"
+version = "0.7.4"
+source = "cran"
+raw_version = "0.7.4"
+url = "https://cran.r-project.org/src/contrib/clock_0.7.4.tar.gz"
+checksum = "md5:ebf75c3093bd8f58f6d258dfee7e89ad"
+requires = [
+    "cli",
+    "lifecycle",
+    "rlang",
+    "tzdb",
+    "vctrs",
+    "cpp11",
+    "tzdb",
+]
 
 [[package]]
 name = "cluster"
@@ -772,6 +849,14 @@ url = "https://cran.r-project.org/src/contrib/glue_1.8.1.tar.gz"
 checksum = "md5:24e3cd382f52015c929538a5208d11aa"
 
 [[package]]
+name = "gower"
+version = "1.0.2"
+source = "cran"
+raw_version = "1.0.2"
+url = "https://cran.r-project.org/src/contrib/gower_1.0.2.tar.gz"
+checksum = "md5:5144ebfeff1a92799431352cd9f4cc28"
+
+[[package]]
 name = "gridExtra"
 version = "2.3.1"
 source = "cran"
@@ -822,6 +907,22 @@ requires = [
     "glue",
     "lifecycle",
     "rlang",
+]
+
+[[package]]
+name = "hardhat"
+version = "1.4.3"
+source = "cran"
+raw_version = "1.4.3"
+url = "https://cran.r-project.org/src/contrib/hardhat_1.4.3.tar.gz"
+checksum = "md5:a6365cb2e5a5b4dc8b6c0c6e583b333e"
+requires = [
+    "cli",
+    "glue",
+    "rlang",
+    "sparsevctrs",
+    "tibble",
+    "vctrs",
 ]
 
 [[package]]
@@ -926,6 +1027,22 @@ requires = [
     "rlang",
     "vctrs",
     "cpp11",
+]
+
+[[package]]
+name = "ipred"
+version = "0.9.16"
+source = "cran"
+raw_version = "0.9-16"
+url = "https://cran.r-project.org/src/contrib/ipred_0.9-16.tar.gz"
+checksum = "md5:d37dc73fc817eb43c58549e3d1354e05"
+requires = [
+    "rpart",
+    "MASS",
+    "survival",
+    "nnet",
+    "class",
+    "prodlim",
 ]
 
 [[package]]
@@ -1096,6 +1213,18 @@ checksum = "md5:f1faa1676570c7c4a4dad09b4d0986e9"
 requires = [
     "commonmark",
     "xfun",
+]
+
+[[package]]
+name = "lubridate"
+version = "1.9.5"
+source = "cran"
+raw_version = "1.9.5"
+url = "https://cran.r-project.org/src/contrib/lubridate_1.9.5.tar.gz"
+checksum = "md5:09977b7de6710ca05886412c6aa3a5a3"
+requires = [
+    "generics",
+    "timechange",
 ]
 
 [[package]]
@@ -1526,6 +1655,18 @@ url = "https://cran.r-project.org/src/contrib/otel_0.2.0.tar.gz"
 checksum = "md5:cecd0f434a6327dcf5ca0bc2da494d06"
 
 [[package]]
+name = "pROC"
+version = "1.19.1"
+source = "cran"
+raw_version = "1.19.1"
+url = "https://cran.r-project.org/src/contrib/pROC_1.19.1.tar.gz"
+checksum = "md5:94651e3d67bbed63f93b53cc5c935bca"
+requires = [
+    "Rcpp",
+    "Rcpp",
+]
+
+[[package]]
 name = "palmerpenguins"
 version = "0.1.1"
 source = "cran"
@@ -1616,6 +1757,18 @@ source = "cran"
 raw_version = "3.8-14"
 url = "https://cran.r-project.org/src/contrib/plotrix_3.8-14.tar.gz"
 checksum = "md5:2f854b315816ce240d89ad895c57e291"
+
+[[package]]
+name = "plyr"
+version = "1.8.9"
+source = "cran"
+raw_version = "1.8.9"
+url = "https://cran.r-project.org/src/contrib/plyr_1.8.9.tar.gz"
+checksum = "md5:5a8b129534abace172059ecc5c0b5072"
+requires = [
+    "Rcpp",
+    "Rcpp",
+]
 
 [[package]]
 name = "polspline"
@@ -1859,16 +2012,47 @@ requires = [
 
 [[package]]
 name = "readxl"
-version = "1.5.0"
+version = "1.5.0-4.1"
 source = "cran"
-raw_version = "1.5.0"
-url = "https://cran.r-project.org/src/contrib/readxl_1.5.0.tar.gz"
-checksum = "md5:bd4cffa51566929514856062c026ffb6"
+raw_version = "1.5.0.1"
+url = "https://cran.r-project.org/src/contrib/readxl_1.5.0.1.tar.gz"
+checksum = "md5:c29e07dbcae56f627b3db7ce48a5577b"
 requires = [
     "cellranger",
     "tibble",
     "cpp11",
     "progress",
+]
+
+[[package]]
+name = "recipes"
+version = "1.4.0"
+source = "cran"
+raw_version = "1.4.0"
+url = "https://cran.r-project.org/src/contrib/recipes_1.4.0.tar.gz"
+checksum = "md5:994100424cbf6287738c50c04ed91757"
+requires = [
+    "dplyr",
+    "cli",
+    "clock",
+    "generics",
+    "glue",
+    "gower",
+    "hardhat",
+    "ipred",
+    "lifecycle",
+    "lubridate",
+    "magrittr",
+    "Matrix",
+    "purrr",
+    "rlang",
+    "sparsevctrs",
+    "tibble",
+    "tidyr",
+    "tidyselect",
+    "timeDate",
+    "vctrs",
+    "withr",
 ]
 
 [[package]]
@@ -1878,6 +2062,20 @@ source = "cran"
 raw_version = "2.0.0"
 url = "https://cran.r-project.org/src/contrib/rematch_2.0.0.tar.gz"
 checksum = "md5:64ad138fd1cec37d50683cbf2958e47b"
+
+[[package]]
+name = "reshape2"
+version = "1.4.5"
+source = "cran"
+raw_version = "1.4.5"
+url = "https://cran.r-project.org/src/contrib/reshape2_1.4.5.tar.gz"
+checksum = "md5:2b99f857c715d1ebca9416e8b4dd51c2"
+requires = [
+    "plyr",
+    "Rcpp",
+    "stringr",
+    "Rcpp",
+]
 
 [[package]]
 name = "rgenoud"
@@ -2165,6 +2363,19 @@ requires = [
 ]
 
 [[package]]
+name = "sparsevctrs"
+version = "0.3.6"
+source = "cran"
+raw_version = "0.3.6"
+url = "https://cran.r-project.org/src/contrib/sparsevctrs_0.3.6.tar.gz"
+checksum = "md5:3f7699b33d387661b73214a3cb03a264"
+requires = [
+    "cli",
+    "rlang",
+    "vctrs",
+]
+
+[[package]]
 name = "stringfish"
 version = "0.19.2"
 source = "cran"
@@ -2364,6 +2575,23 @@ requires = [
 ]
 
 [[package]]
+name = "timeDate"
+version = "4052.112.0"
+source = "cran"
+raw_version = "4052.112"
+url = "https://cran.r-project.org/src/contrib/timeDate_4052.112.tar.gz"
+checksum = "md5:354e0ef7bec83cc6d14d3106529043cc"
+
+[[package]]
+name = "timechange"
+version = "0.4.0"
+source = "cran"
+raw_version = "0.4.0"
+url = "https://cran.r-project.org/src/contrib/timechange_0.4.0.tar.gz"
+checksum = "md5:4cabacecbed68e3beb00e47d42fc9fca"
+requires = ["cpp11"]
+
+[[package]]
 name = "timereg"
 version = "2.0.7"
 source = "cran"
@@ -2384,6 +2612,24 @@ raw_version = "0.60"
 url = "https://cran.r-project.org/src/contrib/tinytex_0.60.tar.gz"
 checksum = "md5:c680dc21cfd948a22a4f72427967e3e0"
 requires = ["xfun"]
+
+[[package]]
+name = "twosamples"
+version = "2.0.1"
+source = "cran"
+raw_version = "2.0.1"
+url = "https://cran.r-project.org/src/contrib/twosamples_2.0.1.tar.gz"
+checksum = "md5:9b2d929b38404c51a72fd50853b6f758"
+requires = ["cpp11"]
+
+[[package]]
+name = "tzdb"
+version = "0.5.0"
+source = "cran"
+raw_version = "0.5.0"
+url = "https://cran.r-project.org/src/contrib/tzdb_0.5.0.tar.gz"
+checksum = "md5:a9f89aa8a851f7a2a13856e815c8bb1c"
+requires = ["cpp11"]
 
 [[package]]
 name = "units"

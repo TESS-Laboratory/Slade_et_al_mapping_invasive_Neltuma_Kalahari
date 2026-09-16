@@ -143,6 +143,10 @@ fold count.
   what the choice of evaluation does to the number.
 - Area of applicability (Meyer & Pebesma 2021) computed alongside, and the
   conformal set-size layer reported over it.
+- Measured on our points (finding 7.38): satellites, domain = study area ->
+  every kNNDM fold sits inside one site, W = 4,890 m at k = 10 and 3,719 m
+  at k = 5 (use k = 5); drone bokspits_1, domain = its AOI -> balanced
+  near-random folds, W = 1.8 m. The two questions, two designs.
 
 ### 3.5 Learners and training sources **[HUGH]**
 
