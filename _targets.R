@@ -417,6 +417,9 @@ list(
   tar_target(fig_phases, fig_phase_maps(wv2_prevalence_layer, wv2_phase_layer), format = "file"),
 
   # ---- the paper ----------------------------------------------------------
+  # ---- invariants (refactor-3.0 4.4) --------------------------------------
+  tar_target(checks, run_checks(score_index_all, training_index, cube_index, resampling, sensors_cfg)),
+
   tar_target(paper_values,
              build_paper_values(score_index, best_models, class_areas, training_index,
                                 class_index = class_index, wv2_scores = wv2_scores, sat_scores = sat_scores,
