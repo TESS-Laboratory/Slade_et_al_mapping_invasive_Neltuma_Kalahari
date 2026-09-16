@@ -153,7 +153,10 @@ validate_training_table <- function(df, site, sites = read_sites(),
 
   invisible(data.frame(
     site = site, tag = df$tag[1],
-    n = nrow(df), n_expected_polygons = as.integer(s$n_field_features),
+    n = nrow(df),
+    # satellite units are not in sites.csv; expected polygon counts are a
+    # drone-side fact
+    n_expected_polygons = if (nrow(s)) as.integer(s$n_field_features) else NA_integer_,
     n_classes = length(tab),
     classes = paste(names(tab), collapse = ","),
     min_class_n = as.integer(min(tab)), max_class_n = as.integer(max(tab)),

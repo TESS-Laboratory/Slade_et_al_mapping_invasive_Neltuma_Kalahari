@@ -187,7 +187,9 @@ tasks <- tar_map(
                                    classes = classes, balance = balance,
                                    class_size = class_size, seed = resampling$seed)),
   tar_target(train, train_split$training),
-  tar_target(train_drops, train_split$drops),
+  tar_target(train_drops, cbind(sensor = sensor, source = source, train_split$drops)),
+  tar_target(train_check, cbind(sensor = sensor, source = source,
+                                validate_training_table(train, unit, sites = sites))),
   tar_target(task, make_task(train, unit, tag, sites = data.frame(site = unit, epsg = epsg)))
 )
 
@@ -332,7 +334,11 @@ list(
   ext_combines,
   purity_layers,
   tasks,
-  tar_combine(training_index, tasks[["train_drops"]], command = rbind(!!!.x)),
+  tar_combine(training_attrition, tasks[["train_drops"]], command = rbind(!!!.x)),
+  tar_combine(training_index_all, tasks[["train_check"]], command = rbind(!!!.x)),
+  # v2.0 view: the drone field tables only (the paper's field-point counts)
+  tar_target(training_index, training_index_all[training_index_all$sensor == "drone" &
+                                                training_index_all$source == "field", ]),
   per_spec,
   fits,
   per_sensor_scores,
@@ -418,7 +424,7 @@ list(
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------
-  tar_target(checks, run_checks(score_index_all, training_index, cube_index, resampling, sensors_cfg)),
+  tar_target(checks, run_checks(score_index_all, training_attrition, cube_index, resampling, sensors_cfg)),
 
   tar_target(paper_values,
              build_paper_values(score_index, best_models, class_areas, training_index,

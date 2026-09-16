@@ -86,13 +86,27 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
   m  <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion)
   mr <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion_raw)
   woody <- c("5", "6", "7")
+  # A class can be absent from a matrix (the fast profile's aggregated
+  # surfaces, or a sensor without S.mellifera): index by name, tolerating
+  # absence, instead of failing with "subscript out of bounds".
+  cell <- function(mat, rows, cols) {
+    r <- intersect(rows, rownames(mat)); c <- intersect(cols, colnames(mat))
+    if (!length(r) || !length(c)) return(0)
+    sum(mat[r, c, drop = FALSE])
+  }
+  nel_recall <- function(mat) { d <- cell(mat, "1", colnames(mat)); if (d > 0) cell(mat, "1", "1") / d else NA_real_ }
+  woody_share <- function(mat) { d <- cell(mat, rownames(mat), "1"); if (d > 0) cell(mat, woody, "1") / d else NA_real_ }
+  # The 34.6%-analogue and recall are the column ("drone says Neltuma") view.
+  drone_recall <- function(mat) { d <- cell(mat, rownames(mat), "1"); if (d > 0) cell(mat, "1", "1") / d else NA_real_ }
   nel_area <- function(sensor, surface) {
     d <- wv2_drone_areas[wv2_drone_areas$Type == 1 & wv2_drone_areas$sensor == sensor &
                          wv2_drone_areas$surface == surface, ]
     sum(d$area_ha)
   }
-  ph <- function(surface, phase) wv2_phase_table[wv2_phase_table$surface == surface &
-                                                 wv2_phase_table$phase == phase, ]
+  ph <- function(surface, phase) {
+    r <- wv2_phase_table[wv2_phase_table$surface == surface & wv2_phase_table$phase == phase, ]
+    if (!nrow(r)) data.frame(area_ha = 0, pct_of_area = 0) else r
+  }
   wa <- best_of("wv2_archived"); wf <- best_of("wv2_field")
   pa <- best_of("planet_archived"); sa <- best_of("s2_archived")
   s9 <- plant_validation_summary[plant_validation_summary$surface == "raw" &
@@ -100,7 +114,7 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
   list(
     neltuma_drone_pct       = pct0(max(nel_by_stack)),
     neltuma_drone_stack     = names(nel_by_stack)[which.max(nel_by_stack)],
-    neltuma_drone_chm_pct   = pct1(nel_by_stack[["5_CHM"]]),
+    neltuma_drone_chm_pct   = pct1(if ("5_CHM" %in% names(nel_by_stack)) nel_by_stack[["5_CHM"]] else NA_real_),
     wv2_best_pct            = pct1(wa$classif.acc), wv2_best_learner = wa$learner,
     wv2_svm_pct             = pct1(lrn_of("wv2_archived", "svm")$classif.acc),
     wv2_ensemble_pct        = pct1(lrn_of("wv2_archived", "ensemble")$classif.acc),
@@ -114,10 +128,10 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
     s2_neltuma_recall_pct   = pct0(recall_of("s2_archived", sa$learner)),
     s10_over_smooth_pct     = sprintf("%.1f", 100 * (nel_area("wv2", "smoothed") / nel_area("drone", "smoothed") - 1)),
     s10_over_raw_pct        = sprintf("%.1f", 100 * (nel_area("wv2", "raw") / nel_area("drone", "raw") - 1)),
-    s10_woody_smooth_pct    = pct1(sum(m[woody, "1"]) / sum(m[, "1"])),
-    s10_woody_raw_pct       = pct1(sum(mr[woody, "1"]) / sum(mr[, "1"])),
-    s10_recall_smooth       = sprintf("%.2f", m["1", "1"] / sum(m[, "1"])),
-    s10_recall_raw          = sprintf("%.2f", mr["1", "1"] / sum(mr[, "1"])),
+    s10_woody_smooth_pct    = pct1(woody_share(m)),
+    s10_woody_raw_pct       = pct1(woody_share(mr)),
+    s10_recall_smooth       = sprintf("%.2f", drone_recall(m)),
+    s10_recall_raw          = sprintf("%.2f", drone_recall(mr)),
     dominance_km2_raw       = sprintf("%.0f", ph("raw", "Dominance")$area_ha / 100),
     dominance_pct_raw       = sprintf("%.1f", ph("raw", "Dominance")$pct_of_area),
     dominance_pct_smooth    = sprintf("%.1f", ph("smooth", "Dominance")$pct_of_area),
