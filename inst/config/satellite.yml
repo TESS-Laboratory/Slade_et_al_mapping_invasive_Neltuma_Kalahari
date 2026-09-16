@@ -12,13 +12,13 @@ wv2:
   # The archived extraction the reported run consumed: WV2 pixel polygons at
   # >95% drone-class purity, 500 per class except S.mellifera which caps at
   # 400 - balanced down to the rarest class in-pipeline (findings 7.19, 7.32).
-  training: WV2_equal_class_size_500_train_95.shp
+  training: WV2_equal_class_size_500_train_95.fgb
   # The sensor's class roster, read off the archived training data (7.32):
   # Gnidia (4) and the rare classes never reach satellite scale.
   classes: [1, 2, 3, 5, 6, 7]
-  # The study-area boundary. Ships without a .prj (finding 7.13); its CRS is
-  # declared from `epsg` above and rewritten as .fgb by the pipeline.
-  aoi: WV2_clip.shp
+  # The study-area boundary. The shapefile shipped without a .prj (7.13); the
+  # .fgb has EPSG:32734 declared at conversion (tools/convert-vectors.sh).
+  aoi: WV2_clip.fgb
   # Section 2.5: field training points "buffered by 0.8 m" for the WV2
   # field-only arm (the 69.7% that +6.1% is measured against, Fig 6B).
   field_buffer_m: 0.8
@@ -52,10 +52,10 @@ planet:
   bands: [blue, green, red, nir, ndvi]
   vis: [msavi, msavi2, mtvi, savi]      # computed; ndvi already in base
   tag: 4_ALLVI
-  training: Planet_equal_class_size_400_train_85.shp
+  training: Planet_equal_class_size_400_train_85.fgb
   classes: [1, 2, 3, 5, 6]               # no S.mellifera at 3 m (7.32)
   grids: data-in/planet/grids
-  aoi: WV2_clip.shp                      # shared study-area boundary
+  aoi: WV2_clip.fgb                      # shared study-area boundary
   smooth_window: 0
 
 # Sentinel-2, 10 m (the reported run is S2_60_65). S2_Large_stack + the five
@@ -69,8 +69,8 @@ s2:
   vi_files: {msavi: S2_MSAVI.tif, msavi2: S2_MSAVI2.tif, mtvi: S2_MTVI.tif,
              ndvi: S2_NDVI.tif, savi: S2_SAVI.tif}
   tag: 4_ALLVI
-  training: S2_equal_class_size_60_train_65.shp
+  training: S2_equal_class_size_60_train_65.fgb
   classes: [1, 2, 3, 6]                  # four classes at 10 m (7.32)
   grids: data-in/s2/grids
-  aoi: WV2_clip.shp
+  aoi: WV2_clip.fgb
   smooth_window: 0

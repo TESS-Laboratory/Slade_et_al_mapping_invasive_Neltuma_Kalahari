@@ -343,6 +343,14 @@ url = "https://cran.r-project.org/src/contrib/bitops_1.1-0.tar.gz"
 checksum = "md5:6e2f8d461c60c5187313a4bce28dbf39"
 
 [[package]]
+name = "brio"
+version = "1.1.5"
+source = "cran"
+raw_version = "1.1.5"
+url = "https://cran.r-project.org/src/contrib/brio_1.1.5.tar.gz"
+checksum = "md5:01e1a782f87242f9ca9c80acf9deeeff"
+
+[[package]]
 name = "bslib"
 version = "0.12.0"
 source = "cran"
@@ -595,6 +603,18 @@ url = "https://cran.r-project.org/src/contrib/data.table_1.18.6.1.tar.gz"
 checksum = "md5:0c0ad7916017c1657610ab16c36fecdd"
 
 [[package]]
+name = "desc"
+version = "1.4.3"
+source = "cran"
+raw_version = "1.4.3"
+url = "https://cran.r-project.org/src/contrib/desc_1.4.3.tar.gz"
+checksum = "md5:25e3c3be23e19c0f9164ed251c79f677"
+requires = [
+    "cli",
+    "R6",
+]
+
+[[package]]
 name = "diagram"
 version = "1.6.5"
 source = "cran"
@@ -613,6 +633,15 @@ requires = [
     "ooplah",
     "R6",
 ]
+
+[[package]]
+name = "diffobj"
+version = "0.3.9"
+source = "cran"
+raw_version = "0.3.9"
+url = "https://cran.r-project.org/src/contrib/diffobj_0.3.9.tar.gz"
+checksum = "md5:2211ade9964a649d33567a67bbbac2de"
+requires = ["crayon"]
 
 [[package]]
 name = "digest"
@@ -1743,12 +1772,46 @@ requires = [
 ]
 
 [[package]]
+name = "pkgbuild"
+version = "1.4.8"
+source = "cran"
+raw_version = "1.4.8"
+url = "https://cran.r-project.org/src/contrib/pkgbuild_1.4.8.tar.gz"
+checksum = "md5:7708705f2645a0852f41af6e3a36d8d7"
+requires = [
+    "callr",
+    "cli",
+    "desc",
+    "processx",
+    "R6",
+]
+
+[[package]]
 name = "pkgconfig"
 version = "2.0.3"
 source = "cran"
 raw_version = "2.0.3"
 url = "https://cran.r-project.org/src/contrib/pkgconfig_2.0.3.tar.gz"
 checksum = "md5:7b9ca1d45d941238381cb55d13ff4d68"
+
+[[package]]
+name = "pkgload"
+version = "1.5.3"
+source = "cran"
+raw_version = "1.5.3"
+url = "https://cran.r-project.org/src/contrib/pkgload_1.5.3.tar.gz"
+checksum = "md5:9f38a3a0d87ea2d72d1d9e9b9bfd1106"
+requires = [
+    "cli",
+    "desc",
+    "fs",
+    "glue",
+    "lifecycle",
+    "pkgbuild",
+    "processx",
+    "rlang",
+    "rprojroot",
+]
 
 [[package]]
 name = "plotrix"
@@ -1777,6 +1840,14 @@ source = "cran"
 raw_version = "1.1.25"
 url = "https://cran.r-project.org/src/contrib/polspline_1.1.25.tar.gz"
 checksum = "md5:df5c4ecb0a69bb6948b600d62488fc4f"
+
+[[package]]
+name = "praise"
+version = "1.0.0"
+source = "cran"
+raw_version = "1.0.0"
+url = "https://cran.r-project.org/src/contrib/praise_1.0.0.tar.gz"
+checksum = "md5:9318724cec0454884b5f762bee2da6a1"
 
 [[package]]
 name = "prettyunits"
@@ -2181,6 +2252,14 @@ url = "https://cran.r-project.org/src/contrib/rpart_4.1.27.tar.gz"
 checksum = "md5:0fdd5077b09b193836c8fa4bf98bd38d"
 
 [[package]]
+name = "rprojroot"
+version = "2.1.1"
+source = "cran"
+raw_version = "2.1.1"
+url = "https://cran.r-project.org/src/contrib/rprojroot_2.1.1.tar.gz"
+checksum = "md5:307fef4f932acc1d8660a857e44d5fb7"
+
+[[package]]
 name = "rstudioapi"
 version = "0.19.0"
 source = "cran"
@@ -2495,6 +2574,32 @@ requires = [
 ]
 
 [[package]]
+name = "testthat"
+version = "3.3.2"
+source = "cran"
+raw_version = "3.3.2"
+url = "https://cran.r-project.org/src/contrib/testthat_3.3.2.tar.gz"
+checksum = "md5:04c0b5f18aff2fdae2a3170afb9ee5e3"
+requires = [
+    "brio",
+    "callr",
+    "cli",
+    "desc",
+    "evaluate",
+    "jsonlite",
+    "lifecycle",
+    "magrittr",
+    "pkgload",
+    "praise",
+    "processx",
+    "ps",
+    "R6",
+    "rlang",
+    "waldo",
+    "withr",
+]
+
+[[package]]
 name = "tibble"
 version = "3.3.1"
 source = "cran"
@@ -2693,6 +2798,20 @@ source = "cran"
 raw_version = "0.4.3"
 url = "https://cran.r-project.org/src/contrib/viridisLite_0.4.3.tar.gz"
 checksum = "md5:ecfcfd15db2d5a79c25b9514748762b5"
+
+[[package]]
+name = "waldo"
+version = "0.6.2"
+source = "cran"
+raw_version = "0.6.2"
+url = "https://cran.r-project.org/src/contrib/waldo_0.6.2.tar.gz"
+checksum = "md5:0f215c5afc65d5a715181521ea3e79fa"
+requires = [
+    "cli",
+    "diffobj",
+    "glue",
+    "rlang",
+]
 
 [[package]]
 name = "withr"

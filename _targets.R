@@ -133,11 +133,11 @@ per_site <- tar_map(
 
   # Shapefiles are file sets: track the sidecars too, or a changed .dbf or a
   # vanished .prj goes unnoticed (finding 7.13).
-  tar_target(field_paths,
-             shapefile_files(file.path("data-in/drone", site, "field_points.shp")),
+  # Vectors are FlatGeobuf (refactor-3.0 4.3, tools/convert-vectors.sh): one
+  # file, CRS inside it, no sidecar set to track (finding 7.13 retired).
+  tar_target(field_paths, file.path("data-in/drone", site, "field_points.fgb"),
              format = "file"),
-  tar_target(aoi_paths,
-             shapefile_files(file.path("data-in/drone", site, "aoi.shp")),
+  tar_target(aoi_paths, file.path("data-in/drone", site, "aoi.fgb"),
              format = "file"),
 
   # Validation. Each fails loudly, naming this site.
@@ -162,7 +162,7 @@ cube_grid <- expand.grid(site = SITES, tag = TAGS, stringsAsFactors = FALSE)
 # inside `stacks$tag`, which silently becomes stacks$"5_CHM_NDVI" -> NULL. Any
 # `$<symbol>` accessor inside a tar_map command is a trap for the same reason.
 cube_grid$n_bands <- read_stacks()$n_bands[match(cube_grid$tag, TAGS)]
-cube_grid$field_path <- file.path("data-in/drone", cube_grid$site, "field_points.shp")
+cube_grid$field_path <- file.path("data-in/drone", cube_grid$site, "field_points.fgb")
 
 per_cube <- tar_map(
   values = cube_grid,
@@ -314,12 +314,12 @@ wv2_fits <- tar_map(
 wv2_ext_grid <- data.frame(site = SITES, stringsAsFactors = FALSE)
 wv2_ext_grid$pred_sym   <- rlang::syms(paste0("pred_", SITES))
 wv2_ext_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", SITES))
-wv2_ext_grid$grid_path  <- file.path("data-in/wv2/grids", paste0(SITES, ".shp"))
+wv2_ext_grid$grid_path  <- file.path("data-in/wv2/grids", paste0(SITES, ".fgb"))
 
 wv2_extracts <- tar_map(
   values = wv2_ext_grid,
   names = site,
-  tar_target(wv2_grid_files, shapefile_files(grid_path), format = "file"),
+  tar_target(wv2_grid_files, grid_path, format = "file"),
   tar_target(wv2_ext_raw,    purity_extract(pred_sym, wv2_grid_files[1], site)),
   tar_target(wv2_ext_smooth, purity_extract(smooth_sym, wv2_grid_files[1], site))
 )
@@ -402,7 +402,7 @@ per_sensor <- tar_map(
                build_satellite_cube(spec$srcs, spec$bands, sensor)
              },
              format = "file"),
-  tar_target(sat_train_paths, shapefile_files(train_shp), format = "file"),
+  tar_target(sat_train_paths, train_shp, format = "file"),
   tar_target(sat_sensor_row, sensors[sensors[["sensor"]] == sensor, , drop = FALSE]),
 
   # archived arm
@@ -471,7 +471,7 @@ per_sensor <- tar_map(
 sat_site_grid <- expand.grid(sensor = SAT_SENSORS, site = SITES,
                              stringsAsFactors = FALSE)
 sat_site_grid$grid_path <- mapply(function(s, site)
-  file.path(SATCFG_BUILD[[s]]$grids, paste0(site, ".shp")),
+  file.path(SATCFG_BUILD[[s]]$grids, paste0(site, ".fgb")),
   sat_site_grid$sensor, sat_site_grid$site, USE.NAMES = FALSE)
 sat_site_grid$pred_sym   <- rlang::syms(paste0("pred_", sat_site_grid$site))
 sat_site_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", sat_site_grid$site))
@@ -482,7 +482,7 @@ sat_site_grid$sat_smooth_sym <- rlang::syms(paste0("sat_pred_smooth_", sat_site_
 sat_sites <- tar_map(
   values = sat_site_grid,
   names = c("sensor", "site"),
-  tar_target(sat_grid_files, shapefile_files(grid_path), format = "file"),
+  tar_target(sat_grid_files, grid_path, format = "file"),
   tar_target(sat_ext_raw,    purity_extract(pred_sym, sat_grid_files[1], site)),
   tar_target(sat_ext_smooth, purity_extract(smooth_sym, sat_grid_files[1], site)),
   tar_target(sat_site_areas,
@@ -609,8 +609,7 @@ list(
   # extraction with its sidecars (the .prj is present here, unlike WV2_clip).
   tar_target(wv2_raster_paths, wv2_raster_files(), format = "file"),
   tar_target(wv2_train_paths,
-             shapefile_files(file.path(WV2_DIR,
-                             "WV2_equal_class_size_500_train_95.shp")),
+             file.path(WV2_DIR, "WV2_equal_class_size_500_train_95.fgb"),
              format = "file"),
 
   tar_target(wv2_cube,
@@ -708,11 +707,9 @@ list(
   # the 25 its filenames claim - see satellite.yml).
   tar_file(satellite_file, file.path(CONFIG_DIR, "satellite.yml")),
   tar_target(satcfg, read_satellite(satellite_file)),
-  tar_target(wv2_aoi_paths,
-             shapefile_files(file.path(WV2_DIR, "WV2_clip.shp")),
-             format = "file"),
-  tar_target(wv2_aoi, fix_wv2_aoi(wv2_aoi_paths[1], satcfg$wv2$epsg),
-             format = "file"),
+  # The study-area boundary: CRS declared at conversion (EPSG:32734, logged
+  # in data-in/vector_conversion.csv), so no in-pipeline fix is needed.
+  tar_target(wv2_aoi, file.path(WV2_DIR, "WV2_clip.fgb"), format = "file"),
   tar_target(wv2_pred_spec, learner_spec(resampling, wv2_best_archived[["learner"]])),
   tar_target(wv2_pred_config,
              list(svm = wv2_tuned_archived_svm, xgboost = wv2_tuned_archived_xgboost,
@@ -783,8 +780,7 @@ list(
   # mirror; n(Neltuma) = 214 here vs the manuscript's 184 - recorded as
   # finding 7.33, not resolved.
   tar_target(s9_points_paths,
-             shapefile_files(file.path(WV2_DIR,
-                             "All_points_buffered_additional.shp")),
+             file.path(WV2_DIR, "All_points_buffered_additional.fgb"),
              format = "file"),
   tar_combine(plant_validation, wv2_compare[["plant_scale"]],
               command = rbind(!!!.x)),
