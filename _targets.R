@@ -106,10 +106,11 @@ TAGS    <- read_stacks()$tag
 LEARNER_IDS <- vapply(read_resampling()$learners, function(x) x$id, character(1))
 TUNED_IDS   <- vapply(Filter(function(x) isTRUE(x$tuned), read_resampling()$learners),
                       function(x) x$id, character(1))
-PRED_TAG <- read_resampling()$prediction$stack
-PRED_AGG <- if (PROFILE == "fast") as.integer(read_resampling()$prediction$fast_aggregate) else 1L
+PREDCFG  <- read_prediction()
+PRED_TAG <- PREDCFG$stack
+PRED_AGG <- if (PROFILE == "fast") as.integer(PREDCFG$fast_aggregate) else 1L
 `%||%` <- function(a, b) if (is.null(a)) b else a
-PRED_SMOOTH <- as.integer(read_resampling()$prediction$smooth_window %||% 0L)
+PRED_SMOOTH <- as.integer(PREDCFG$smooth_window %||% 0L)
 # The WV2 benchmark task: four corrected reflectance bands + all five VIs,
 # named by analogy with the drone tags (there is no CHM at satellite scale).
 WV2_TAG <- "4_ALLVI"
@@ -253,17 +254,18 @@ per_pred <- tar_map(
   tar_target(best_row,
              best_models[best_models[["site"]] == site &
                          best_models[["tag"]] == PRED_TAG, , drop = FALSE]),
+  # The winner's spec and configuration as their own small targets: the
+  # prediction depends on THESE values, so a change to any other learner's
+  # tuning leaves the surface alone (7.37 recorded seven needless re-predictions).
+  tar_target(pred_spec, learner_spec(resampling, best_row[["learner"]])),
+  tar_target(pred_config,
+             list(svm = cfg_svm, xgboost = cfg_xgboost, ranger = cfg_ranger,
+                  lightgbm = cfg_lightgbm, glmnet = cfg_glmnet)[[best_row[["learner"]]]]),
   tar_target(
     pred,
-    predict_site(
-      cube_sym, aoi_sym[1], train_sym,
-      best = best_row,
-      resampling = resampling,
-      tuned_configs = list(svm = cfg_svm, xgboost = cfg_xgboost,
-                           ranger = cfg_ranger, lightgbm = cfg_lightgbm,
-                           glmnet = cfg_glmnet),
-      site = site, tag = PRED_TAG, aggregate = PRED_AGG
-    ),
+    predict_site(cube_sym, aoi_sym[1], train_sym,
+                 spec = pred_spec, shared = eval_shared, config = pred_config,
+                 site = site, tag = PRED_TAG, aggregate = PRED_AGG),
     format = "file", resources = ml_resources
   ),
   tar_target(pred_summary, summarise_prediction(pred, site, PRED_TAG)),
@@ -443,16 +445,15 @@ per_sensor <- tar_map(
   # prediction on the archived arm, masked to the shared study-area boundary
   tar_target(sat_best_archived,
              sat_best[sat_best[["site"]] == paste0(sensor, "_archived"), , drop = FALSE]),
+  tar_target(sat_pred_spec, learner_spec(resampling, sat_best_archived[["learner"]])),
+  tar_target(sat_pred_config,
+             list(svm = cfg_svm, xgboost = cfg_xgboost, ranger = cfg_ranger,
+                  lightgbm = cfg_lightgbm, glmnet = cfg_glmnet)[[sat_best_archived[["learner"]]]]),
   tar_target(
     sat_pred,
-    predict_site(
-      sat_cube, wv2_aoi, sat_training_archived,
-      best = sat_best_archived, resampling = resampling,
-      tuned_configs = list(svm = cfg_svm, xgboost = cfg_xgboost,
-                           ranger = cfg_ranger, lightgbm = cfg_lightgbm,
-                           glmnet = cfg_glmnet),
-      site = sensor, tag = tag, aggregate = PRED_AGG
-    ),
+    predict_site(sat_cube, wv2_aoi, sat_training_archived,
+                 spec = sat_pred_spec, shared = eval_shared, config = sat_pred_config,
+                 site = sensor, tag = tag, aggregate = PRED_AGG),
     format = "file", resources = ml_resources
   ),
   tar_target(sat_pred_summary, summarise_prediction(sat_pred, sensor, tag)),
@@ -530,6 +531,7 @@ list(
   tar_file(stacks_file,     file.path(CONFIG_DIR, "stacks.csv")),
   tar_file(sensors_file,    file.path(CONFIG_DIR, "sensors.csv")),
   tar_file(resampling_file, file.path(CONFIG_DIR, "resampling.yml")),
+  tar_file(prediction_file, file.path(CONFIG_DIR, "prediction.yml")),
   tar_file(classes_file,    CLASSES_JSON),
   tar_file(manifest_file,   MANIFEST_CSV),
 
@@ -711,19 +713,16 @@ list(
              format = "file"),
   tar_target(wv2_aoi, fix_wv2_aoi(wv2_aoi_paths[1], satcfg$wv2$epsg),
              format = "file"),
+  tar_target(wv2_pred_spec, learner_spec(resampling, wv2_best_archived[["learner"]])),
+  tar_target(wv2_pred_config,
+             list(svm = wv2_tuned_archived_svm, xgboost = wv2_tuned_archived_xgboost,
+                  ranger = wv2_tuned_archived_ranger, lightgbm = wv2_tuned_archived_lightgbm,
+                  glmnet = wv2_tuned_archived_glmnet)[[wv2_best_archived[["learner"]]]]),
   tar_target(
     wv2_pred,
-    predict_site(
-      wv2_cube, wv2_aoi, wv2_training_archived,
-      best = wv2_best_archived,
-      resampling = resampling,
-      tuned_configs = list(svm = wv2_tuned_archived_svm,
-                           xgboost = wv2_tuned_archived_xgboost,
-                           ranger = wv2_tuned_archived_ranger,
-                           lightgbm = wv2_tuned_archived_lightgbm,
-                           glmnet = wv2_tuned_archived_glmnet),
-      site = "wv2", tag = WV2_TAG, aggregate = PRED_AGG
-    ),
+    predict_site(wv2_cube, wv2_aoi, wv2_training_archived,
+                 spec = wv2_pred_spec, shared = eval_shared, config = wv2_pred_config,
+                 site = "wv2", tag = WV2_TAG, aggregate = PRED_AGG),
     format = "file", resources = ml_resources
   ),
   tar_target(wv2_pred_summary, summarise_prediction(wv2_pred, "wv2", WV2_TAG)),

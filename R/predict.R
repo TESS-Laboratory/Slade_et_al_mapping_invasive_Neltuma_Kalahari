@@ -27,17 +27,13 @@
 #' @param aggregate integer >= 1; >1 predicts on an aggregated cube (fast profile)
 #' @param out_dir output directory
 #' @return character vector of written paths
-predict_site <- function(cube_path, aoi_path, training, best, resampling,
-                         tuned_configs, site, tag, aggregate = 1L,
+predict_site <- function(cube_path, aoi_path, training, spec, shared, config,
+                         site, tag, aggregate = 1L,
                          out_dir = "data-out/predict") {
   data.table::setDTthreads(1L)
-  stopifnot(nrow(best) == 1L)
-  winner <- best$learner
-
-  spec   <- learner_spec(resampling, winner)
-  shared <- eval_settings(resampling)
-  config <- tuned_configs[[winner]]
-
+  # The caller passes the WINNER's spec and configuration only (refactor-3.0
+  # 4.1): a change to any other learner's tuning cannot invalidate this
+  # surface. 7.37 records seven re-predictions from one svm change.
   learner <- bare_learner(spec, shared)
   if (!is.null(config)) {
     keep <- config[names(config) %in% learner$param_set$ids()]
@@ -99,10 +95,23 @@ predict_site <- function(cube_path, aoi_path, training, best, resampling,
   terra::writeRaster(pred[["class"]], class_path, overwrite = TRUE,
                      datatype = "INT1U", gdal = c("COMPRESS=LZW", "TILED=YES"),
                      NAflag = 255)
-  terra::writeRaster(pred[[-1L]], prob_path, overwrite = TRUE,
-                     gdal = c("COMPRESS=LZW", "PREDICTOR=3", "TILED=YES"))
+  # Probabilities as scaled 16-bit integers (x PROB_SCALE): a quarter of the
+  # Float32 footprint (v2.0 held 16 GB of these), no precision anyone can use
+  # is lost, and DEFLATE with PREDICTOR=2 compresses integers far better.
+  terra::writeRaster(terra::round(pred[[-1L]] * PROB_SCALE), prob_path,
+                     overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
+                              "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
   c(class_path, prob_path)
 }
+
+
+#' Probability rasters are stored as scaled integers; read them back as [0, 1]
+PROB_SCALE <- 10000L
+
+#' @param path a prob raster written by predict_site()
+#' @return SpatRaster of class probabilities on [0, 1]
+read_prob <- function(path) terra::rast(path) / PROB_SCALE
 
 
 #' Summarise a predicted surface
@@ -116,7 +125,7 @@ predict_site <- function(cube_path, aoi_path, training, best, resampling,
 #' @return data.frame, one row per class present
 summarise_prediction <- function(paths, site, tag) {
   cl <- terra::rast(paths[1])
-  pr <- terra::rast(paths[2])
+  pr <- read_prob(paths[2])
   px_ha <- prod(terra::res(cl)) / 1e4
 
   f <- terra::freq(cl)

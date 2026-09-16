@@ -1,0 +1,25 @@
+# Landscape prediction settings (R/predict.R). Split out of resampling.yml in
+# refactor-3.0 so that evaluation edits and prediction edits invalidate
+# different targets.
+#
+# Landscape prediction (R/predict.R). One classified surface per site, produced
+# by the winning learner for the configured stack, retrained on all of that
+# site's training data with its tuned configuration.
+# 5_CHM_ALLVI matches the archived landscape products
+# (svm_pixel_level_*_stack_5_CHM_ALLVI.tif), keeping our surfaces directly
+# comparable with the originals and with Table S10. Our marginally best stack
+# is 5_CHM_NDVI (+0.004); comparability wins at that margin.
+stack: 5_CHM_ALLVI
+# Both outputs always: hard classes for the maps and area figures, per-class
+# probabilities as the foundation for the conformal work (next refactor).
+write_prob: true
+# The fast profile predicts on an aggregated cube (factor 20 ~ 1.1 m pixels)
+# so the graph is exercised end to end in seconds, not tens of minutes.
+fast_aggregate: 20
+# Modal focal smoothing of the class surface, as an EXPLICIT step this time.
+# The original applied focal(w = 25, fun = "modal") to drone classifications
+# (legacy Majority_filter.R) while the manuscript describes a sieve filter
+# that exists nowhere (finding 1.6). We keep the operation that was actually
+# run, name it honestly, and keep the raw surface alongside so the filter's
+# effect on area accounting is measured, not assumed (7.31). 0 disables.
+smooth_window: 25

@@ -168,6 +168,27 @@ with_fallback <- function(learner, pt) {
 }
 
 
+
+#' Run an expression under the configured future plan
+#'
+#' NELTUMA_FUTURE > 1 parallelises mlr3's inner loops (tuning evaluations,
+#' outer resampling iterations). Measured 4.4x at 8 workers once
+#' exec_chunk_size is 1 (7.24). Always multisession: forking a process after
+#' lightgbm has initialised its OpenMP pool deadlocks the next resample
+#' (7.35), and multisession measured within 1% of multicore.
+#'
+#' @param expr expression to evaluate
+#' @return the expression's value
+with_future_plan <- function(expr) {
+  fw <- future_workers()
+  if (fw > 1L) {
+    old_opt <- options(mlr3.exec_chunk_size = exec_chunk_size())
+    old_plan <- future::plan(future::multisession, workers = fw)
+    on.exit({ future::plan(old_plan); options(old_opt) }, add = TRUE)
+  }
+  force(expr)
+}
+
 #' Tune once per task, returning the chosen configuration
 #'
 #' TUNING IS DELIBERATELY NOT NESTED IN THE OUTER REPEATS (decision 2026-08-18
@@ -224,7 +245,7 @@ tune_config <- function(task, spec, shared) {
     store_models = FALSE
   )
   if (!is.null(ss)) args$search_space <- ss
-  ti <- do.call(mlr3tuning::tune, args)
+  ti <- with_future_plan(do.call(mlr3tuning::tune, args))
   ti$result_learner_param_vals
 }
 
@@ -342,14 +363,6 @@ run_resample <- function(task, spec, shared, config = NULL) {
   # Keep one worker to roughly one core; see finding 7.24.
   data.table::setDTthreads(1L)
 
-  fw <- future_workers()
-  if (fw > 1L) {
-    options(mlr3.exec_chunk_size = exec_chunk_size())
-    backend <- if (future::supportsMulticore()) future::multicore else future::multisession
-    old_plan <- future::plan(backend, workers = fw)
-    on.exit(future::plan(old_plan), add = TRUE)
-  }
-
   learner <- with_fallback(bare_learner(spec, shared), shared$predict_type)
   if (!is.null(config)) {
     keep <- config[names(config) %in% learner$param_set$ids()]
@@ -366,7 +379,7 @@ run_resample <- function(task, spec, shared, config = NULL) {
   # Same seed for every learner, so all learners on a task see identical outer
   # splits and their scores are paired, not merely comparable.
   set.seed(shared$seed)
-  mlr3::resample(task, learner, resampling, store_models = FALSE)
+  with_future_plan(mlr3::resample(task, learner, resampling, store_models = FALSE))
 }
 
 

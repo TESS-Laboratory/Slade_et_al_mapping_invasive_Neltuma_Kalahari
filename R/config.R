@@ -245,3 +245,22 @@ active_profile <- function() {
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+
+#' Landscape prediction settings
+#'
+#' Split from resampling.yml (refactor-3.0): the evaluation config feeds the
+#' fits, the prediction config feeds the surfaces, and neither edit should
+#' invalidate the other's targets.
+#'
+#' @param path location of prediction.yml
+#' @return the parsed list
+read_prediction <- function(path = file.path(CONFIG_DIR, "prediction.yml")) {
+  assert_config_exists(path, "Prediction configuration")
+  y <- yaml::read_yaml(path)
+  missing <- setdiff(c("stack", "write_prob", "fast_aggregate", "smooth_window"), names(y))
+  if (length(missing)) {
+    stop("prediction.yml is missing key(s): ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+  y
+}

@@ -70,6 +70,8 @@ _targets/
 data-out/
 
 _targets_fast/
+_targets_v2/
+_targets_fast_v2/
 
 paper/manuscript.html
 paper/manuscript_files/
