@@ -114,15 +114,34 @@ and for **cover-by-distance-to-settlement** that accounts for the
 satellite's error rate measured on the drone overlap. It costs one function
 and answers R1 and R2 in the same object.
 
-### 3.4 Spatial cross-validation, decided **[HUGH]** **[ANDY]**
+### 3.4 Spatial cross-validation: kNNDM (decided 2026-09-16 [HUGH])
 
-- Primary: `repeated_spcv_block` with block size from the variogram range
-  (`legacy_imported/variogram/`, promoted to a target), 10 folds x 10
-  repeats. This is what the manuscript claimed and what R1 asked to see.
-- Secondary, as figures: the fold-count curve (7.34) and coordinate-cluster
-  CV, so the reader sees how much the estimate depends on the design.
-- Tuning: inner folds spatial, 5-fold, MBO 30, futures on (see 4.2).
-- Report per-site holdout ("leave-one-site-out") as the extrapolation case.
+Prediction-domain adaptive evaluation (Linnenbrink, Nowosad & Meyer 2026,
+arXiv:2605.13689; kNNDM, Linnenbrink et al. 2024, GMD 17:5897) replaces
+block CV. Folds are built so the nearest-neighbour-distance distribution
+between test and training points matches that between the *prediction
+domain* and the training points; the mismatch is a Wasserstein statistic W
+that we report. This is the honest evaluation for the question each map
+answers, and it resolves 7.34 by construction rather than by choosing a
+fold count.
+
+- Implementation: **CAST::knndm via mlr3spatiotempcv's
+  `repeated_spcv_knndm`** (already in our 2.3.5; CAST added to the
+  environment). blockCV's port was considered and not adopted: no mlr3
+  integration, a heavier GDAL-linked dependency tree, and comparing two
+  implementations of one algorithm measures the port, not the method.
+- Prediction domains, per question: drone arm -> the site's own AOI (the
+  map is that site); satellite arms -> the 445 km2 study-area boundary. The
+  two accuracies differ legitimately and are reported as such.
+- k: 10 for the drone arm; for the satellite arms k chosen by W (the paper
+  recommends 4-6 for severely clustered samples), with W and the NND ECDF
+  figure shown - that is R1's "show the blocking".
+- 10 repeats over different prediction-point samples; tuning inner folds
+  kNNDM too (5-fold), MBO 30, futures on (4.2).
+- Secondary figure: the fold-count / design curve (7.34) so the reader sees
+  what the choice of evaluation does to the number.
+- Area of applicability (Meyer & Pebesma 2021) computed alongside, and the
+  conformal set-size layer reported over it.
 
 ### 3.5 Learners and training sources **[HUGH]**
 
@@ -234,7 +253,7 @@ Phases A and B can run while C is designed; C is the critical path.
 | # | Decision | Recommendation | Owner |
 |---|---|---|---|
 | D1 | Conformal score and Mondrian calibration | LAC + per-class, APS reported | HUGH |
-| D2 | Primary CV design | repeated spcv_block, variogram range | HUGH + ANDY |
+| D2 | Primary CV design | **decided: kNNDM via CAST**, domains per question | done |
 | D3 | Learner set; keep the stacked ensemble? | 4 tuned + baseline; drop ensemble unless the text needs it | HUGH + ANDY |
 | D4 | Training sources reported per satellite | field points + our-surface purity; archived as check | ANDY |
 | D5 | Retire the modal filter; smoothing as sensitivity only | yes | ANDY |
