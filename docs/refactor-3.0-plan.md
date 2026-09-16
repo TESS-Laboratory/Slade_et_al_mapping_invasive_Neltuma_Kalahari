@@ -223,6 +223,66 @@ unmixing (recommend Neltuma-only first) [ANDY]; D12 hurdle vs direct
 regression, decided by measurement [HUGH]; D13 include the endmember
 baseline (recommend yes, it costs a day) [HUGH].
 
+### 3.9 Epistemic x aleatoric: conformal prediction conditioned on the area of applicability **[HUGH]** **[ANDY]** - the novel piece
+
+Proposed by Hugh, 2026-09-16. Two uncertainty sources, two tools that have
+not been combined:
+
+- **Epistemic** - how far a pixel is from anything the model has seen, in
+  predictor space: the dissimilarity index DI and the area of applicability
+  (Meyer & Pebesma 2021; CAST::aoa, with local point density LPD since
+  2025). The AOA threshold is the outlier-removed maximum DI seen *during
+  cross-validation* - so with kNNDM folds the threshold is itself tied to the
+  prediction situation. Weakness: no validity guarantee.
+- **Aleatoric (plus model error)** - conformal sets / CV+ intervals with a
+  coverage guarantee. Weakness: the guarantee assumes exchangeability with
+  the calibration data, which extrapolation violates.
+
+The complement is exact: kNNDM makes the calibration folds match the
+prediction situation in *geographic* space; DI measures the prediction
+situation in *feature* space. Quick literature check (2026-09-16): conformal
+prediction in Earth observation exists (Valle et al. 2024 Sci Rep; LULC
+conformal, RSE 2023; GeoConformal 2025 with geographic weighting) and
+weighted conformal under covariate shift exists (Tibshirani et al. 2019;
+CPS under covariate shift 2024), but nothing conditions conformal
+calibration on DI/AOA, and nothing does so with prediction-domain-matched
+folds. A proper literature review is the first task of the phase.
+
+**Design, in increasing ambition**
+
+| Level | Method | What it buys |
+|---|---|---|
+| 1 | **DI-stratified Mondrian conformal**: calibration groups = class x DI-bin (bins from the CV DI quantiles); per-group thresholds | Coverage guaranteed *within each DI stratum* (DI is a function of the features, so grouping on it is legitimate). Set size / interval width grow with DI automatically. Outside the AOA there are no calibration points, so no set is issued: the AOA becomes the *domain of validity* of the conformal guarantee, which is the sentence that has not been written. |
+| 2 | **DI-normalised scores**: s = (1 - p_y) / g(DI) with g from CAST's DI-to-error calibration (`DItoErrormetric`) | One global guarantee with continuously adaptive sets; compare against level 1 on efficiency (mean set size at equal coverage). |
+| 3 | **Weighted conformal beyond the AOA**: likelihood-ratio weights from feature-space density (kNN / LPD) to extend partial guarantees outside the AOA | The extrapolation zone gets a stated, weaker guarantee instead of nothing. Research-grade; optional. |
+
+Applies to both arms: classification (sets, cross-conformal) and
+fractional cover (CV+ intervals via `learner_pi_cvplus`, stratified by DI
+by fitting per stratum or by post-hoc Mondrian quantiles on its residuals).
+
+**Products**
+- DI and LPD rasters per sensor (epistemic); set-size / interval-width
+  rasters (aleatoric); a **2x2 typology map** (inside/outside AOA x
+  confident/ambiguous) for management;
+- **coverage-vs-DI curve** and inside/outside-AOA coverage per class - the
+  empirical core: does the guarantee hold up to the AOA edge and fail
+  beyond it, as the theory predicts?
+- efficiency curves (set size vs DI) for levels 1 vs 2.
+
+**Where the jackknife/CV+ sits**: fractional cover (regression). Sets for
+classification are cross-conformal. Both take the same DI stratification.
+
+**Publication shape [ANDY]**: this is a short methods paper in its own
+right ("prediction-domain adaptive calibration: conformal guarantees
+within the area of applicability"), with the Neltuma maps as the case
+study - separate from the Neltuma paper, which uses the products.
+
+**Phase C3** (2 wk, after C/C2 have their calibration data): literature
+review; DI/AOA targets with kNNDM folds; level 1; coverage-vs-DI figure;
+level 2 comparison; level 3 if time. Decision **D14**: proceed with levels
+1-2 in this refactor, level 3 as a stretch [HUGH]; **D15** methods-paper
+split [ANDY].
+
 ## 4. Workflow improvements (the engineering half)
 
 ### 4.1 Graph shape
@@ -284,6 +344,7 @@ baseline (recommend yes, it costs a day) [HUGH].
 | A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. | full run reproduces v2.0 numbers; wall time down |
 | B. Evaluation (1-2 wk) | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
 | C. Uncertainty (2 wk) | 3.1-3.3, 3.7: conformal calibration from resample predictions, set-size / Neltuma-possible / area-bound rasters, coverage validation, PPI areas, probabilistic phases | coverage >= nominal on holdout per class; area intervals in Table 1 |
+| C3. AOA x conformal (2 wk, after C/C2) | 3.9: DI/LPD/AOA on kNNDM folds, DI-stratified conformal, coverage-vs-DI, typology map | coverage holds inside AOA per stratum; the curve figure |
 | C2. Fractional cover (1-2 wk, parallel) | 3.8: cover regression on all purity-extraction pixels, CV+ intervals, endmember baseline, cover-derived areas and phases | interval coverage >= nominal per site; cover RMSE per sensor |
 | D. Sensors (1 wk) | 3.5-3.6: field vs purity sources, precision/recall + coverage per sensor, Fig 7 redesign | sensor table with intervals |
 | E. Paper (1-2 wk) | 4.5: manuscript, SI, responses; docx | Andy's pass |
@@ -319,3 +380,5 @@ Phases A and B can run while C is designed; C is the critical path.
 | D11 | Fractional cover: Neltuma-only vs compositional | Neltuma-only first | ANDY |
 | D12 | Hurdle vs direct cover regression | measure both, pick by kNNDM RMSE + threshold detection | HUGH |
 | D13 | Endmember linear-unmixing baseline | yes | HUGH |
+| D14 | AOA x conformal: levels 1-2 now, 3 as stretch | yes | HUGH |
+| D15 | Split the AOA x conformal method into its own short paper | recommend yes | ANDY |
