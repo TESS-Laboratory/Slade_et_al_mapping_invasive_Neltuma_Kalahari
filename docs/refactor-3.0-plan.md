@@ -170,6 +170,54 @@ conformal bounds), giving a phase map with a confidence class ("Expansion,
 >90% sure" vs "Expansion or Incursion") and area ranges per phase. That is
 Table 1 with the intervals R1 asked for.
 
+### 3.8 Sub-pixel fractional cover ("unmixing") - a separate product, not a by-product **[HUGH]** **[ANDY]**
+
+Class probabilities and fractional cover are different quantities. The
+classifier's p(Neltuma) is the calibrated probability that a pixel's
+*dominant* cover is Neltuma, learned from pixels that were >= 95% / 85% /
+65% pure. It says nothing about a 10 m pixel that is 20% Neltuma - and Fig 5
+shows that is almost every pixel with any Neltuma at all: only 1.1% / 0.9%
+/ 0.3% of pixels reach the purity threshold, so the classification design
+discards >99% of the cross-scale information at every sensor and then
+struggles at exactly the sparse end the paper is about (7.37: Neltuma
+recall 0.65 -> 0.39 -> 0.57).
+
+The purity extraction already computes the answer for every satellite pixel
+over the drone sites: `frac_1` = Neltuma fraction from the raw drone
+surface, for 690k WV2, 179k Planet and 17k S2 pixels. That is a regression
+training set, and the same drone maps that were "cross-scale calibration"
+for a handful of pure pixels become labels for all of them.
+
+**Design**
+
+| Element | Choice | Note |
+|---|---|---|
+| Response | Neltuma fraction per satellite pixel (0-1); woody-vs-other fraction as a second target if the paper wants it | Compositional all-class unmixing (Dirichlet / multi-output) is a later option; Neltuma is the claim |
+| Labels | raw drone surfaces only (7.31); label noise from drone error (~10%) carried into PPI | the filtered surfaces would erase the sparse end of the target |
+| Learners | regression twins of the classification set: glmnet, lightgbm, ranger, svm | same 9-band cubes; same kNNDM folds |
+| Zero inflation | evaluate direct regression against a hurdle (presence classifier x cover regression); trees may not need it, glmnet will | 86% of WV2 pixels are zero |
+| Evaluation | kNNDM folds; RMSE/MAE and calibration of cover, plus detection metrics at cover thresholds (>0, >0.1, >0.5) | the sparse-detection question is a threshold on cover |
+| Uncertainty | **CV+ / jackknife+ intervals via mlr3pipelines `learner_pi_cvplus`** - the regression conformal tool already in our stack and the one Hugh has used | coverage checked per site as for the sets |
+| Baseline | linear spectral unmixing with endmembers from pure pixels | the classical method reviewers will expect to see beaten |
+| Products | Neltuma fractional-cover raster + lower/upper interval rasters per sensor; area = sum of fractions x pixel area with PPI intervals; phases per hexagon from mean cover directly | no majority vote, no purity threshold anywhere in the chain |
+
+**What it changes in the paper.** The satellite arms' primary Neltuma
+product becomes fractional cover with intervals; the multi-class
+classification stays for the vegetation-class maps (Fig 6/7) and the
+conformal sets. Table 1 / Fig 8 derive from cover, not from thresholded
+classes, so the 40-point Pre-/Initial-Incursion flip (7.35) disappears by
+construction. The sensor-grain story becomes "how well can each grain
+resolve cover" - a cleaner claim than accuracy of a dominant class.
+
+**Phase.** C2, in parallel with the conformal-set work: the extraction is
+done, the folds are shared, the learners are the regression twins, and the
+interval machinery is off the shelf.
+
+**Decisions.** D11 Neltuma-only fraction vs compositional all-class
+unmixing (recommend Neltuma-only first) [ANDY]; D12 hurdle vs direct
+regression, decided by measurement [HUGH]; D13 include the endmember
+baseline (recommend yes, it costs a day) [HUGH].
+
 ## 4. Workflow improvements (the engineering half)
 
 ### 4.1 Graph shape
@@ -231,6 +279,7 @@ Table 1 with the intervals R1 asked for.
 | A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. | full run reproduces v2.0 numbers; wall time down |
 | B. Evaluation (1-2 wk) | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
 | C. Uncertainty (2 wk) | 3.1-3.3, 3.7: conformal calibration from resample predictions, set-size / Neltuma-possible / area-bound rasters, coverage validation, PPI areas, probabilistic phases | coverage >= nominal on holdout per class; area intervals in Table 1 |
+| C2. Fractional cover (1-2 wk, parallel) | 3.8: cover regression on all purity-extraction pixels, CV+ intervals, endmember baseline, cover-derived areas and phases | interval coverage >= nominal per site; cover RMSE per sensor |
 | D. Sensors (1 wk) | 3.5-3.6: field vs purity sources, precision/recall + coverage per sensor, Fig 7 redesign | sensor table with intervals |
 | E. Paper (1-2 wk) | 4.5: manuscript, SI, responses; docx | Andy's pass |
 
@@ -262,3 +311,6 @@ Phases A and B can run while C is designed; C is the critical path.
 | D8 | Paper outputs: docx + HTML, SI as qmd | yes | ANDY |
 | D9 | Environment export for reviewers (renv.lock from uvr) | export, keep uvr | HUGH |
 | D10 | Landsat arm in scope? (6.3) | out | ANDY |
+| D11 | Fractional cover: Neltuma-only vs compositional | Neltuma-only first | ANDY |
+| D12 | Hurdle vs direct cover regression | measure both, pick by kNNDM RMSE + threshold detection | HUGH |
+| D13 | Endmember linear-unmixing baseline | yes | HUGH |
