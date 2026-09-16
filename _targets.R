@@ -3,11 +3,13 @@
 #
 # Run:
 #   source tools/uvr-env.sh          # required: forces source builds, wires pandoc
-#   NELTUMA_PROFILE=fast  R -e 'targets::tar_make(store = "_targets_fast")'
+#   NELTUMA_PROFILE=fast NELTUMA_STORE=_targets_fast \
+#       R -e 'targets::tar_make(store = "_targets_fast")'
 #   NELTUMA_PROFILE=full  R -e 'targets::tar_make()'
 #
 # GIVE THE FAST PROFILE ITS OWN STORE (store = "_targets_fast"). The profiles
-# share target names but not settings.
+# share target names but not settings. NELTUMA_STORE tells the manuscript's
+# Quarto subprocess which store to read (it defaults to _targets).
 #
 # Design rules, from refactor-findings.md and docs/refactor-3.0-plan.md:
 #   - No number that appears in the methods section is hardcoded here.
@@ -435,5 +437,7 @@ list(
                                 wv2_confusion_raw = wv2_confusion_raw_raw,
                                 wv2_phase_table = wv2_phase_table,
                                 plant_validation_summary = plant_validation_summary)),
+  # The render runs in a Quarto subprocess that cannot see tar_make(store =);
+  # the qmd reads NELTUMA_STORE, which the run command sets (see header).
   tarchetypes::tar_quarto(paper, "paper/manuscript.qmd")
 )

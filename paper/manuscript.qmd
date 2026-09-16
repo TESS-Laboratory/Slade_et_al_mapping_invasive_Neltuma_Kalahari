@@ -25,16 +25,20 @@ Render via targets: the paper target (tarchetypes::tar_quarto).
 
 ```{r setup}
 #| include: false
-values <- targets::tar_read(paper_values)
-fig_maps_path <- normalizePath(targets::tar_read(fig_maps))
-fig_acc_path  <- normalizePath(targets::tar_read(fig_acc))
-fig_cover_path   <- normalizePath(targets::tar_read(fig_cover))
-fig_wv2_map_path <- normalizePath(targets::tar_read(fig_wv2_map))
-phase_table      <- targets::tar_read(wv2_phase_table)
-fig_sensors_path <- normalizePath(targets::tar_read(fig_sensors))
-fig_phases_path  <- normalizePath(targets::tar_read(fig_phases))
-fig_study_path   <- normalizePath(targets::tar_read(fig_study))
-fig_wv2_bench_path <- normalizePath(targets::tar_read(fig_wv2_bench))
+# The store is chosen by the run (fast profile -> _targets_fast); Quarto
+# renders in a subprocess that does not inherit tar_make(store = ...), so
+# the pipeline passes it through NELTUMA_STORE (see _targets.R).
+store  <- Sys.getenv("NELTUMA_STORE", "_targets")
+values <- targets::tar_read(paper_values, store = store)
+fig_maps_path <- normalizePath(targets::tar_read(fig_maps, store = store))
+fig_acc_path  <- normalizePath(targets::tar_read(fig_acc, store = store))
+fig_cover_path   <- normalizePath(targets::tar_read(fig_cover, store = store))
+fig_wv2_map_path <- normalizePath(targets::tar_read(fig_wv2_map, store = store))
+phase_table      <- targets::tar_read(wv2_phase_table, store = store)
+fig_sensors_path <- normalizePath(targets::tar_read(fig_sensors, store = store))
+fig_phases_path  <- normalizePath(targets::tar_read(fig_phases, store = store))
+fig_study_path   <- normalizePath(targets::tar_read(fig_study, store = store))
+fig_wv2_bench_path <- normalizePath(targets::tar_read(fig_wv2_bench, store = store))
 ```
 
 ::: {.pipeline-legend}
