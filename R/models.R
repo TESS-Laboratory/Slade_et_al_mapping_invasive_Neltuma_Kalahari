@@ -377,7 +377,14 @@ run_resample <- function(task, spec, shared, config = NULL) {
   }
 
   # Same seed for every learner, so all learners on a task see identical outer
-  # splits and their scores are paired, not merely comparable.
+  # splits and their scores are paired, not merely comparable. Instantiated
+  # BEFORE the future plan: inside it the fold draw would come from the
+  # workers' RNG streams, and the Phase A gate showed even the untuned baseline
+  # moving by up to 0.012 between NELTUMA_FUTURE=1 and 2 for that reason. The
+  # folds are now identical whatever the worker count; only the learner's own
+  # fitting randomness remains.
+  set.seed(shared$seed)
+  resampling$instantiate(task)
   set.seed(shared$seed)
   with_future_plan(mlr3::resample(task, learner, resampling, store_models = FALSE))
 }
