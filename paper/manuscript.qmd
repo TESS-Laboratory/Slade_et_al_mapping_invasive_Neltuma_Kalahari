@@ -26,15 +26,15 @@ Render via targets: the paper target (tarchetypes::tar_quarto).
 ```{r setup}
 #| include: false
 values <- targets::tar_read(paper_values)
-fig_maps_path <- targets::tar_read(fig_maps)
-fig_acc_path  <- targets::tar_read(fig_acc)
-fig_cover_path   <- targets::tar_read(fig_cover)
-fig_wv2_map_path <- targets::tar_read(fig_wv2_map)
+fig_maps_path <- normalizePath(targets::tar_read(fig_maps))
+fig_acc_path  <- normalizePath(targets::tar_read(fig_acc))
+fig_cover_path   <- normalizePath(targets::tar_read(fig_cover))
+fig_wv2_map_path <- normalizePath(targets::tar_read(fig_wv2_map))
 phase_table      <- targets::tar_read(wv2_phase_table)
-fig_sensors_path <- targets::tar_read(fig_sensors)
-fig_phases_path  <- targets::tar_read(fig_phases)
-fig_study_path   <- targets::tar_read(fig_study)
-fig_wv2_bench_path <- targets::tar_read(fig_wv2_bench)
+fig_sensors_path <- normalizePath(targets::tar_read(fig_sensors))
+fig_phases_path  <- normalizePath(targets::tar_read(fig_phases))
+fig_study_path   <- normalizePath(targets::tar_read(fig_study))
+fig_wv2_bench_path <- normalizePath(targets::tar_read(fig_wv2_bench))
 ```
 
 ::: {.pipeline-legend}
