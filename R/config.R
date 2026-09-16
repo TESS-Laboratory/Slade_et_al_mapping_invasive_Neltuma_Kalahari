@@ -7,7 +7,8 @@
 #' Sources of truth:
 #'   inst/config/sites.csv       seven drone AOIs, read off the mirrored rasters
 #'   inst/config/stacks.csv      the four predictor stacks
-#'   inst/config/sensors.csv     per-sensor purity threshold and class size
+#'   inst/config/sensors.yml     every sensor: units, cubes, training sources (R/graph.R)
+#'   inst/config/prediction.yml  landscape prediction settings
 #'   inst/config/resampling.yml  folds, repeats, tuner, learners, budget
 #'   inst/config/classes.json    class scheme (see R/classes.R)
 
@@ -109,33 +110,6 @@ read_stacks <- function(path = file.path(CONFIG_DIR, "stacks.csv")) {
 }
 
 
-#' Per-sensor training-pixel selection
-#'
-#' Resolves finding 2.7. These values were recovered from the archived benchmark
-#' and confusion workbooks, NOT from Table S7 and NOT from the code, both of
-#' which are internally inconsistent. See findings 7.18 and 7.19.
-#'
-#' Table S7's purity thresholds are correct; its class sizes are not.
-#'
-#' @param path location of sensors.csv
-#' @return data.frame, one row per satellite sensor
-read_sensors <- function(path = file.path(CONFIG_DIR, "sensors.csv")) {
-  assert_config_exists(path, "Sensor configuration")
-  s <- utils::read.csv(path, stringsAsFactors = FALSE)
-
-  if (anyDuplicated(s$sensor)) {
-    stop("sensors.csv has duplicate sensor ids.", call. = FALSE)
-  }
-  if (any(s$purity_threshold <= 0 | s$purity_threshold > 1)) {
-    stop("sensors.csv purity_threshold must be a proportion in (0, 1]. ",
-         "Got: ", paste(s$purity_threshold, collapse = ", "), call. = FALSE)
-  }
-  if (any(s$class_size <= 0 | s$class_size != as.integer(s$class_size))) {
-    stop("sensors.csv class_size must be a positive whole number.", call. = FALSE)
-  }
-  s
-}
-
 
 #' Resampling, tuning and compute configuration
 #'
@@ -164,29 +138,6 @@ read_resampling <- function(path = file.path(CONFIG_DIR, "resampling.yml")) {
   y
 }
 
-
-#' Satellite-arm settings
-#'
-#' A separate file from resampling.yml on purpose: the `resampling` object
-#' feeds predict_site() for the drone surfaces, so resampling.yml edits
-#' invalidate seven banked landscape predictions. Satellite settings churn
-#' while those arms are built; this file isolates that churn.
-#'
-#' @param path location of satellite.yml
-#' @return named list, one entry per sensor
-read_satellite <- function(path = file.path(CONFIG_DIR, "satellite.yml")) {
-  assert_config_exists(path, "Satellite configuration")
-  y <- yaml::read_yaml(path)
-  for (sensor in names(y)) {
-    missing <- setdiff(c("epsg", "dir", "training", "aoi", "smooth_window"),
-                       names(y[[sensor]]))
-    if (length(missing)) {
-      stop("satellite.yml entry '", sensor, "' is missing key(s): ",
-           paste(missing, collapse = ", "), call. = FALSE)
-    }
-  }
-  y
-}
 
 
 #' Resampling settings with a profile applied

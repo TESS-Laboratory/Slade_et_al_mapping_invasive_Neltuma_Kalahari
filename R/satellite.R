@@ -235,8 +235,8 @@ purity_extract <- function(class_tif, grid_path, site) {
 #' on the extracted table, mirroring the archived arm.
 #'
 #' @param ext combined sf from `purity_extract()` across sites
-#' @param purity own-class fraction threshold, from sensors.csv
-#' @param keep_classes the sensor's class roster, from satellite.yml
+#' @param purity own-class fraction threshold, from sensors.yml
+#' @param keep_classes the sensor's class roster, from sensors.yml
 #' @param out output path
 #' @return `out`
 build_purity_layer <- function(ext, purity, keep_classes, out) {
@@ -268,7 +268,7 @@ build_purity_layer <- function(ext, purity, keep_classes, out) {
 #'
 #' @param df a training table from `build_training_table()`
 #' @param n rows per class; default the size of the rarest class
-#' @param cap upper bound on n (the sensor's class size from sensors.csv), so
+#' @param cap upper bound on n (the sensor class size from sensors.yml), so
 #'   a re-derived extraction with plentiful pure pixels still trains at the
 #'   original's scale rather than swamping it
 #' @param seed RNG seed, from resampling.yml
@@ -527,7 +527,7 @@ compute_vi_rasters <- function(base_tif, base_bands, want, sensor,
 
 #' Source rasters and band names for a sensor cube, from its config entry
 #'
-#' @param cfg one sensor's entry from satellite.yml
+#' @param cfg one sensor's entry from sensors.yml
 #' @param vi_files paths to VI rasters (shipped or computed), in `cfg$vis` order
 #' @return list(srcs, bands)
 sat_cube_spec <- function(cfg, vi_files) {
@@ -542,7 +542,7 @@ sat_cube_spec <- function(cfg, vi_files) {
 
 #' The VI rasters a sensor needs: shipped files, or computed ones
 #'
-#' @param cfg one sensor's entry from satellite.yml
+#' @param cfg one sensor's entry from sensors.yml
 #' @param sensor id
 #' @return character vector of paths, in `cfg$vis` order
 sat_vi_files <- function(cfg, sensor) {

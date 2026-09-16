@@ -191,3 +191,23 @@ pred_grid <- function(tg, cfg, pred_tag, tuned_ids) {
   }
   g
 }
+
+
+#' Per-sensor summary table (replaces sensors.csv)
+#'
+#' Pixel size, purity threshold and class size per satellite sensor, read
+#' from the purity_raw source, for the figures and the paper values.
+#'
+#' @param cfg sensors.yml list
+#' @return data.frame(sensor, pixel_m, purity_threshold, class_size, n_classes)
+sensor_summary_table <- function(cfg) {
+  rows <- lapply(names(cfg), function(s) {
+    pr <- cfg[[s]]$sources$purity_raw
+    data.frame(sensor = s, pixel_m = cfg[[s]]$pixel_m,
+               purity_threshold = pr$purity %||% NA_real_,
+               class_size = pr$class_size %||% NA_integer_,
+               n_classes = if (identical(cfg[[s]]$classes, "all")) NA_integer_ else length(cfg[[s]]$classes),
+               stringsAsFactors = FALSE)
+  })
+  do.call(rbind, rows)
+}
