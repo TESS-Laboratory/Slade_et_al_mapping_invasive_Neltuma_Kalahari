@@ -272,7 +272,10 @@ by fitting per stratum or by post-hoc Mondrian quantiles on its residuals).
 **Where the jackknife/CV+ sits**: fractional cover (regression). Sets for
 classification are cross-conformal. Both take the same DI stratification.
 
-**Publication shape [ANDY]**: this is a short methods paper in its own
+**Publication shape [ANDY]**: Hugh has discussed the concept with Jakub
+Nowosad (co-author of kNNDM and the prediction-domain adaptive evaluation
+paper), who was interested - a natural collaborator and the right reviewer
+of the kNNDM/AOA half. This is a short methods paper in its own
 right ("prediction-domain adaptive calibration: conformal guarantees
 within the area of applicability"), with the Neltuma maps as the case
 study - separate from the Neltuma paper, which uses the products.
