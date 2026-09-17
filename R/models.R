@@ -17,9 +17,10 @@
 #' structure. Consequence to be aware of: our learner ids no longer match the
 #' archived ones, so the structural evidence in finding 7.22 is spent.
 #'
-#' The ensemble is kept, because stacking is a real modelling choice rather than
-#' an inert one. `ens_rf` now wraps ranger and `ens_svm` wraps svm; the original
-#' had them swapped (finding 4.9).
+#' The stacked ensemble was removed in refactor-3.0 (decision D3): it sat 2.8
+#' points below the best single learner on average and cost 28% of fit time. The
+#' landscape products average class probabilities over the tuned learners
+#' instead (D16; docs/refactor-3.0-plan.md 3.5b).
 #'
 #' predict_type is "prob" everywhere (action item 3), which is the foundation the
 #' conformal work deferred to the next refactor will need.
@@ -130,7 +131,6 @@ lightgbm_search_space <- function() {
 #' @return a Learner
 bare_learner <- function(spec, shared) {
   pt <- shared$predict_type
-  if (identical(spec$id, "ensemble")) return(ensemble_learner(shared))
   switch(
     spec$id,
     xgboost        = mlr3::lrn("classif.xgboost", predict_type = pt,
@@ -208,7 +208,7 @@ with_future_plan <- function(expr) {
 #' @param spec one learner entry
 #' @param shared the shared budget
 #' @return named list of chosen parameter values, or NULL for untuned specs
-tune_config <- function(task, spec, shared) {
+tune_config <- function(task, spec, shared, folds) {
   if (!isTRUE(spec$tuned)) return(NULL)
   data.table::setDTthreads(1L)
 
@@ -239,7 +239,7 @@ tune_config <- function(task, spec, shared) {
     tuner = mlr3tuning::tnr(shared$tuning$tuner),
     task = task,
     learner = learner,
-    resampling = mlr3::rsmp(shared$tuning$resampling, folds = shared$tuning$folds),
+    resampling = as_custom_resampling(task, folds),
     measures = mlr3::msr("classif.ce"),
     terminator = mlr3tuning::trm("evals", n_evals = shared$tuning$term_evals),
     store_models = FALSE
@@ -249,34 +249,6 @@ tune_config <- function(task, spec, shared) {
   ti$result_learner_param_vals
 }
 
-
-#' The stacking ensemble
-#'
-#' Base learners are wrapped in `learner_cv` so the master trains on
-#' out-of-fold predictions rather than in-sample ones. `ens_nop` passes the
-#' original features through alongside.
-#'
-#' @param cfg the resolved resampling config
-#' @return a GraphLearner
-ensemble_learner <- function(shared) {
-  pt <- shared$predict_type
-  cv <- function(lrn, id) mlr3pipelines::po("learner_cv", lrn, id = id)
-
-  stack <- mlr3pipelines::gunion(list(
-    cv(mlr3::lrn("classif.xgboost", predict_type = pt), "ens_xgb"),
-    # Correctly paired, unlike the original where these two were swapped (4.9).
-    cv(mlr3::lrn("classif.ranger", predict_type = pt), "ens_rf"),
-    cv(mlr3::lrn("classif.svm", predict_type = pt, type = "C-classification"), "ens_svm"),
-    mlr3pipelines::po("nop", id = "ens_nop")
-  )) %>>%
-    mlr3pipelines::po("featureunion", id = "ens_union") %>>%
-    mlr3::lrn("classif.ranger", predict_type = pt, id = "master_rf")
-
-  gl <- mlr3::as_learner(stack)
-  gl$predict_type <- pt
-  gl$id <- "ensemble"
-  gl
-}
 
 
 #' Number of future workers for in-task parallelism
@@ -327,7 +299,7 @@ learner_spec <- function(cfg, learner_id) {
 #'
 #' Split from the evaluation settings so that changing the tuner or its budget
 #' invalidates only the tune_config targets and their downstream fits - the
-#' untuned learners (ensemble, baseline) never touch these and their fits
+#' untuned learners (the baseline) never touch these and their fits
 #' survive a tuner change untouched. Same dependency-granularity lesson as the
 #' per-learner specs.
 #'
@@ -359,7 +331,7 @@ eval_settings <- function(cfg) {
 #' @param learner_id one id from resampling.yml
 #' @param cfg the resolved resampling config
 #' @return a ResampleResult
-run_resample <- function(task, spec, shared, config = NULL) {
+run_resample <- function(task, spec, shared, config = NULL, folds) {
   # Keep one worker to roughly one core; see finding 7.24.
   data.table::setDTthreads(1L)
 
@@ -369,22 +341,10 @@ run_resample <- function(task, spec, shared, config = NULL) {
     learner$param_set$set_values(.values = keep)
   }
 
-  resampling <- if (identical(shared$final$resampling, "repeated_spcv_coords")) {
-    mlr3::rsmp("repeated_spcv_coords", folds = shared$final$folds,
-               repeats = shared$final$repeats)
-  } else {
-    mlr3::rsmp(shared$final$resampling, folds = shared$final$folds)
-  }
+  # The folds are the task's stored kNNDM design (R/resampling.R): identical for
+  # every learner, so scores are paired, and independent of the worker count.
+  resampling <- as_custom_resampling(task, folds)
 
-  # Same seed for every learner, so all learners on a task see identical outer
-  # splits and their scores are paired, not merely comparable. Instantiated
-  # BEFORE the future plan: inside it the fold draw would come from the
-  # workers' RNG streams, and the Phase A gate showed even the untuned baseline
-  # moving by up to 0.012 between NELTUMA_FUTURE=1 and 2 for that reason. The
-  # folds are now identical whatever the worker count; only the learner's own
-  # fitting randomness remains.
-  set.seed(shared$seed)
-  resampling$instantiate(task)
   set.seed(shared$seed)
   with_future_plan(mlr3::resample(task, learner, resampling, store_models = FALSE))
 }

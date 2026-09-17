@@ -167,14 +167,17 @@ resampling_config <- function(profile = c("fast", "full"),
       tuner      = y$tuning$tuner,
       term_evals = p$term_evals
     ),
+    # kNNDM: folds by prediction-domain kind. The fast profile shrinks both to
+    # its final_folds; the full profile uses the configured values.
     final = list(
       resampling = y$final$resampling,
-      folds      = p$final_folds,
+      folds_unit = if (profile == "fast") p$final_folds else y$final$folds_unit,
+      folds_aoi  = if (profile == "fast") p$final_folds else y$final$folds_aoi,
       repeats    = p$final_repeats,
-      iterations = p$final_folds * p$final_repeats
+      clustering = y$final$clustering,
+      samplesize = if (profile == "fast") 500L else y$final$samplesize
     ),
-    learners = y$learners,
-    block_cv = y$block_cv
+    learners = y$learners
   )
 }
 

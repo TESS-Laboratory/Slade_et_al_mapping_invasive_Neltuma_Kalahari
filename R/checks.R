@@ -13,15 +13,20 @@
 #' @param cube_index drone cube verification rows
 #' @param resampling the resolved resampling config
 #' @param sensors_cfg sensors.yml
+#' @param cv_index per-task evaluation designs (W, folds, iterations)
 #' @return one-row data.frame of the counts checked, invisibly
-run_checks <- function(score_index_all, training_index, cube_index, resampling, sensors_cfg) {
+run_checks <- function(score_index_all, training_index, cube_index, resampling, sensors_cfg, cv_index) {
   fail <- character(0)
   note <- function(ok, msg) if (!isTRUE(ok)) fail <<- c(fail, msg)
 
-  # Every fit ran the configured number of outer iterations, and scored.
-  it <- resampling$final$iterations
-  note(all(score_index_all$n_iters == it),
-       sprintf("%d fit(s) did not run %d outer iterations", sum(score_index_all$n_iters != it), it))
+  # Every fit ran its task's kNNDM design in full (folds x repeats), and scored.
+  key <- function(d) paste(d$sensor, d$unit, d$tag, d$source)
+  want <- cv_index$iterations[match(key(score_index_all), key(cv_index))]
+  note(all(score_index_all$n_iters == want),
+       sprintf("%d fit(s) did not run their task's full kNNDM design", sum(score_index_all$n_iters != want)))
+  # The drone designs match their prediction situation closely (W in metres).
+  dr <- cv_index[cv_index$domain == "unit", ]
+  if (nrow(dr)) note(all(dr$W_mean < 25), "a within-unit kNNDM design has W > 25 m: check its domain")
   note(all(is.finite(score_index_all$classif.acc)) && all(score_index_all$classif.acc > 0 & score_index_all$classif.acc <= 1),
        "non-finite or out-of-range accuracies")
   # Every (sensor, unit, tag, source) task has every configured learner.
@@ -48,5 +53,5 @@ run_checks <- function(score_index_all, training_index, cube_index, resampling, 
     stop("Pipeline checks failed:\n", paste0("  - ", fail, collapse = "\n"), call. = FALSE)
   }
   invisible(data.frame(fits = nrow(score_index_all), tasks = length(tab),
-                       learners = n_learners, iterations = it))
+                       learners = n_learners, W_unit_max = if (nrow(dr)) max(dr$W_mean) else NA_real_))
 }

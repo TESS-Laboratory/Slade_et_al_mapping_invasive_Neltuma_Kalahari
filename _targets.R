@@ -193,7 +193,8 @@ purity_layers <- lapply(seq_len(nrow(pur)), function(i) {
 # TASKS: one training table and task per (sensor, unit, tag, source).
 tasks <- tar_map(
   values = TG[, c("sensor", "unit", "tag", "source", "source_type", "cube_sym",
-                  "layer_sym", "balance", "class_size", "epsg")],
+                  "layer_sym", "balance", "class_size", "epsg",
+                  "domain_sym", "domain_kind")],
   names = c("sensor", "unit", "tag", "source"),
   tar_target(train_split,
              build_source_training(source_type, cube_sym, layer_sym[1], unit, tag,
@@ -203,7 +204,12 @@ tasks <- tar_map(
   tar_target(train_drops, cbind(sensor = sensor, source = source, train_split$drops)),
   tar_target(train_check, cbind(sensor = sensor, source = source,
                                 validate_training_table(train, unit, sites = sites))),
-  tar_target(task, make_task(train, unit, tag, sites = data.frame(site = unit, epsg = epsg)))
+  tar_target(task, make_task(train, unit, tag, sites = data.frame(site = unit, epsg = epsg))),
+  # The evaluation design, built ONCE per task: kNNDM folds against the task's
+  # prediction domain (the unit's AOI, or the study area), W recorded per
+  # repeat. Every learner on the task gets these same folds.
+  tar_target(cv, build_cv_design(task, domain_sym[1], domain_kind, eval_shared, tune_settings)),
+  tar_target(cv_row, tidy_cv_design(cv, sensor, unit, tag, source))
 )
 
 # ---------------------------------------------------------------------------
@@ -214,10 +220,13 @@ per_spec <- tar_map(
   tar_target(spec, learner_spec(resampling, learner_id))
 )
 fits <- tar_map(
-  values = FG[, c("sensor", "unit", "tag", "source", "learner_id", "task_sym", "spec_sym", "site_label")],
+  values = FG[, c("sensor", "unit", "tag", "source", "learner_id", "task_sym", "spec_sym",
+                  "cv_sym", "site_label")],
   names = c("sensor", "unit", "tag", "source", "learner_id"),
-  tar_target(tuned, tune_config(task_sym, spec_sym, tune_settings), resources = ml_resources),
-  tar_target(fit, run_resample(task_sym, spec_sym, eval_shared, tuned), resources = ml_resources),
+  tar_target(tuned, tune_config(task_sym, spec_sym, tune_settings, cv_sym[["inner"]]),
+             resources = ml_resources),
+  tar_target(fit, run_resample(task_sym, spec_sym, eval_shared, tuned, cv_sym[["outer"]]),
+             resources = ml_resources),
   tar_target(fit_tidy, tidy_resample(fit, site_label, tag, learner_id, sensor, unit, source)),
   tar_target(fit_class, tidy_class_accuracy(fit, site_label, tag, learner_id, neltuma_code,
                                             sensor, unit, source))
@@ -348,6 +357,8 @@ list(
   purity_layers,
   tasks,
   tar_combine(training_attrition, tasks[["train_drops"]], command = rbind(!!!.x)),
+  # W and fold structure per task: the table (and figure) R1 asked for.
+  tar_combine(cv_index, tasks[["cv_row"]], command = rbind(!!!.x)),
   tar_combine(training_index_all, tasks[["train_check"]], command = rbind(!!!.x)),
   # v2.0 view: the drone field tables only (the paper's field-point counts)
   tar_target(training_index, training_index_all[training_index_all$sensor == "drone" &
@@ -437,7 +448,7 @@ list(
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------
-  tar_target(checks, run_checks(score_index_all, training_attrition, cube_index, resampling, sensors_cfg)),
+  tar_target(checks, run_checks(score_index_all, training_attrition, cube_index, resampling, sensors_cfg, cv_index)),
 
   tar_target(paper_values,
              build_paper_values(score_index, best_models, class_areas, training_index,

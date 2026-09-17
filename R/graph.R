@@ -135,6 +135,11 @@ task_grid <- function(cfg, sites, stack_tags) {
                   paste0("field_layer_", g$sensor)),
            paste0("layer_archived_", g$sensor))))
   g$site_label <- legacy_site_label(g$sensor, g$unit, g$source)
+  # The prediction domain of each task (kNNDM, R/resampling.R): the unit's own
+  # AOI for a sensor whose map IS the unit, the study area otherwise.
+  g$domain_kind <- vapply(g$sensor, function(s) cfg[[s]]$domain, "")
+  g$domain_sym  <- rlang::syms(ifelse(g$domain_kind == "unit",
+                                      paste0("aoi_paths_", g$unit), "wv2_aoi"))
   g
 }
 
@@ -164,6 +169,7 @@ fit_grid <- function(tg, learner_ids) {
              data.frame(learner_id = learner_ids, stringsAsFactors = FALSE),
              by = NULL)
   g$task_sym <- rlang::syms(paste0("task_", g$id))
+  g$cv_sym   <- rlang::syms(paste0("cv_", g$id))
   g$spec_sym <- rlang::syms(paste0("spec_", g$learner_id))
   g$fit_id <- paste(g$id, g$learner_id, sep = "_")
   g

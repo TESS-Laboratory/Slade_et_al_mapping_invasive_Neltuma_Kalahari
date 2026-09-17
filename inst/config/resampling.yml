@@ -26,45 +26,42 @@ seed: 5446   # covers tuning and final resampling. NOTE: the balanced class
              # equivalence, not bit-identity.
 
 tuning:
-  resampling: spcv_coords
-  # 5, not the original's 20. Inner resampling only has to rank configurations
-  # against each other, not produce a publishable estimate - that is the outer
-  # loop's job. 20 folds on 82-222 observations means ~4-11 observations per
-  # fold, which is noise dressed up as precision, and it cost 4x for nothing.
+  # kNNDM folds over the task's prediction domain (R/resampling.R; decision D2).
+  # 5 inner folds: the inner loop only has to rank configurations.
+  resampling: knndm
   folds: 5
   repeats: 1
   # Model-based (Bayesian) optimisation via mlr3mbo. Decision 2026-08-18 [HUGH].
-  # Pleasingly, this makes the manuscript's section 2.5 claim of "Bayesian
-  # optimisation" TRUE - finding 1.4 records that the original only ever ran
-  # random search, with tnr("mbo") appearing in a demo script. The methods text
-  # no longer needs correcting on this point.
+  # This makes the manuscript's section 2.5 claim of "Bayesian optimisation"
+  # TRUE - finding 1.4 records that the original only ever ran random search.
   tuner: mbo
-  # 30, not 50: MBO spends its budget adaptively, and ~30 evaluations of a 4-6
-  # dimensional space typically matches or beats 50 random draws. Finding 1.8:
-  # the original's budget was never stated anywhere.
+  # 30, not 50: MBO spends its budget adaptively. Finding 1.8: the original's
+  # budget was never stated anywhere.
   term_evals: 30
 
 final:
-  resampling: repeated_spcv_coords
-  folds: 10
+  # Prediction-domain adaptive evaluation (Linnenbrink et al. 2024; Linnenbrink,
+  # Nowosad & Meyer 2026): folds match the nearest-neighbour-distance
+  # distribution of the prediction situation. REPLACES repeated_spcv_coords,
+  # whose fold count alone moved WV2 accuracy from 0.49 to 0.71 (finding 7.34).
+  resampling: knndm
+  # Drone: the map IS the site, so the domain is its AOI and folds are
+  # near-random (W ~ 1-3 m); 10 folds.
+  folds_unit: 10
+  # Satellites: the map is the 445 km2 study area; every fold sits inside one
+  # site and W ~ 4 km. Linnenbrink et al. recommend k = 4-6 for severely
+  # clustered samples; k = 5 measured better than 10 here (finding 7.38).
+  folds_aoi: 5
+  # A repeat is a separately seeded k-means kNNDM: hierarchical clustering is
+  # deterministic (1-2 distinct fold sets over 5 seeds), k-means gives a
+  # distinct set per seed at equal or better W (probe 2026-09-17).
   repeats: 10
-  # 10 x 10 = 100 iterations. The manuscript says "200-iteration spatial block
-  # cross-validation" in section 2.5, section 2.6 and the Fig 4 and 6 captions.
-  # 200 appears nowhere in any repository. Finding 1.1.
-  iterations: 100
+  clustering: kmeans
+  samplesize: 2000        # prediction points sampled from the domain
 
-# Finding 1.2: spcv_coords is k-means clustering of coordinates (Brenning 2012),
-# NOT blocking. The manuscript's "spatial block cross-validation" wording most
-# likely came from spatial-autocorrelation.Rmd, which is the only file in any
-# repository using spcv_block and is a teaching notebook, not the pipeline.
-# Section 5.1 recommends promoting a real block CV to a pipeline target so the
-# claim can either be substantiated or corrected.
-block_cv:
-  enabled: false          # set true to run the R1 spatial-block comparison
-  resampling: spcv_block
-  folds: 4
-  range: null             # metres. Derive from legacy_imported/variogram/
-                          # rather than guessing. Required if enabled.
+# Finding 1.1 (the manuscript's "200 iterations" appear nowhere) and 1.2
+# (spcv_coords is not block CV) are both superseded: the evaluation design is
+# now kNNDM, with W reported per task.
 
 # WHAT WAS REMOVED FROM THE SEARCH SPACE, AND WHY (finding 7.23)
 #
@@ -127,14 +124,11 @@ learners:
     # Development_test/run_choices_lightgbm.R. catboost considered and deferred:
     # not on CRAN, installs from a GitHub release binary, and uvr already failed
     # to resolve its repo layout once (9.7) - one non-CRAN dependency is enough.
-  - id: ensemble
-    backend: stacked
-    tuned: false
-    # Stacking is a real modelling choice and is kept. Base learners are left at
-    # defaults: tuning inside each learner_cv inside each outer fold multiplies
-    # cost without a clear claim attached to it.
-    # Finding 4.9: in the original, ens_rf wrapped the SVM learner and ens_svm
-    # wrapped ranger. Cosmetic, but learner_id output was misleading. Fixed here.
+  # The stacked ensemble was REMOVED in refactor-3.0 (decision D3, 2026-09-17
+  # [HUGH]): across 38 tasks it sat 2.8 points below the best single learner on
+  # average, had the larger fold spread, and cost 28% of all fit time. The
+  # landscape products average class probabilities over the tuned learners
+  # instead (D16; rationale in docs/refactor-3.0-plan.md 3.5b).
   - id: ranger_untuned
     backend: classif.ranger
     tuned: false
