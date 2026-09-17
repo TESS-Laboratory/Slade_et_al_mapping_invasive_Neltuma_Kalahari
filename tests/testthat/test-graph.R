@@ -1,14 +1,14 @@
 testthat::test_that("the generated graph has v2.0's shape under the full config", {
   cfg <- read_sensors_yml(); sites <- read_sites()$site; tags <- read_stacks()$tag
   tg <- task_grid(cfg, sites, tags)
-  testthat::expect_equal(nrow(tg), 38L)                       # 28 drone + 4 wv2 + 3 planet + 3 s2
+  testthat::expect_equal(nrow(tg), 35L)                       # 28 drone + 3 wv2 + 2 planet + 2 s2 (D4/D5)
   testthat::expect_equal(sum(tg$sensor == "drone"), 28L)
-  testthat::expect_setequal(unique(tg$source), c("field", "archived", "purity_raw", "purity_smooth"))
+  testthat::expect_setequal(unique(tg$source), c("field", "archived", "purity_raw"))
   fg <- fit_grid(tg, letters[1:7])
-  testthat::expect_equal(nrow(fg), 38L * 7L)
+  testthat::expect_equal(nrow(fg), 35L * 7L)
   pg <- pred_grid(tg, cfg, "5_CHM_ALLVI", c("svm"))
   testthat::expect_equal(nrow(pg), 10L)                       # 7 sites + 3 scenes
-  testthat::expect_true(all(pg$source[pg$sensor != "drone"] == "archived"))
+  testthat::expect_true(all(pg$source[pg$sensor != "drone"] == "purity_raw"))   # D4
   testthat::expect_equal(legacy_site_label("wv2", "scene", "purity_raw"), "wv2_dr_raw")
   testthat::expect_equal(legacy_site_label("drone", "bokspits_1", "field"), "bokspits_1")
 })
@@ -19,4 +19,11 @@ testthat::test_that("task-grid layer symbols point at shared per-sensor targets"
   testthat::expect_true("purity_layer_wv2_raw" %in% syms)
   testthat::expect_true("layer_archived_s2" %in% syms)
   testthat::expect_true("field_layer_wv2" %in% syms)
+})
+
+testthat::test_that("every task knows its prediction domain (kNNDM)", {
+  cfg <- read_sensors_yml(); tg <- task_grid(cfg, "bokspits_1", "5")
+  testthat::expect_true(all(tg$domain_kind[tg$sensor == "drone"] == "unit"))
+  testthat::expect_true(all(tg$domain_kind[tg$sensor != "drone"] == "aoi"))
+  testthat::expect_equal(as.character(tg$domain_sym[[which(tg$sensor == "drone")[1]]]), "aoi_paths_bokspits_1")
 })

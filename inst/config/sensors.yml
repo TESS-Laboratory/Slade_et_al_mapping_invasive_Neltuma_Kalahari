@@ -8,6 +8,10 @@
 # Replaces satellite.yml and sensors.csv. sites.csv (measured per-site facts)
 # and stacks.csv (the drone band lists) remain as the drone's detail tables.
 #
+# Decisions D4/D5 (2026-09-17 [HUGH]): satellites train on field points and on
+# purity labels from OUR RAW drone surfaces; Glen's archived extraction stays as
+# a reproduction check; training on filtered surfaces is retired with the filter.
+#
 # Purity thresholds and class sizes were recovered from the archived workbooks
 # (findings 7.18, 7.19, 7.32), not from Table S7, which is wrong on class size.
 
@@ -46,16 +50,11 @@ wv2:
       class_size: 400
       grids: data-in/wv2/grids/{site}.fgb
       surface: raw
-    purity_smooth:         # ... and from the filtered ones (7.31 test; retires in Phase B)
-      purity: 0.95
-      class_size: 400
-      grids: data-in/wv2/grids/{site}.fgb
-      surface: smoothed
     field:                 # section 2.5: field points re-buffered to 0.8 m, unbalanced
       buffer_m: 0.8
   aoi: data-in/wv2/glenn/WV2_clip.fgb
   domain: aoi              # the map is the 445 km2 study area
-  primary_source: archived
+  primary_source: purity_raw   # D4: our raw drone surfaces; archived is a reproduction check
   classes: [1, 2, 3, 5, 6, 7]
   smooth_window: 9         # WV_2_Majority_filter.R:52, focal(w = 9) despite "MJ25" names
   s9_points: data-in/wv2/glenn/All_points_buffered_additional.fgb
@@ -85,14 +84,9 @@ planet:
       class_size: 400
       grids: data-in/planet/grids/{site}.fgb
       surface: raw
-    purity_smooth:
-      purity: 0.85
-      class_size: 400
-      grids: data-in/planet/grids/{site}.fgb
-      surface: smoothed
   aoi: data-in/wv2/glenn/WV2_clip.fgb
   domain: aoi
-  primary_source: archived
+  primary_source: purity_raw
   classes: [1, 2, 3, 5, 6]
   smooth_window: 0
 
@@ -117,13 +111,8 @@ s2:
       class_size: 60
       grids: data-in/s2/grids/{site}.fgb
       surface: raw
-    purity_smooth:
-      purity: 0.65
-      class_size: 60
-      grids: data-in/s2/grids/{site}.fgb
-      surface: smoothed
   aoi: data-in/wv2/glenn/WV2_clip.fgb
   domain: aoi
-  primary_source: archived
+  primary_source: purity_raw
   classes: [1, 2, 3, 6]
   smooth_window: 0

@@ -87,10 +87,6 @@ TG <- task_grid(SENSORS, SITES, TAGS)
 FG <- fit_grid(TG, LEARNER_IDS)
 PG <- pred_grid(TG, SENSORS, PRED_TAG, TUNED_IDS)
 PG$window <- ifelse(PG$sensor == "drone", PRED_SMOOTH, PG$smooth_window)
-# Each unit's winner comes from ITS sensor's score table: the satellite purity
-# arms depend on the drone predictions, so a single all-sensor best table
-# would make the drone predictions depend on themselves (a cycle).
-PG$best_sym <- rlang::syms(paste0("best_", PG$sensor))
 
 # ---------------------------------------------------------------------------
 # DRONE INPUTS: per-site rasters and vectors, tracked and validated.
@@ -160,8 +156,13 @@ field_layers <- lapply(seq_len(nrow(fld)), function(i) {
 # Purity extraction: satellite pixel grids over each drone site x each drone
 # surface (raw and smoothed), combined per sensor x surface into a layer.
 pur <- unique(TG[TG$source_type == "purity", c("sensor", "surface", "purity")])
-pur$grids <- vapply(pur$sensor, function(s) SENSORS[[s]]$sources$purity_raw$grids, "")
-ext_grid <- merge(pur, data.frame(site = SITES, stringsAsFactors = FALSE), by = NULL)
+# Extraction runs against BOTH drone surfaces for every satellite sensor: the
+# raw one feeds training (D4); the filtered one is kept only for the smoothing
+# sensitivity analysis and the v2.0-style S10 comparison (D5).
+ext_base <- data.frame(sensor = rep(SAT_SENSORS, each = 2), surface = rep(c("raw", "smoothed"), length(SAT_SENSORS)),
+                       stringsAsFactors = FALSE)
+ext_base$grids <- vapply(ext_base$sensor, function(s) SENSORS[[s]]$sources$purity_raw$grids, "")
+ext_grid <- merge(ext_base, data.frame(site = SITES, stringsAsFactors = FALSE), by = NULL)
 ext_grid$grid_path <- mapply(fill_path, ext_grid$grids, ext_grid$site, USE.NAMES = FALSE)
 ext_grid$pred_sym  <- rlang::syms(ifelse(ext_grid$surface == "raw",
                                          paste0("pred_drone_", ext_grid$site),
@@ -172,8 +173,8 @@ extracts <- tar_map(
   tar_target(grid_file, grid_path, format = "file"),
   tar_target(ext, purity_extract(pred_sym, grid_file[1], site))
 )
-ext_combines <- lapply(seq_len(nrow(pur)), function(i) {
-  s <- pur$sensor[i]; sf <- pur$surface[i]
+ext_combines <- lapply(seq_len(nrow(ext_base)), function(i) {
+  s <- ext_base$sensor[i]; sf <- ext_base$surface[i]
   targets::tar_target_raw(
     paste0("ext_all_", s, "_", sf),
     rlang::call2("bind_rows", !!!rlang::syms(paste0("ext_", s, "_", sf, "_", SITES)), .ns = "dplyr"))
@@ -249,19 +250,26 @@ per_sensor_scores <- unlist(lapply(names(SENSORS), function(s) {
 # PREDICTIONS: one surface per unit on its primary source and prediction
 # stack; the winner's spec and configuration are the only tuning inputs.
 preds <- tar_map(
-  values = PG[, c("sensor", "unit", "tag", "site_label", "pred_id", "cube_sym", "train_sym",
-                  "aoi_path", "window", "best_sym", paste0("cfg_", TUNED_IDS))],
+  values = PG[, c("sensor", "unit", "tag", "pred_id", "cube_sym", "train_sym",
+                  "aoi_path", "window", paste0("cfg_", TUNED_IDS))],
   names = c("sensor", "unit"),
-  tar_target(best_row, best_sym[best_sym[["site"]] == site_label & best_sym[["tag"]] == tag, , drop = FALSE]),
-  tar_target(pred_spec, learner_spec(resampling, best_row[["learner"]])),
-  tar_target(pred_config,
-             list(svm = cfg_svm, xgboost = cfg_xgboost, ranger = cfg_ranger,
-                  lightgbm = cfg_lightgbm, glmnet = cfg_glmnet)[[best_row[["learner"]]]]),
+  # D16: no winner. Every tuned learner is refitted on all of the unit's data
+  # and their class probabilities are averaged with equal weights, in one pass
+  # over the cube (R/predict.R). The per-learner classes ride along for the
+  # sensitivity table.
   tar_target(pred,
-             predict_site(cube_sym, aoi_path, train_sym, spec = pred_spec, shared = eval_shared,
-                          config = pred_config, site = pred_id, tag = tag, aggregate = PRED_AGG),
+             predict_unit_average(
+               cube_sym, aoi_path, train_sym,
+               specs = list(svm = spec_svm, xgboost = spec_xgboost, ranger = spec_ranger,
+                            lightgbm = spec_lightgbm, glmnet = spec_glmnet),
+               shared = eval_shared,
+               configs = list(svm = cfg_svm, xgboost = cfg_xgboost, ranger = cfg_ranger,
+                              lightgbm = cfg_lightgbm, glmnet = cfg_glmnet),
+               site = pred_id, tag = tag, aggregate = PRED_AGG),
              format = "file", resources = predict_resources),
   tar_target(pred_summary, summarise_prediction(pred, pred_id, tag)),
+  tar_target(pred_learner_areas, learner_area_table(pred, pred_id, tag)),
+  # The modal filter is retired as a product (D5); kept as a sensitivity surface.
   tar_target(pred_smooth, smooth_prediction(pred, window, pred_id, tag),
              format = "file", resources = predict_resources),
   tar_target(smooth_areas, class_area_table(pred_smooth, pred_id, tag, "smoothed"))
@@ -385,6 +393,8 @@ list(
   # ---- predictions and their accounting -----------------------------------
   preds,
   tar_combine(pred_index, preds[["pred_summary"]], command = rbind(!!!.x)),
+  # Sensitivity of every class area to the learner, beside the average (7.39).
+  tar_combine(learner_area_index, preds[["pred_learner_areas"]], command = rbind(!!!.x)),
   tar_combine(smooth_index, preds[["smooth_areas"]], command = rbind(!!!.x)),
   tar_target(class_areas, pred_index[grepl("^drone_", pred_index$site), ]),
   tar_target(class_areas_smooth, smooth_index[grepl("^drone_", smooth_index$site), ]),
@@ -423,7 +433,7 @@ list(
   # ---- figures ------------------------------------------------------------
   targets::tar_target_raw("fig_maps",
     rlang::call2("fig_landscape_maps",
-                 rlang::call2("setNames", rlang::call2("list", !!!rlang::syms(paste0("pred_smooth_drone_", SITES))), SITES),
+                 rlang::call2("setNames", rlang::call2("list", !!!rlang::syms(paste0("pred_drone_", SITES))), SITES),
                  quote(best_models), quote(PRED_TAG)), format = "file"),
   tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file"),
   tar_target(fig_cover, fig_subpixel_cover(list(wv2 = ext_all_wv2_raw, planet = ext_all_planet_raw,

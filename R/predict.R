@@ -233,3 +233,125 @@ compare_areas <- function(raw, smoothed) {
                         round(100 * m$delta_ha / m$area_ha_raw, 1), NA)
   m[order(m$site, m$Type), ]
 }
+
+
+#' Landscape prediction as an equal-weight average over the tuned learners
+#'
+#' Decision D16 (2026-09-17 [HUGH]; rationale in docs/refactor-3.0-plan.md
+#' 3.5b). Finding 7.39: a single tuned model's hard map is one draw from a wide
+#' distribution of equally "accurate" maps - the same learner retuned along a
+#' different random path moved a site's Neltuma area by +54%. So there is no
+#' winner: every tuned learner is refitted on all of the unit's training data
+#' with its tuned configuration, and their class probabilities are averaged
+#' with equal weights. No weights to tune, nothing to overfit, and no learner
+#' is excluded as a "laggard" - that would be a qualitative call.
+#'
+#' ONE pass over the cube: each block is read once, predicted by every model,
+#' averaged and written. v2.0's predictions were I/O-bound (load 104 at ~24
+#' live cores), so five separate prediction runs would cost ~5x for nothing.
+#'
+#' Outputs: the averaged hard class (argmax), the averaged probabilities as
+#' scaled integers, and one class layer per learner for the sensitivity table.
+#'
+#' @param cube_path predictor cube (VRT)
+#' @param aoi_path boundary to mask to
+#' @param training the unit's training table
+#' @param specs named list of learner specs (tuned learners only)
+#' @param shared evaluation settings (seed, predict_type)
+#' @param configs named list of tuned configurations, same names as `specs`
+#' @param site,tag ids for the filenames
+#' @param aggregate fast-profile aggregation factor
+#' @param out_dir output directory
+#' @return c(class_path, prob_path, learners_path)
+predict_unit_average <- function(cube_path, aoi_path, training, specs, shared, configs,
+                                 site, tag, aggregate = 1L,
+                                 out_dir = "data-out/predict") {
+  data.table::setDTthreads(1L)
+  stopifnot(length(specs) >= 1L, identical(sort(names(specs)), sort(names(configs))))
+
+  feats <- setdiff(names(training), c("Type", "site", "tag", "x", "y"))
+  task <- mlr3::as_task_classif(training[, c("Type", feats)], target = "Type",
+                                id = paste0(site, "__", tag, "__final"))
+  lvls <- task$class_names
+
+  models <- lapply(names(specs), function(id) {
+    learner <- bare_learner(specs[[id]], shared)
+    cfg <- configs[[id]]
+    if (!is.null(cfg)) {
+      keep <- cfg[names(cfg) %in% learner$param_set$ids()]
+      learner$param_set$set_values(.values = keep)
+    }
+    set.seed(shared$seed)
+    learner$train(task)
+    learner
+  })
+  names(models) <- names(specs)
+
+  cube <- terra::rast(cube_path)
+  if (aggregate > 1L) cube <- terra::aggregate(cube, fact = aggregate, fun = "mean", na.rm = FALSE)
+  if (!all(feats %in% names(cube))) {
+    stop("Cube ", basename(cube_path), " lacks feature band(s): ",
+         paste(setdiff(feats, names(cube)), collapse = ", "), call. = FALSE)
+  }
+  cube <- cube[[feats]]
+
+  n_l <- length(models); n_c <- length(lvls)
+  wrap <- function(model, dat, ...) {
+    out <- matrix(NA_real_, nrow = nrow(dat), ncol = 1L + n_c + n_l)
+    ok <- stats::complete.cases(dat)
+    if (any(ok)) {
+      acc <- matrix(0, nrow = sum(ok), ncol = n_c)
+      for (i in seq_len(n_l)) {
+        pr <- model[[i]]$predict_newdata(dat[ok, , drop = FALSE])$prob[, lvls, drop = FALSE]
+        acc <- acc + pr
+        out[ok, 1L + n_c + i] <- as.integer(lvls[max.col(pr, ties.method = "first")])
+      }
+      acc <- acc / n_l
+      out[ok, 1L] <- as.integer(lvls[max.col(acc, ties.method = "first")])
+      out[ok, 1L + seq_len(n_c)] <- acc
+    }
+    out
+  }
+
+  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+  pred <- terra::predict(cube, models, fun = wrap, na.rm = FALSE,
+                         cores = if (aggregate > 1L) 1L else n_cores)
+  names(pred) <- c("class", paste0("prob_", lvls), paste0("class_", names(models)))
+  pred <- terra::mask(pred, terra::vect(aoi_path))
+
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  suffix <- if (aggregate > 1L) paste0("_agg", aggregate) else ""
+  stem <- file.path(out_dir, paste0(site, "__", tag, suffix))
+  class_path    <- paste0(stem, "_class.tif")
+  prob_path     <- paste0(stem, "_prob.tif")
+  learners_path <- paste0(stem, "_learners.tif")
+  int_opts <- c("COMPRESS=LZW", "TILED=YES")
+  terra::writeRaster(pred[["class"]], class_path, overwrite = TRUE, datatype = "INT1U",
+                     gdal = int_opts, NAflag = 255)
+  terra::writeRaster(terra::round(pred[[1L + seq_len(n_c)]] * PROB_SCALE), prob_path,
+                     overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
+                              "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
+  terra::writeRaster(pred[[1L + n_c + seq_len(n_l)]], learners_path, overwrite = TRUE,
+                     datatype = "INT1U", gdal = int_opts, NAflag = 255)
+  c(class_path, prob_path, learners_path)
+}
+
+
+#' Per-learner class areas - the sensitivity table behind the average
+#'
+#' @param paths output of `predict_unit_average()`
+#' @param site,tag ids
+#' @return data.frame: site, tag, learner ("average" included), Type, area_ha
+learner_area_table <- function(paths, site, tag) {
+  avg <- terra::rast(paths[1]); per <- terra::rast(paths[3])
+  px_ha <- prod(terra::res(avg)) / 1e4
+  one <- function(r, name) {
+    f <- terra::freq(r)
+    data.frame(site = site, tag = tag, learner = name, Type = as.integer(f$value),
+               area_ha = f$count * px_ha, stringsAsFactors = FALSE)
+  }
+  rows <- c(list(one(avg, "average")),
+            lapply(names(per), function(n) one(per[[n]], sub("^class_", "", n))))
+  do.call(rbind, rows)
+}
