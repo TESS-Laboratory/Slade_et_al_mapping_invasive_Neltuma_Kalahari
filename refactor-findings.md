@@ -1366,6 +1366,48 @@ spcv_coords' 5-25-point folds were adding noise, not rigour.
 Consequence for 7.34: the fold-count curve was not a choice to be made; it
 was two questions being asked with one design. Decision D2 (kNNDM, domain
 per question) closes it.
+### 7.39 Phase A gate: numbers reproduce; sparse-class AREAS are not stable under retuning
+
+refactor-3.0's generated pipeline (one graph for every sensor, futures in
+tuning, INT16 probabilities, FlatGeobuf inputs) was run at full budget and
+compared with the v2.0 snapshot (tools/compare-baseline.R).
+
+**Reproduces:** 196 drone fits, mean difference -0.0002 (max 0.14, an svm);
+28 WV2 fits -0.006; 42 Planet/S2 fits +0.003; S9 plant-scale identical n and
+95.4%; phases within 1.5 points on both surfaces; WV2 Neltuma 785 vs 821 ha.
+Compute 31.5 vs 38.4 CPU-hours; probability rasters ~1/4 the size; the fast
+profile runs the whole graph in 8 minutes against >1 h. Not bit-identical:
+with NELTUMA_FUTURE > 1 the fold draw and the MBO trajectory came from
+different RNG streams (the fold draw is now instantiated before the plan, so
+folds no longer depend on the worker count; the tuner's stream still does).
+
+**Does not reproduce, and that is the finding:** 11 of 28 drone winners
+flipped - every one with a v2.0 winning margin <= 0.012, i.e. inside the
+noise 7.28 already reported (0/28 clear wins). And the landscape products
+moved far more than the accuracies:
+
+| unit | winner v2 -> v3 | Neltuma area |
+|---|---|---|
+| struizendam_1 | xgboost -> xgboost | 0.668 -> 1.029 ha (**+54%**) |
+| struizendam_4 | ranger -> ensemble (tie) | 2.504 -> 2.870 ha (+15%) |
+| bokspits_1 | glmnet -> glmnet | 0.524 -> 0.584 ha (+11%) |
+| Planet scene | svm -> svm | 1,575 -> 1,158 ha (**-26%**) |
+| S2 scene | svm -> svm | 1,428 -> 1,534 ha (+7%) |
+
+The same learner, retuned along a different random path, scores within a
+point of its previous self and draws a map with half as much again of the
+sparse class. Cross-validated accuracy does not constrain the area of a
+class that is 1% of the landscape; a single tuned model's hard map is one
+draw from a wide distribution of equally "accurate" maps.
+
+Consequences for 3.0, all reinforcing the plan rather than changing it:
+hard-class area from one model is not a reportable number without an
+interval (conformal bounds, PPI - sections 3.1, 3.3); winner-takes-all
+selection inside the noise should go (decision D16: average class
+probabilities over the learner set and/or over refits, or fix one learner
+per sensor); fractional cover (3.8) attacks the same instability from the
+label side. The manuscript's "16 km2 established, 356 km2 expanding" carry
+no such interval, which is R2's point made quantitative. **[ANDY]**
 ---
 
 ## 8. Class scheme
@@ -1809,3 +1851,10 @@ manifest, lockfile and library in agreement.
   **Finding 7.38**: kNNDM on our points gives single-site folds for the
   satellites (W ~3.7-4.9 km, k=5 better) and near-random folds for the drone
   within-site question (W 1.8 m) - the two regimes, measured.
+- **2026-09-17** Phase A complete. Generated graph (sensors.yml -> R/graph.R),
+  futures in tuning, winner-only prediction dependencies, INT16 probability
+  rasters, FlatGeobuf inputs, prediction controller with a worker cap,
+  testthat suite + run_checks(). **Finding 7.39**: full run reproduces v2.0
+  statistically (mean score differences <= 0.006; 31.5 vs 38.4 CPU-h) but
+  sparse-class areas move by up to +54% / -26% under retuning of the SAME
+  learner - hard-map areas need intervals; decision D16 on model selection.

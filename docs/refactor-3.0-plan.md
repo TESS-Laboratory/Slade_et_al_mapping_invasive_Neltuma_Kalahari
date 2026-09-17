@@ -344,7 +344,7 @@ split [ANDY].
 
 | Phase | Content | Gate |
 |---|---|---|
-| A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. **Status 2026-09-16: A1-A4 done; fast gate green (652 targets, 8m22s vs >1 h in v2.0); full-profile gate running.** | full run reproduces v2.0 numbers (data-out/results/v2_baseline/); wall time down |
+| A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. **DONE 2026-09-17: gate passed - scores reproduce to mean diff <= 0.006, 31.5 vs 38.4 CPU-h, fast profile 8 min; and finding 7.39: sparse-class areas are unstable under retuning (+54% / -26% with the same learner).** | full run reproduces v2.0 numbers (data-out/results/v2_baseline/); wall time down |
 | B. Evaluation (1-2 wk) | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
 | C. Uncertainty (2 wk) | 3.1-3.3, 3.7: conformal calibration from resample predictions, set-size / Neltuma-possible / area-bound rasters, coverage validation, PPI areas, probabilistic phases | coverage >= nominal on holdout per class; area intervals in Table 1 |
 | C3. AOA x conformal (2 wk, after C/C2) | 3.9: DI/LPD/AOA on kNNDM folds, DI-stratified conformal, coverage-vs-DI, typology map | coverage holds inside AOA per stratum; the curve figure |
@@ -385,3 +385,4 @@ Phases A and B can run while C is designed; C is the critical path.
 | D13 | Endmember linear-unmixing baseline | yes | HUGH |
 | D14 | AOA x conformal: levels 1-2 now, 3 as stretch | yes | HUGH |
 | D15 | Split the AOA x conformal method into its own short paper | recommend yes | ANDY |
+| D16 | Model selection for the landscape products (7.39): winner-takes-all is unstable inside the noise | average class probabilities across the learner set (and report area with conformal/PPI intervals); fall back to one fixed learner per sensor if averaging is unwanted | HUGH + ANDY |
