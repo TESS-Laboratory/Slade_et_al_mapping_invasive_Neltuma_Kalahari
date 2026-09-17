@@ -381,7 +381,7 @@ split [ANDY].
 | Phase | Content | Gate |
 |---|---|---|
 | A. Foundations (1 wk) | 4.1-4.4: unified graph, winner-only deps, tuning futures, INT16 probs, fgb conversion, tests. No science changes. **DONE 2026-09-17: gate passed - scores reproduce to mean diff <= 0.006, 31.5 vs 38.4 CPU-h, fast profile 8 min; and finding 7.39: sparse-class areas are unstable under retuning (+54% / -26% with the same learner).** | full run reproduces v2.0 numbers (data-out/results/v2_baseline/); wall time down |
-| B. Evaluation (1-2 wk) | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
+| B. Evaluation (1-2 wk) - **in progress 2026-09-17: kNNDM designs, learner trim, D16 averaged prediction, D4/D5 sources, D9 lock file done; fast gate green; full run launched** | 3.4: variogram range, spcv_block primary, fold-count and LOSO figures, learner trim | fold/CV figures rendered; per-site holdout table |
 | C. Uncertainty (2 wk) | 3.1-3.3, 3.7: conformal calibration from resample predictions, set-size / Neltuma-possible / area-bound rasters, coverage validation, PPI areas, probabilistic phases | coverage >= nominal on holdout per class; area intervals in Table 1 |
 | C3. AOA x conformal (2 wk, after C/C2) | 3.9: DI/LPD/AOA on kNNDM folds, DI-stratified conformal, coverage-vs-DI, typology map | coverage holds inside AOA per stratum; the curve figure |
 | C2. Fractional cover (1-2 wk, parallel) | 3.8: cover regression on all purity-extraction pixels, CV+ intervals, endmember baseline, cover-derived areas and phases | interval coverage >= nominal per site; cover RMSE per sensor |
