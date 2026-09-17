@@ -1408,6 +1408,39 @@ probabilities over the learner set and/or over refits, or fix one learner
 per sensor); fractional cover (3.8) attacks the same instability from the
 label side. The manuscript's "16 km2 established, 356 km2 expanding" carry
 no such interval, which is R2's point made quantitative. **[ANDY]**
+### 7.40 Under kNNDM, "repeats" must be re-seeded k-means designs - hierarchical kNNDM is deterministic
+
+Wiring kNNDM in as the evaluation design (D2) raised a question the papers
+do not address: what is a *repeat*? Measured on our tasks (2026-09-17), five
+independently seeded kNNDM constructions, each with a fresh random sample of
+2,000 prediction points:
+
+| task / domain | clustering | distinct fold sets (of 5; WV2 of 3) | W |
+|---|---|---|---|
+| drone bokspits_1 / its AOI (k = 10) | hierarchical | 2 | 1.6-2.9 m |
+| | k-means | **5** | **1.0-1.5 m** |
+| drone struizendam_4 / its AOI (k = 10) | hierarchical | 2 | 1.6-2.9 m |
+| | k-means | **5** | 1.1-1.6 m |
+| WV2 archived / study area (k = 5) | hierarchical | **1** | 3,721-3,792 m |
+| | k-means | 3 | 3,938-4,338 m |
+
+With the recommended hierarchical clustering the fold assignment is a
+function of the training geometry alone: resampling the prediction points
+does not move it, so ten "repeats" are ten copies of one split and the
+spread they report is only the learners' own fitting noise. k-means
+clustering gives a genuinely different design per seed - at equal or better
+W for the drone sites, and a modestly higher W for the site-clustered
+satellite tasks, where there is little freedom to vary anyway (every fold is
+one site or a pair).
+
+Design adopted: a repeat is a separately seeded k-means kNNDM (R/resampling.R);
+the design is built once per task as a target and shared by every learner,
+with W per repeat stored (cv_index) - which is also the table Reviewer 1
+asked for. mlr3spatiotempcv's `repeated_spcv_knndm` was not used: it hides W,
+accepts only a SpatRaster domain, and would rebuild the folds inside every
+fit. Worth raising with the kNNDM authors: the published recommendation of
+hierarchical clustering makes repeated kNNDM degenerate. **[HUGH]** - a note
+for the conversation with Nowosad.
 ---
 
 ## 8. Class scheme
@@ -1872,3 +1905,10 @@ manifest, lockfile and library in agreement.
   D11 Neltuma-only fractional cover, multi-class land cover mostly to the SI;
   D15 the AOA x conformal methods paper waits until this paper is complete.
   Every decision D1-D16 in docs/refactor-3.0-plan.md is now settled.
+- **2026-09-17 (Phase B start)** Stacked ensemble removed (D3); kNNDM
+  evaluation design per task via CAST (**finding 7.40**: hierarchical kNNDM is
+  deterministic, repeats are re-seeded k-means designs, W stored per repeat);
+  equal-weight probability averaging over the five tuned learners in one pass
+  per cube (D16), with a per-learner sensitivity table; satellites train on
+  field points and raw-surface purity (D4), filtered-surface arms retired
+  (D5); renv.lock export (D9). 35 tasks x 6 learners.
