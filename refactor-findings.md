@@ -1858,3 +1858,10 @@ manifest, lockfile and library in agreement.
   statistically (mean score differences <= 0.006; 31.5 vs 38.4 CPU-h) but
   sparse-class areas move by up to +54% / -26% under retuning of the SAME
   learner - hard-map areas need intervals; decision D16 on model selection.
+- **2026-09-17 (decisions)** [HUGH]: D1 LAC + Mondrian conformal; D3 drop the
+  stacked ensemble (2.8 points below the best single learner on average, 28%
+  of fit time); D6 PPI for areas and gradients, stratified by DI/AOA; D12-D14
+  as recommended; D16 equal-weight probability averaging over all tuned
+  learners, no fallback and no "laggard" exclusion. Rationale for averaging
+  over stacking written into the plan (3.5b) for the methods text. v2.0-named
+  prediction rasters removed (21 GB).

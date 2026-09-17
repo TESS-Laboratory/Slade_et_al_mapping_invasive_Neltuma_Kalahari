@@ -161,6 +161,41 @@ fold count.
   then the honest comparison of the two.
 - The `dr_smooth` arms retire with the filter.
 
+### 3.5b Why a plain probability average and not the stacked ensemble (D3, D16)
+
+Measured on the 38 tasks of the Phase A run: the stacked ensemble ranked
+first in 3, sat on average **2.8 points below the best single learner**
+(range -10.3 to +0.2), had the larger fold-to-fold spread (sd 0.122 vs
+0.109) and cost 28% of all fit time (3.9 of 14 CPU-hours). The reasons are
+structural, and they are the methods-text argument:
+
+1. **Stacking needs base learners that err differently.** On polygon-mean
+   features with near-linear class boundaries (7.27, 7.28) the penalised
+   multinomial, the SVM and the trees converge on almost the same decision
+   surface; there is little complementary signal for a meta-learner to find.
+2. **The meta-learner is one more model fitted on little data.** Its weights
+   are estimated from a few hundred out-of-fold rows per task, inside each
+   of 100 outer iterations; at n = 82-2,400 that adds variance rather than
+   removing it, which is what the spread shows.
+3. **Stacked weights are chosen by the same noisy criterion that 7.39
+   showed cannot rank our learners.** Winner margins are <= 0.012 in every
+   flipped case; a weight vector optimised on that signal inherits its
+   instability, and the instability lands in the sparse-class areas.
+4. **An equal-weight average has no free parameters.** It cannot overfit the
+   selection, it needs no inner CV, it is reproducible from the per-learner
+   probability rasters, and averaging probabilities is variance reduction
+   exactly where we need it - the ~1% class whose mapped area moved by
+   +54% / -26% under retuning of a single model.
+5. **It composes with the uncertainty design.** Conformal calibration and
+   PPI act on the averaged probabilities as they would on any model's; the
+   per-learner surfaces stay available as a sensitivity table rather than
+   as competing "best" maps.
+
+Engineering note: the average is computed in ONE pass over each cube (read a
+block once, predict with every tuned learner, average, write), so the cost
+is one raster read plus five model predictions per block, not five full
+prediction runs.
+
 ### 3.6 The sensor comparison
 
 Report per sensor: spatial-CV accuracy with intervals, pixel-level
@@ -372,10 +407,10 @@ Phases A and B can run while C is designed; C is the critical path.
 |---|---|---|---|
 | D1 | Conformal score and Mondrian calibration | **decided 2026-09-17 [HUGH]: LAC + per-class (Mondrian), APS reported** | done |
 | D2 | Primary CV design | **decided: kNNDM via CAST**, domains per question | done |
-| D3 | Learner set; keep the stacked ensemble? | 4 tuned + baseline; drop ensemble unless the text needs it | HUGH + ANDY |
+| D3 | Learner set; keep the stacked ensemble? | **decided 2026-09-17 [HUGH]: drop the stacked ensemble.** Five tuned learners (glmnet, svm, ranger, lightgbm, xgboost) + the untuned ranger as a control. The manuscript's "SVM and ensemble performed best" goes [ANDY]. | done |
 | D4 | Training sources reported per satellite | field points + our-surface purity; archived as check | ANDY |
 | D5 | Retire the modal filter; smoothing as sensitivity only | yes | ANDY |
-| D6 | PPI for areas and settlement gradients | yes | HUGH + ANDY |
+| D6 | PPI for areas and settlement gradients | **decided 2026-09-17 [HUGH]: yes** - it is error propagation from the drone-labelled pixels to the scene; stratify the correction by DI/AOA so it closes the loop with 3.9 | done (ANDY to note) |
 | D7 | Phase map as probabilistic membership with area ranges | yes | ANDY |
 | D8 | Paper outputs: docx + HTML, SI as qmd | yes | ANDY |
 | D9 | Environment export for reviewers (renv.lock from uvr) | export, keep uvr | HUGH |
@@ -385,4 +420,4 @@ Phases A and B can run while C is designed; C is the critical path.
 | D13 | Endmember linear-unmixing baseline | **decided 2026-09-17 [HUGH]: yes** | done |
 | D14 | AOA x conformal: levels 1-2 now, 3 as stretch | **decided 2026-09-17 [HUGH]: yes** | done |
 | D15 | Split the AOA x conformal method into its own short paper | recommend yes | ANDY |
-| D16 | Model selection for the landscape products (7.39): winner-takes-all is unstable inside the noise | average class probabilities across the learner set (and report area with conformal/PPI intervals); fall back to one fixed learner per sensor if averaging is unwanted | HUGH + ANDY |
+| D16 | Model selection for the landscape products (7.39) | **decided 2026-09-17 [HUGH]: equal-weight average of class probabilities over ALL tuned learners.** No winner-takes-all, no fallback learner, and no dropping of "laggards" - defining a laggard is a qualitative call we decline to make. Per-learner surfaces reported as a sensitivity table. | done |
