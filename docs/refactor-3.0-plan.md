@@ -241,10 +241,11 @@ for a handful of pure pixels become labels for all of them.
 | Baseline | linear spectral unmixing with endmembers from pure pixels | the classical method reviewers will expect to see beaten |
 | Products | Neltuma fractional-cover raster + lower/upper interval rasters per sensor; area = sum of fractions x pixel area with PPI intervals; phases per hexagon from mean cover directly | no majority vote, no purity threshold anywhere in the chain |
 
-**What it changes in the paper.** The satellite arms' primary Neltuma
-product becomes fractional cover with intervals; the multi-class
-classification stays for the vegetation-class maps (Fig 6/7) and the
-conformal sets. Table 1 / Fig 8 derive from cover, not from thresholded
+**What it changes in the paper (D11, decided).** The paper is about
+Neltuma: the satellite arms' primary product becomes Neltuma fractional
+cover with intervals. The existing multi-class land-cover classification
+moves mostly to the SI (it still supplies the conformal sets and the drone
+labels); no fractional cover is produced for the other classes here. Table 1 / Fig 8 derive from cover, not from thresholded
 classes, so the 40-point Pre-/Initial-Incursion flip (7.35) disappears by
 construction. The sensor-grain story becomes "how well can each grain
 resolve cover" - a cleaner claim than accuracy of a dominant class.
@@ -408,16 +409,16 @@ Phases A and B can run while C is designed; C is the critical path.
 | D1 | Conformal score and Mondrian calibration | **decided 2026-09-17 [HUGH]: LAC + per-class (Mondrian), APS reported** | done |
 | D2 | Primary CV design | **decided: kNNDM via CAST**, domains per question | done |
 | D3 | Learner set; keep the stacked ensemble? | **decided 2026-09-17 [HUGH]: drop the stacked ensemble.** Five tuned learners (glmnet, svm, ranger, lightgbm, xgboost) + the untuned ranger as a control. The manuscript's "SVM and ensemble performed best" goes [ANDY]. | done |
-| D4 | Training sources reported per satellite | field points + our-surface purity; archived as check | ANDY |
-| D5 | Retire the modal filter; smoothing as sensitivity only | yes | ANDY |
+| D4 | Training sources reported per satellite | **decided 2026-09-17 [HUGH for ANDY]:** field points + purity from OUR raw drone surfaces; Glen's archived extraction kept as a reproduction check only | done |
+| D5 | Retire the modal filter; smoothing as sensitivity only | **decided 2026-09-17 [HUGH for ANDY]: yes** - raw surfaces are the products; the filter is reported once as a sensitivity analysis (7.31, 7.35) | done |
 | D6 | PPI for areas and settlement gradients | **decided 2026-09-17 [HUGH]: yes** - it is error propagation from the drone-labelled pixels to the scene; stratify the correction by DI/AOA so it closes the loop with 3.9 | done (ANDY to note) |
-| D7 | Phase map as probabilistic membership with area ranges | yes | ANDY |
-| D8 | Paper outputs: docx + HTML, SI as qmd | yes | ANDY |
-| D9 | Environment export for reviewers (renv.lock from uvr) | export, keep uvr | HUGH |
-| D10 | Landsat arm in scope? (6.3) | out | ANDY |
-| D11 | Fractional cover: Neltuma-only vs compositional | Neltuma-only first | ANDY |
+| D7 | Phase map as probabilistic membership with area ranges | **decided 2026-09-17 [HUGH for ANDY]: yes** | done |
+| D8 | Paper outputs: docx + HTML, SI as qmd | **decided 2026-09-17 [HUGH for ANDY]: yes** | done |
+| D9 | Environment export for reviewers (renv.lock from uvr) | **decided 2026-09-17 [HUGH]: yes** - export the lock file on its own alongside uvr; uvr stays the working tool | done |
+| D10 | Landsat arm in scope? (6.3) | **decided 2026-09-17 [HUGH for ANDY]: out** | done |
+| D11 | Fractional cover: Neltuma-only vs compositional | **decided 2026-09-17 [HUGH]: Neltuma only in the paper.** The existing multi-class land-cover classification moves mostly to the SI; no fractional cover for the other classes in this paper | done |
 | D12 | Hurdle vs direct cover regression | **decided 2026-09-17 [HUGH]: measure both**, pick by kNNDM RMSE + threshold detection | done |
 | D13 | Endmember linear-unmixing baseline | **decided 2026-09-17 [HUGH]: yes** | done |
 | D14 | AOA x conformal: levels 1-2 now, 3 as stretch | **decided 2026-09-17 [HUGH]: yes** | done |
-| D15 | Split the AOA x conformal method into its own short paper | recommend yes | ANDY |
+| D15 | Split the AOA x conformal method into its own short paper | **decided 2026-09-17 [HUGH]: yes, but AFTER this paper is complete** - the method is used here; the methods paper is not started until the Neltuma paper is done | done |
 | D16 | Model selection for the landscape products (7.39) | **decided 2026-09-17 [HUGH]: equal-weight average of class probabilities over ALL tuned learners.** No winner-takes-all, no fallback learner, and no dropping of "laggards" - defining a laggard is a qualitative call we decline to make. Per-learner surfaces reported as a sensitivity table. | done |

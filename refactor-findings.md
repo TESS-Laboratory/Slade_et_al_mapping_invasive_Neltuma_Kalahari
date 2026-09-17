@@ -1865,3 +1865,10 @@ manifest, lockfile and library in agreement.
   learners, no fallback and no "laggard" exclusion. Rationale for averaging
   over stacking written into the plan (3.5b) for the methods text. v2.0-named
   prediction rasters removed (21 GB).
+- **2026-09-17 (decisions, continued)** [HUGH, including the items held for
+  Andy]: D4 field + own-surface purity training, archived as a check; D5 modal
+  filter retired (sensitivity only); D7 probabilistic phases with ranges; D8
+  docx + HTML + SI as qmd; D9 lock-file export alongside uvr; D10 Landsat out;
+  D11 Neltuma-only fractional cover, multi-class land cover mostly to the SI;
+  D15 the AOA x conformal methods paper waits until this paper is complete.
+  Every decision D1-D16 in docs/refactor-3.0-plan.md is now settled.
