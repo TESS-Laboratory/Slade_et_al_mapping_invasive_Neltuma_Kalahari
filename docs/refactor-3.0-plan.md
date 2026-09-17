@@ -370,7 +370,7 @@ Phases A and B can run while C is designed; C is the critical path.
 
 | # | Decision | Recommendation | Owner |
 |---|---|---|---|
-| D1 | Conformal score and Mondrian calibration | LAC + per-class, APS reported | HUGH |
+| D1 | Conformal score and Mondrian calibration | **decided 2026-09-17 [HUGH]: LAC + per-class (Mondrian), APS reported** | done |
 | D2 | Primary CV design | **decided: kNNDM via CAST**, domains per question | done |
 | D3 | Learner set; keep the stacked ensemble? | 4 tuned + baseline; drop ensemble unless the text needs it | HUGH + ANDY |
 | D4 | Training sources reported per satellite | field points + our-surface purity; archived as check | ANDY |
@@ -381,8 +381,8 @@ Phases A and B can run while C is designed; C is the critical path.
 | D9 | Environment export for reviewers (renv.lock from uvr) | export, keep uvr | HUGH |
 | D10 | Landsat arm in scope? (6.3) | out | ANDY |
 | D11 | Fractional cover: Neltuma-only vs compositional | Neltuma-only first | ANDY |
-| D12 | Hurdle vs direct cover regression | measure both, pick by kNNDM RMSE + threshold detection | HUGH |
-| D13 | Endmember linear-unmixing baseline | yes | HUGH |
-| D14 | AOA x conformal: levels 1-2 now, 3 as stretch | yes | HUGH |
+| D12 | Hurdle vs direct cover regression | **decided 2026-09-17 [HUGH]: measure both**, pick by kNNDM RMSE + threshold detection | done |
+| D13 | Endmember linear-unmixing baseline | **decided 2026-09-17 [HUGH]: yes** | done |
+| D14 | AOA x conformal: levels 1-2 now, 3 as stretch | **decided 2026-09-17 [HUGH]: yes** | done |
 | D15 | Split the AOA x conformal method into its own short paper | recommend yes | ANDY |
 | D16 | Model selection for the landscape products (7.39): winner-takes-all is unstable inside the noise | average class probabilities across the learner set (and report area with conformal/PPI intervals); fall back to one fixed learner per sensor if averaging is unwanted | HUGH + ANDY |
