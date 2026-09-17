@@ -367,15 +367,31 @@ build_phase_layer <- function(raw_tif, smooth_tif, grid_path, neltuma_code,
 #' @return data.frame: surface, phase, n_cells, area_ha, pct_of_area
 phase_summary <- function(layer_path) {
   g <- sf::st_read(layer_path, quiet = TRUE)
-  area_ha <- as.numeric(sf::st_area(g)) / 1e4
-  out <- lapply(c(raw = "phase_raw", smooth = "phase_smooth"), function(col) {
-    a <- tapply(area_ha, g[[col]], sum, default = 0)
-    data.frame(phase = names(a), n_cells = as.integer(table(g[[col]])),
-               area_ha = as.numeric(a),
-               pct_of_area = 100 * as.numeric(a) / sum(area_ha))
-  })
-  cbind(surface = rep(names(out), each = nrow(out[[1]])),
-        do.call(rbind, out), row.names = NULL)
+  phase_table(g$phase_raw, g$phase_smooth, as.numeric(sf::st_area(g)) / 1e4)
+}
+
+
+#' Phase areas for both surfaces, every Table S8 phase always present
+#'
+#' A phase can be absent from one surface (the filter empties the sparse
+#' phases; the fast profile's aggregated surface has almost no Neltuma), so
+#' the four phases are fixed levels and absent ones report zero - the first
+#' version labelled rows by the first surface's phases and failed when the
+#' surfaces disagreed.
+#'
+#' @param phase_raw,phase_smooth phase labels per cell
+#' @param area_ha cell areas
+#' @return data.frame: surface, phase, n_cells, area_ha, pct_of_area
+phase_table <- function(phase_raw, phase_smooth, area_ha) {
+  lv <- c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance")
+  one <- function(ph, surface) {
+    f <- factor(as.character(ph), levels = lv)
+    a <- as.numeric(tapply(area_ha, f, sum, default = 0)); a[is.na(a)] <- 0
+    data.frame(surface = surface, phase = lv, n_cells = as.integer(table(f)),
+               area_ha = a, pct_of_area = 100 * a / sum(area_ha[!is.na(f)]),
+               stringsAsFactors = FALSE)
+  }
+  rbind(one(phase_raw, "raw"), one(phase_smooth, "smooth"))
 }
 
 
