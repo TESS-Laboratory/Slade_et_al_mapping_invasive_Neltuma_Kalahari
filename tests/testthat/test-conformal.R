@@ -46,3 +46,13 @@ testthat::test_that("softvote_oof averages aligned by row id; tidy_softvote scor
   testthat::expect_true(r$score$classif.acc >= 0 && r$score$classif.acc <= 1)
   testthat::expect_named(r, c("score", "class"))
 })
+
+testthat::test_that("honest K-fold coverage is near nominal and neltuma coverage present", {
+  d <- (function(n){set.seed(7); truth<-factor(sample(1:4,n,TRUE)); p<-matrix(runif(n*4,0.05,1),n,4)
+    for(i in seq_len(n)) p[i,as.integer(truth[i])]<-p[i,as.integer(truth[i])]+runif(1,0,1.5)
+    p<-p/rowSums(p); colnames(p)<-as.character(1:4); list(row_ids=seq_len(n),prob=p,truth=truth)})(4000)
+  h <- honest_coverage(d, c(0.10), neltuma_code=1L, "s", "t")
+  testthat::expect_true(abs(h$overall - 0.90) < 0.03)
+  testthat::expect_false(is.na(h$neltuma_coverage))
+  testthat::expect_true(h$neltuma_coverage >= 0.85)
+})

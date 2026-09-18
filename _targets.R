@@ -249,7 +249,8 @@ softvote <- tar_map(
   tar_target(sv, softvote_oof(list(svm = oof_svm, xgboost = oof_xgboost, ranger = oof_ranger,
                                    lightgbm = oof_lightgbm, glmnet = oof_glmnet))),
   tar_target(sv_tidy, tidy_softvote(sv, site_label, tag, sensor, unit, source, neltuma_code)),
-  tar_target(sv_cal, conformal_calibrate(sv, CONF_ALPHAS, site_label, tag, sensor, unit, source))
+  tar_target(sv_cal, conformal_calibrate(sv, CONF_ALPHAS, site_label, tag, sensor, unit, source)),
+  tar_target(sv_honest, honest_coverage(sv, CONF_ALPHAS, neltuma_code, site_label, tag))
 )
 
 # Per-sensor score and class-accuracy tables, and the per-sensor winners.
@@ -409,6 +410,7 @@ list(
   tar_combine(softvote_classes, softvote[["sv_tidy"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "class"))),
   tar_combine(conformal_cal, softvote[["sv_cal"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "thresholds"))),
   tar_combine(conformal_apparent, softvote[["sv_cal"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "apparent"))),
+  tar_combine(conformal_coverage_honest, softvote[["sv_honest"]], command = rbind(!!!.x)),
   per_sensor_scores,
   # Reporting views (nothing upstream of a prediction may read these).
   targets::tar_target_raw("score_index_all",

@@ -318,3 +318,48 @@ conformal_area_bounds <- function(prob_path, cal, alphas, neltuma_code, site, ta
                stringsAsFactors = FALSE)
   }))
 }
+
+
+#' Honest held-out coverage via K-fold cross-conformal
+#'
+#' The `apparent` coverage in `conformal_calibrate()` is measured on the same
+#' OOF the thresholds were fit on, so it is mildly optimistic. Here the OOF is
+#' split into K groups; each group's coverage is measured with thresholds
+#' calibrated on the OTHER groups, so every test point is genuinely held out
+#' from its own threshold. This is the honest number, and its gap from the
+#' apparent figure is the optimism.
+#'
+#' Folds adapt to the calibration size (a class with few points cannot support
+#' many folds); the accompanying `neltuma_n` keeps that visible.
+#'
+#' @param sv soft-vote OOF (list row_ids, prob, truth)
+#' @param alphas miscoverage levels
+#' @param neltuma_code Neltuma class code
+#' @param site,tag ids
+#' @param seed fold-assignment seed
+#' @return data.frame: site, tag, alpha, overall, mean_set_size,
+#'   neltuma_coverage, neltuma_n, folds
+honest_coverage <- function(sv, alphas, neltuma_code, site, tag, seed = 5446) {
+  n <- nrow(sv$prob)
+  folds <- max(2L, min(5L, n %/% 10L))
+  set.seed(seed)
+  fk <- sample(rep_len(seq_len(folds), n))
+  classes <- colnames(sv$prob)
+  nk <- as.character(neltuma_code)
+  tk <- as.character(sv$truth)
+  do.call(rbind, lapply(alphas, function(a) {
+    covered <- logical(n); ssize <- numeric(n)
+    for (k in seq_len(folds)) {
+      ci <- fk != k; ti <- fk == k
+      th <- mondrian_thresholds(sv$prob[ci, , drop = FALSE], sv$truth[ci], a)
+      sets <- prediction_sets(sv$prob[ti, , drop = FALSE], th)
+      j <- match(tk[ti], classes)
+      covered[ti] <- sets[cbind(seq_len(sum(ti)), j)]
+      ssize[ti] <- rowSums(sets)
+    }
+    data.frame(site = site, tag = tag, alpha = a,
+               overall = mean(covered), mean_set_size = mean(ssize),
+               neltuma_coverage = if (any(tk == nk)) mean(covered[tk == nk]) else NA_real_,
+               neltuma_n = sum(tk == nk), folds = folds, stringsAsFactors = FALSE)
+  }))
+}
