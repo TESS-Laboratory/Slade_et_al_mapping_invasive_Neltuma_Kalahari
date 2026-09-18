@@ -402,6 +402,14 @@ Phases A and B can run while C is designed; C is the critical path.
 - **Scope creep in the paper.** The rewrite should change what the paper
   *claims*, not what it is about.
 
+## 6b. Follow-up data recovery (not blocking)
+
+- **Settlement / road distance layers** (D6 gradient PPI, R1 L278):
+  `buffers_settlement` and `buffers_road` are `unknown_lost` in the manifest.
+  Locate in Glen's tree or rebuild from the village points and a road vector,
+  then run the cover-vs-distance PPI (the code generalises to it). Agreed
+  follow-up [HUGH], after the main refactor-3.0 pass.
+
 ## 7. Decisions needed
 
 | # | Decision | Recommendation | Owner |

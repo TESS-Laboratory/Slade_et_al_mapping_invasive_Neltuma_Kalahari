@@ -420,7 +420,10 @@ list(
   targets::tar_target_raw("best_all", rlang::call2("rbind", !!!rlang::syms(paste0("best_", names(SENSORS))))),
 
   # v2.0-compatible views, consumed by the figures and the paper until Phase E
-  tar_target(score_index, score_index_drone),
+  # score_index (figure view) includes the soft-vote 'average' rows so Fig 4
+  # shows the mapped surface beside the learners.
+  tar_target(score_index, rbind(score_index_drone,
+                                softvote_scores[softvote_scores$sensor == "drone", ])),
   tar_target(class_index, class_index_drone),
   tar_target(best_models, best_drone),
   tar_target(wv2_scores,  score_index_wv2),
@@ -509,6 +512,12 @@ list(
     format = "file"),
   tar_target(fig_wv2_bench, fig_wv2_benchmark(wv2_scores), format = "file"),
   tar_target(fig_phases, fig_phase_maps(wv2_prevalence_layer, wv2_phase_layer), format = "file"),
+  # ---- Phase C figures ----------------------------------------------------
+  tar_target(fig_conformal,
+             fig_conformal_map(pred_conformal_wv2_scene, "WorldView-2 (1.6 m), 90% coverage",
+                               "data-out/figures/figC1_conformal_wv2.png"), format = "file"),
+  tar_target(fig_coverage, fig_coverage_curve(conformal_coverage_honest), format = "file"),
+  tar_target(fig_area, fig_area_bounds(conformal_bounds, ppi_area, CONF_ALPHA_MAP), format = "file"),
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------

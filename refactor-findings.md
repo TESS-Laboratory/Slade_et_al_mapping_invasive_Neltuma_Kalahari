@@ -2010,3 +2010,10 @@ manifest, lockfile and library in agreement.
   the sensor limitation made rigorous. Tests prove the coverage guarantee.
   Also: prob rasters got an embedded GDAL scale tag; ragg rebuilt for R 4.6.0
   (Positron plotting fixed).
+- **2026-09-18 [FOLLOW-UP, HUGH]** The settlement/road distance layers
+  (buffers_settlement, buffers_road; manifest `unknown_lost`) must be located
+  in Glen's tree or rebuilt (they were made from village points + a road
+  vector) before the prediction-powered-inference of Neltuma cover vs distance
+  to settlement/road (R1 L278) can run. Everything else for that analysis is in
+  place (ppi.R generalises to a regression rectifier). Tracked as a follow-up,
+  not blocking the rest of refactor-3.0.

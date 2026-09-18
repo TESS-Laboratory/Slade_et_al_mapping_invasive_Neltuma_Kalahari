@@ -515,3 +515,112 @@ fig_wv2_benchmark <- function(wv2_scores, out_png = "data-out/figures/fig6ab_wv2
                   device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Figure C1: conformal uncertainty surface for one scene (R1 L253)
+#'
+#' Two panels: the prediction-SET SIZE per pixel (1 = the model resolves a
+#' single class; higher = more ambiguous), and the Neltuma-POSSIBLE map (pixels
+#' whose conformal set contains Neltuma - the management map, with its stated
+#' error rate). Modal-aggregated for plotting only.
+#'
+#' @param conformal_path 3-band raster from conformal_surface()
+#' @param sensor_label e.g. "WorldView-2 (1.6 m), 90% coverage"
+#' @param out_png output path
+#' @return `out_png`
+fig_conformal_map <- function(conformal_path, sensor_label, out_png) {
+  r <- terra::rast(conformal_path[1])
+  fact <- max(1L, floor(terra::ncol(r) / 1200))
+  if (fact > 1L) r <- terra::aggregate(r, fact = fact, fun = "modal", na.rm = TRUE)
+  df <- terra::as.data.frame(r, xy = TRUE, na.rm = TRUE)
+  panel <- function(col, title, fillspec) {
+    ggplot2::ggplot(df, ggplot2::aes(x = x, y = y, fill = .data[[col]])) +
+      ggplot2::geom_raster() + fillspec +
+      ggplot2::coord_equal(expand = FALSE) + ggplot2::labs(title = title) +
+      ggplot2::theme_void(base_size = 9) +
+      ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 9),
+                     legend.position = "bottom", legend.key.height = ggplot2::unit(6, "pt"))
+  }
+  a <- panel("set_size", "A  Prediction-set size (classes per pixel)",
+             ggplot2::scale_fill_viridis_c(name = NULL, option = "magma", direction = -1))
+  b <- panel("neltuma_possible", "B  Neltuma cannot be ruled out",
+             ggplot2::scale_fill_gradient(name = NULL, low = "grey92", high = "#B5179E"))
+  fig <- patchwork::wrap_plots(a, b, nrow = 1) +
+    patchwork::plot_annotation(subtitle = sensor_label,
+                               theme = ggplot2::theme(plot.subtitle = ggplot2::element_text(size = 8, colour = "grey35")))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 11, height = 6, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure C2: coverage and set-size against alpha (honest cross-conformal)
+#'
+#' Left: empirical coverage vs the nominal 1-alpha diagonal (does the guarantee
+#' hold?). Right: the price of coverage - mean set size vs alpha per task. The
+#' honest statement of the accuracy/uncertainty trade the paper should show
+#' rather than a single number.
+#'
+#' @param honest the conformal_coverage_honest table
+#' @param out_png output path
+#' @return `out_png`
+fig_coverage_curve <- function(honest, out_png = "data-out/figures/figC2_coverage.png") {
+  d <- honest; d$nominal <- 1 - d$alpha
+  d$task <- paste(d$site)
+  base <- ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                   legend.position = "right", legend.text = ggplot2::element_text(size = 7))
+  cov <- ggplot2::ggplot(d, ggplot2::aes(nominal, overall, colour = task, group = task)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60") +
+    ggplot2::geom_line() + ggplot2::geom_point(size = 1.6) +
+    ggplot2::scale_x_continuous("Nominal coverage (1 - alpha)", labels = scales::percent) +
+    ggplot2::scale_y_continuous("Empirical (held-out) coverage", labels = scales::percent) +
+    ggplot2::labs(title = "A  Coverage holds along the diagonal") + base
+  sz <- ggplot2::ggplot(d, ggplot2::aes(nominal, mean_set_size, colour = task, group = task)) +
+    ggplot2::geom_line() + ggplot2::geom_point(size = 1.6) +
+    ggplot2::scale_x_continuous("Nominal coverage (1 - alpha)", labels = scales::percent) +
+    ggplot2::labs(y = "Mean set size (classes)", title = "B  The price of coverage") + base
+  fig <- patchwork::wrap_plots(cov, sz, nrow = 1, guides = "collect")
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 11, height = 4.6, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure C3: Neltuma area with conformal and PPI intervals, per sensor
+#'
+#' The hard-map point, the conformal [lower, upper] band at the headline alpha,
+#' and the PPI point estimate with its CI - three honest statements of "how much
+#' Neltuma" side by side, against the single number the manuscript reports.
+#'
+#' @param bounds conformal_bounds (scene rows), @param ppi ppi_area
+#' @param alpha the headline alpha to show
+#' @param out_png output path
+#' @return `out_png`
+fig_area_bounds <- function(bounds, ppi, alpha = 0.10,
+                            out_png = "data-out/figures/figC3_area.png") {
+  b <- bounds[bounds$alpha == alpha & grepl("_scene$", bounds$site), ]
+  b$sensor <- sub("_scene$", "", b$site)
+  m <- merge(b, ppi, by = "sensor")
+  m$sensor <- factor(m$sensor, levels = c("wv2", "planet", "s2"),
+                     labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
+  fig <- ggplot2::ggplot(m, ggplot2::aes(y = sensor)) +
+    ggplot2::geom_linerange(ggplot2::aes(xmin = neltuma_lower_ha, xmax = neltuma_upper_ha),
+                            colour = "#B5179E", linewidth = 3, alpha = 0.35) +
+    ggplot2::geom_point(ggplot2::aes(x = point_ha), colour = "grey20", size = 2.6) +
+    ggplot2::geom_errorbarh(ggplot2::aes(xmin = ppi_lo_ha, xmax = ppi_hi_ha), height = 0.18, colour = "#3B6EA8") +
+    ggplot2::geom_point(ggplot2::aes(x = ppi_ha), colour = "#3B6EA8", size = 2.2, shape = 17) +
+    ggplot2::scale_x_continuous("Neltuma area (ha)") +
+    ggplot2::labs(y = NULL,
+                  title = "Neltuma area: hard map, conformal band, and PPI-corrected estimate",
+                  subtitle = sprintf("magenta = conformal [lower, upper] at %.0f%% coverage; grey = hard-map point; blue triangle = PPI +/- 95%% CI", 100 * (1 - alpha))) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
+                   plot.subtitle = ggplot2::element_text(size = 7.5, colour = "grey35"))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 9, height = 4, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
