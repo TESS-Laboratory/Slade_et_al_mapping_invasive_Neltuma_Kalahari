@@ -239,6 +239,7 @@ fits <- tar_map(
 # Per-task soft-vote (the mapped surface's own accuracy, D16/7.39) and
 # conformal calibration, over the TUNED learners' out-of-fold probabilities.
 CONF_ALPHAS <- c(0.05, 0.10, 0.20)
+CONF_ALPHA_MAP <- 0.10   # headline alpha for the landscape uncertainty surfaces
 sv_grid <- unique(TG[, c("sensor", "unit", "tag", "source", "id", "site_label")])
 for (lid in TUNED_IDS) sv_grid[[paste0("oof_", lid)]] <- rlang::syms(paste0("fit_oof_", sv_grid$id, "_", lid))
 softvote <- tar_map(
@@ -268,7 +269,7 @@ per_sensor_scores <- unlist(lapply(names(SENSORS), function(s) {
 # PREDICTIONS: one surface per unit on its primary source and prediction
 # stack; the winner's spec and configuration are the only tuning inputs.
 preds <- tar_map(
-  values = PG[, c("sensor", "unit", "tag", "pred_id", "cube_sym", "train_sym",
+  values = PG[, c("sensor", "unit", "tag", "pred_id", "site_label", "cube_sym", "train_sym",
                   "aoi_path", "window", paste0("cfg_", TUNED_IDS))],
   names = c("sensor", "unit"),
   # D16: no winner. Every tuned learner is refitted on all of the unit's data
@@ -290,7 +291,19 @@ preds <- tar_map(
   # The modal filter is retired as a product (D5); kept as a sensitivity surface.
   tar_target(pred_smooth, smooth_prediction(pred, window, pred_id, tag),
              format = "file", resources = predict_resources),
-  tar_target(smooth_areas, class_area_table(pred_smooth, pred_id, tag, "smoothed"))
+  tar_target(smooth_areas, class_area_table(pred_smooth, pred_id, tag, "smoothed")),
+  # Conformal uncertainty surfaces + Neltuma area bounds (Phase C, R1 L253/L272).
+  # The unit's calibration is its MAPPED task (site_label at PRED/native tag).
+  # [[ ]] not $: tar_map substitutes value symbols even inside `$` accessors,
+  # so conformal_cal$tag would become conformal_cal$"<tag>" -> NULL (the
+  # documented stacks$tag trap).
+  tar_target(pred_conf_cal, conformal_cal[conformal_cal[["site"]] == site_label &
+                                          conformal_cal[["tag"]] == tag, , drop = FALSE]),
+  tar_target(pred_conformal,
+             conformal_surface(pred, pred_conf_cal, CONF_ALPHA_MAP, neltuma_code, pred_id, tag),
+             format = "file", resources = predict_resources),
+  tar_target(pred_conf_bounds,
+             conformal_area_bounds(pred, pred_conf_cal, CONF_ALPHAS, neltuma_code, pred_id, tag))
 )
 
 # ---------------------------------------------------------------------------
@@ -421,6 +434,7 @@ list(
   # Sensitivity of every class area to the learner, beside the average (7.39).
   tar_combine(learner_area_index, preds[["pred_learner_areas"]], command = rbind(!!!.x)),
   tar_combine(smooth_index, preds[["smooth_areas"]], command = rbind(!!!.x)),
+  tar_combine(conformal_bounds, preds[["pred_conf_bounds"]], command = rbind(!!!.x)),
   tar_target(class_areas, pred_index[grepl("^drone_", pred_index$site), ]),
   tar_target(class_areas_smooth, smooth_index[grepl("^drone_", smooth_index$site), ]),
   tar_target(area_comparison, compare_areas(class_areas, class_areas_smooth)),

@@ -225,3 +225,96 @@ conformal_calibrate <- function(sv, alphas, site, tag,
   list(thresholds = cbind(meta[rep(1, nrow(th)), ], th, row.names = NULL),
        apparent = cbind(meta[rep(1, nrow(app)), ], app, row.names = NULL))
 }
+
+
+#' Per-class LAC inclusion thresholds on the probability scale
+#'
+#' A class is in a pixel's set when p[c] >= 1 - q_c. Returns 1 - q_c per class
+#' band, in band order; q_c = Inf (unresolvable class) maps to -Inf, i.e.
+#' "always in the set".
+#'
+#' @param cal conformal thresholds for one task at one alpha (class, q)
+#' @param classes integer class codes, in prob-raster band order
+#' @return numeric inclusion threshold per band
+inclusion_thresholds <- function(cal, classes) {
+  q <- cal$q[match(classes, cal$class)]
+  1 - q
+}
+
+
+#' Landscape conformal surfaces for one unit at one alpha
+#'
+#' Applies the Mondrian thresholds to the averaged probability raster to make
+#' the uncertainty products Reviewer 1 asked for:
+#'   set_size          number of classes in the prediction set (1 = decisive)
+#'   neltuma_possible  Neltuma is in the set (the management map: where to look)
+#'   neltuma_only      the set is exactly {Neltuma} (confident Neltuma)
+#'
+#' @param prob_path the unit's averaged prob raster (Int16 x scale, tag-scaled)
+#' @param cal conformal_cal rows for this unit's mapped task
+#' @param alpha miscoverage level for these surfaces
+#' @param neltuma_code Neltuma class code
+#' @param site,tag ids for the filename
+#' @param out_dir output directory
+#' @return path to the 3-band conformal raster
+conformal_surface <- function(prob_path, cal, alpha, neltuma_code, site, tag,
+                              out_dir = "data-out/conformal") {
+  p <- read_prob(prob_path[grepl("_prob\\.tif$", prob_path)][1])
+  classes <- as.integer(sub("^prob_", "", names(p)))
+  th <- inclusion_thresholds(cal[cal$alpha == alpha, , drop = FALSE], classes)
+  insets <- terra::rast(lapply(seq_along(classes), function(i) p[[i]] >= th[i]))
+  set_size <- sum(insets)
+  nb <- which(classes == neltuma_code)
+  nel_poss <- insets[[nb]]
+  nel_only <- (set_size == 1) & nel_poss
+  out <- c(set_size, nel_poss, nel_only)
+  names(out) <- c("set_size", "neltuma_possible", "neltuma_only")
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  path <- file.path(out_dir, sprintf("%s__%s_conformal_a%02d.tif", site, tag, round(alpha * 100)))
+  terra::writeRaster(out, path, overwrite = TRUE, datatype = "INT1U",
+                     gdal = c("COMPRESS=LZW", "TILED=YES"), NAflag = 255)
+  path
+}
+
+
+#' Neltuma area BOUNDS across alpha levels - the "range of km2" (R1 L272)
+#'
+#' Lower bound  = pixels whose set is exactly {Neltuma} (confident Neltuma).
+#' Point        = the averaged hard class (argmax) - the single number the
+#'                map shows, which is NOT reportable without the interval (7.39).
+#' Upper bound  = pixels where Neltuma is in the set (cannot be ruled out).
+#'
+#' [lower, upper] is the conformal interval and lower <= upper always. The
+#' hard-map point is a SEPARATE object and is NOT guaranteed to fall inside it:
+#' at high alpha (tight sets) a pixel can be argmax-Neltuma yet have Neltuma
+#' excluded from its set (p_neltuma below the inclusion threshold), so the
+#' point can exceed the upper bound. That is correct - the interval reflects
+#' calibrated confidence, the point reflects the winner - and the paper reports
+#' them as distinct quantities, not point +/- interval.
+#'
+#' @param prob_path the averaged prob raster
+#' @param cal conformal_cal rows for this unit's mapped task
+#' @param alphas miscoverage levels
+#' @param neltuma_code Neltuma class code
+#' @param site,tag ids
+#' @return data.frame: site, tag, alpha, neltuma_lower_ha, point_ha, neltuma_upper_ha
+conformal_area_bounds <- function(prob_path, cal, alphas, neltuma_code, site, tag) {
+  p <- read_prob(prob_path[grepl("_prob\\.tif$", prob_path)][1])
+  classes <- as.integer(sub("^prob_", "", names(p)))
+  nb <- which(classes == neltuma_code)
+  px_ha <- prod(terra::res(p)) / 1e4
+  hard <- terra::which.max(p)
+  point_ha <- as.numeric(terra::global(hard == nb, "sum", na.rm = TRUE)[1, 1]) * px_ha
+  do.call(rbind, lapply(alphas, function(a) {
+    th <- inclusion_thresholds(cal[cal$alpha == a, , drop = FALSE], classes)
+    insets <- terra::rast(lapply(seq_along(classes), function(i) p[[i]] >= th[i]))
+    set_size <- sum(insets)
+    nel_poss <- insets[[nb]]
+    nel_only <- (set_size == 1) & nel_poss
+    data.frame(site = site, tag = tag, alpha = a,
+               neltuma_lower_ha = as.numeric(terra::global(nel_only, "sum", na.rm = TRUE)[1, 1]) * px_ha,
+               point_ha = point_ha,
+               neltuma_upper_ha = as.numeric(terra::global(nel_poss, "sum", na.rm = TRUE)[1, 1]) * px_ha,
+               stringsAsFactors = FALSE)
+  }))
+}
