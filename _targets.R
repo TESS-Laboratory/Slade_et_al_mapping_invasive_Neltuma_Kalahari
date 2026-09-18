@@ -470,6 +470,13 @@ list(
              build_phase_layer(pred_wv2_scene, pred_smooth_wv2_scene, wv2_grid_prevalence, neltuma_code,
                                sensors_cfg$wv2$phases, "data-out/wv2/prevalence.fgb"), format = "file"),
   tar_target(wv2_phase_table, phase_summary(wv2_phase_layer)),
+  # Probabilistic phases (D7): the hard map, plus the conformal lower/upper
+  # cover envelope, per 250 m hexagon -> Table 1 with ranges (R1 L272).
+  tar_target(wv2_phase_conformal_layer,
+             phase_conformal_layer(pred_wv2_scene, pred_conformal_wv2_scene, wv2_grid_phase,
+                                   neltuma_code, sensors_cfg$wv2$phases, "data-out/wv2/phases_conformal.fgb"),
+             format = "file"),
+  tar_target(wv2_phase_table_conformal, phase_summary_conformal(wv2_phase_conformal_layer)),
 
   # ---- figures ------------------------------------------------------------
   targets::tar_target_raw("fig_maps",

@@ -603,3 +603,63 @@ build_field_layer <- function(field_paths, buffer_m, keep_classes, out) {
   if (!nrow(v)) stop("Field layer is empty after class filtering.", call. = FALSE)
   write_fgb(v, out)
 }
+
+
+#' Phase layer with a conformal cover envelope (D7)
+#'
+#' Neltuma cover per grid cell computed three ways from the WV2 surfaces:
+#'   point  fraction of pixels whose hard class is Neltuma (the map)
+#'   lower  fraction whose conformal set is exactly {Neltuma} (confident)
+#'   upper  fraction where Neltuma is in the conformal set (cannot rule out)
+#' Each cover is classified into a Table S8 phase, so every cell gets a phase
+#' RANGE, and Table 1 becomes an interval (R1 L272). The point cover is the
+#' single number the map shows; lower/upper are the calibrated envelope, not
+#' point +/- (see conformal_area_bounds).
+#'
+#' @param class_path hard averaged class raster (band 1)
+#' @param conformal_path 3-band conformal raster (set_size, neltuma_possible,
+#'   neltuma_only) from `conformal_surface()`
+#' @param grid_path analysis grid (.fgb)
+#' @param neltuma_code Neltuma class code
+#' @param th thresholds list (dominance, expansion, incursion, percent)
+#' @param out output layer path (.fgb)
+#' @return `out`
+phase_conformal_layer <- function(class_path, conformal_path, grid_path,
+                                  neltuma_code, th, out) {
+  grid <- sf::st_read(grid_path, quiet = TRUE)
+  hard <- terra::rast(class_path[1])[[1]] == neltuma_code
+  conf <- terra::rast(conformal_path[1])
+  cover <- function(r) 100 * exactextractr::exact_extract(r, grid, "mean", progress = FALSE)
+  phase_of <- function(p) cut(p, breaks = c(-Inf, th$incursion, th$expansion, th$dominance, Inf),
+                              labels = c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance"),
+                              right = FALSE)
+  grid$cover_point <- cover(hard)
+  grid$cover_lower <- cover(conf[["neltuma_only"]])
+  grid$cover_upper <- cover(conf[["neltuma_possible"]])
+  grid$phase_point <- phase_of(grid$cover_point)
+  grid$phase_lower <- phase_of(grid$cover_lower)
+  grid$phase_upper <- phase_of(grid$cover_upper)
+  write_fgb(grid, out)
+}
+
+
+#' Table 1 with conformal ranges: phase area point, and the [lower, upper] band
+#'
+#' @param layer_path output of `phase_conformal_layer()`
+#' @return data.frame: phase, area_ha (point), pct_point, area_lower_ha,
+#'   area_upper_ha, pct_lower, pct_upper
+phase_summary_conformal <- function(layer_path) {
+  g <- sf::st_read(layer_path, quiet = TRUE)
+  area_ha <- as.numeric(sf::st_area(g)) / 1e4
+  total <- sum(area_ha)
+  lv <- c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance")
+  a <- function(col) {
+    f <- factor(as.character(g[[col]]), levels = lv)
+    v <- as.numeric(tapply(area_ha, f, sum, default = 0)); v[is.na(v)] <- 0; v
+  }
+  data.frame(phase = lv,
+             area_ha = a("phase_point"),    pct_point = 100 * a("phase_point") / total,
+             area_lower_ha = a("phase_lower"), pct_lower = 100 * a("phase_lower") / total,
+             area_upper_ha = a("phase_upper"), pct_upper = 100 * a("phase_upper") / total,
+             stringsAsFactors = FALSE)
+}
