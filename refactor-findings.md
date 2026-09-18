@@ -1490,6 +1490,40 @@ Still to do (agreed [HUGH]): the averaged surface has no measured accuracy yet
 first-class learner under the same kNNDM folds, reusing the stored out-of-fold
 probabilities, so the mapped surface carries its own accuracy and Neltuma
 recall.
+### 7.42 Conformal set sizes make the sensor limitation quantitative
+
+Phase C foundation: Mondrian (per-class) LAC split conformal, calibrated on the
+soft-vote out-of-fold probabilities the kNNDM run produces (R/conformal.R).
+Coverage tracks the target across every task - at alpha=0.10 overall coverage
+is 0.90-0.95, at 0.05 it is ~0.95-1.0, at 0.20 ~0.80-0.85 - so the guarantee
+holds. The informative output is the mean PREDICTION-SET SIZE (of 4-6 classes)
+at 90% coverage:
+
+| task | mean set size @ alpha=0.10 | reading |
+|---|---|---|
+| WV2 archived | 3.28 / 6 | to be 90% sure, name 3+ classes per pixel - the model cannot resolve one |
+| Planet archived | 2.04 / 5 | |
+| S2 archived | 2.27 / 4 | |
+| WV2 field | 2.18 / 6 | |
+| drone bokspits_1 | 1.49 / 6 | the finest sensor is nearly decisive |
+
+This is the uncertainty layer R1 asked for and R2's over-confidence point made
+rigorous: where the manuscript reported a single hard class per satellite
+pixel at "75.8%", an honestly calibrated model must offer 2-3 candidate classes
+to keep its promise. The per-class thresholds also expose scarcity honestly -
+s2_dr_raw (n=20 over 4 classes) cannot be calibrated, so classes hit the Inf
+threshold and the set contains everything (size 3.0, coverage 1.0): the method
+declines to pretend, rather than inventing confidence.
+
+The soft-vote (D16) also gained its own measured accuracy: on the fast
+profile it matched the best single learner within a point (0.868 vs 0.875),
+confirming the average costs ~nothing in accuracy while removing the
+winner-take-all instability of 7.39 - the full-profile numbers land next.
+
+Note: these coverages are the calibration ("apparent") figures - calibrated
+and measured on the same OOF, a mild optimism. Honest held-out coverage
+(leave-one-site-out) and the landscape set-size / Neltuma-possible / area-bound
+rasters are the next Phase C step.
 ---
 
 ## 8. Class scheme
@@ -1968,3 +2002,11 @@ manifest, lockfile and library in agreement.
   on sparse sites, svm collapses (NA) on two satellite scenes, and the average
   sits sensibly among the members every time. Phase C next: soft-vote accuracy,
   then conformal.
+- **2026-09-18 (Phase C foundation)** R/conformal.R: Mondrian LAC split
+  conformal on the soft-vote OOF probabilities; fit_oof + softvote + conformal
+  calibration targets; the soft-vote now carries its own measured accuracy and
+  Neltuma recall (average as a first-class model). **Finding 7.42**: 90%-coverage
+  set sizes are 2-3.3 classes for the satellites vs ~1.5 for the drone -
+  the sensor limitation made rigorous. Tests prove the coverage guarantee.
+  Also: prob rasters got an embedded GDAL scale tag; ragg rebuilt for R 4.6.0
+  (Positron plotting fixed).

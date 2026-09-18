@@ -230,7 +230,25 @@ fits <- tar_map(
              resources = ml_resources),
   tar_target(fit_tidy, tidy_resample(fit, site_label, tag, learner_id, sensor, unit, source)),
   tar_target(fit_class, tidy_class_accuracy(fit, site_label, tag, learner_id, neltuma_code,
-                                            sensor, unit, source))
+                                            sensor, unit, source)),
+  # Out-of-fold probabilities (the kNNDM test predictions) for the soft-vote
+  # and conformal calibration; small (n_obs x n_classes).
+  tar_target(fit_oof, tidy_oof(fit))
+)
+
+# Per-task soft-vote (the mapped surface's own accuracy, D16/7.39) and
+# conformal calibration, over the TUNED learners' out-of-fold probabilities.
+CONF_ALPHAS <- c(0.05, 0.10, 0.20)
+sv_grid <- unique(TG[, c("sensor", "unit", "tag", "source", "id", "site_label")])
+for (lid in TUNED_IDS) sv_grid[[paste0("oof_", lid)]] <- rlang::syms(paste0("fit_oof_", sv_grid$id, "_", lid))
+softvote <- tar_map(
+  values = sv_grid[, c("sensor", "unit", "tag", "source", "site_label",
+                       paste0("oof_", TUNED_IDS))],
+  names = c("sensor", "unit", "tag", "source"),
+  tar_target(sv, softvote_oof(list(svm = oof_svm, xgboost = oof_xgboost, ranger = oof_ranger,
+                                   lightgbm = oof_lightgbm, glmnet = oof_glmnet))),
+  tar_target(sv_tidy, tidy_softvote(sv, site_label, tag, sensor, unit, source, neltuma_code)),
+  tar_target(sv_cal, conformal_calibrate(sv, CONF_ALPHAS, site_label, tag, sensor, unit, source))
 )
 
 # Per-sensor score and class-accuracy tables, and the per-sensor winners.
@@ -373,10 +391,17 @@ list(
                                                 training_index_all$source == "field", ]),
   per_spec,
   fits,
+  softvote,
+  tar_combine(softvote_scores, softvote[["sv_tidy"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "score"))),
+  tar_combine(softvote_classes, softvote[["sv_tidy"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "class"))),
+  tar_combine(conformal_cal, softvote[["sv_cal"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "thresholds"))),
+  tar_combine(conformal_apparent, softvote[["sv_cal"]], command = do.call(rbind, lapply(list(!!!.x), `[[`, "apparent"))),
   per_sensor_scores,
   # Reporting views (nothing upstream of a prediction may read these).
-  targets::tar_target_raw("score_index_all", rlang::call2("rbind", !!!rlang::syms(paste0("score_index_", names(SENSORS))))),
-  targets::tar_target_raw("class_index_all", rlang::call2("rbind", !!!rlang::syms(paste0("class_index_", names(SENSORS))))),
+  targets::tar_target_raw("score_index_all",
+    rlang::call2("rbind", rlang::call2("rbind", !!!rlang::syms(paste0("score_index_", names(SENSORS)))), quote(softvote_scores))),
+  targets::tar_target_raw("class_index_all",
+    rlang::call2("rbind", rlang::call2("rbind", !!!rlang::syms(paste0("class_index_", names(SENSORS)))), quote(softvote_classes))),
   targets::tar_target_raw("best_all", rlang::call2("rbind", !!!rlang::syms(paste0("best_", names(SENSORS))))),
 
   # v2.0-compatible views, consumed by the figures and the paper until Phase E
