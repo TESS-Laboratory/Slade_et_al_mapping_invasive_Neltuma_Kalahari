@@ -452,6 +452,12 @@ list(
   confusions,
   tar_target(wv2_confusion_raw_raw, confusion_raw_raw_wv2),
   tar_target(wv2_confusion_smooth_smooth, confusion_smooth_smooth_wv2),
+  # PPI (D6): correct each sensor's scene Neltuma area by the bias measured on
+  # the drone overlap, with a CI (R1 range / R2 propagate-the-discrepancy).
+  tar_target(ppi_wv2, ppi_neltuma_area(pred_wv2_scene, confusion_raw_raw_wv2, neltuma_code, "wv2")),
+  tar_target(ppi_planet, ppi_neltuma_area(pred_planet_scene, confusion_raw_raw_planet, neltuma_code, "planet")),
+  tar_target(ppi_s2, ppi_neltuma_area(pred_s2_scene, confusion_raw_raw_s2, neltuma_code, "s2")),
+  tar_target(ppi_area, rbind(ppi_wv2, ppi_planet, ppi_s2)),
   plant_scale,
   tar_combine(plant_validation, plant_scale[["plant_rows"]], command = rbind(!!!.x)),
   tar_target(plant_validation_summary, plant_scale_summary(plant_validation)),
