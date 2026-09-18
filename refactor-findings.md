@@ -1441,6 +1441,55 @@ accepts only a SpatRaster domain, and would rebuild the folds inside every
 fit. Worth raising with the kNNDM authors: the published recommendation of
 hierarchical clustering makes repeated kNNDM degenerate. **[HUGH]** - a note
 for the conversation with Nowosad.
+### 7.41 kNNDM splits the two regimes; drone accuracy rises, satellite falls; the average is vindicated
+
+The full Phase B run (kNNDM evaluation, six learners, equal-weight probability
+averaging) confirms 7.38's prediction with real accuracies. Under kNNDM the
+drone and satellite numbers move in OPPOSITE directions from the v2.0
+spcv_coords baseline:
+
+| arm | v2.0 spcv_coords | kNNDM (this run) | why |
+|---|---|---|---|
+| drone within-site (5_CHM_ALLVI) | 0.872 grand mean | **0.913** | W ~ 1-2 m: predicting nearby IS the task; spcv_coords blocked the small sites and was over-pessimistic |
+| WV2, study area | 0.643 | **0.50-0.65** | W ~ 4 km: k=5 kNNDM = near leave-site-out, the honest extrapolation |
+| Planet, study area | 0.737 | 0.71 | " |
+| S2, study area | 0.867 | 0.72-0.78 | " |
+
+This is the paper's cleanest statement of the scale story: the finest sensor,
+asked to fill in gaps within a surveyed site, reaches ~0.91; the coarse
+sensors, asked to generalise to 445 km2 from seven clusters, reach 0.5-0.78,
+and W (kept per task) quantifies the gap. The manuscript's single "75.8%" was
+neither of these - it was spcv_coords at a friendly fold count (7.34).
+
+**The averaging (D16) is vindicated, quantitatively.** Per-learner Neltuma
+areas on the SAME surface (one fixed run - no retuning) span:
+
+| site | averaged Neltuma (ha) | learner spread as % of average |
+|---|---|---|
+| struizendam_2 | 0.45 | 0.19-3.10 ha = **642%** |
+| struizendam_1 | 0.41 | 0.30-0.98 ha = 168% |
+| struizendam_3 | 0.06 | 0.03-0.11 ha = 118% |
+| bokspits_1-3 | 0.2-0.68 | 32-45% |
+| s2_scene | 2,593 | 1,970-3,020 ha = 40% |
+
+7.39 measured a 54% area swing BETWEEN runs of one learner; this is the
+BETWEEN-learner spread within one run, and on the sparse sites it reaches
+600%+. Any single "winner" is arbitrary at that scale. The averaged surface
+sits sensibly among the members in every case - never an outlier - which is
+exactly the variance reduction D16 was chosen for.
+
+**A third reason the winner is unsafe:** svm returns NA (falls to the
+featureless fallback) on the WV2 and Planet scenes - its tuned configuration
+collapses under the near-leave-site-out folds, the same extreme-regularisation
+failure as 7.34's diagnostic. It was v2.0's reported "winner" for Planet. The
+average of the four surviving learners is robust to one member failing; a
+single-winner map is not.
+
+Still to do (agreed [HUGH]): the averaged surface has no measured accuracy yet
+- Fig 4 reports per-learner CV only. Phase C evaluates the soft-vote as a
+first-class learner under the same kNNDM folds, reusing the stored out-of-fold
+probabilities, so the mapped surface carries its own accuracy and Neltuma
+recall.
 ---
 
 ## 8. Class scheme
@@ -1912,3 +1961,10 @@ manifest, lockfile and library in agreement.
   per cube (D16), with a per-learner sensitivity table; satellites train on
   field points and raw-surface purity (D4), filtered-surface arms retired
   (D5); renv.lock export (D9). 35 tasks x 6 learners.
+- **2026-09-18** Phase B full run complete (1,184 targets, 18h39m, 0 errors).
+  **Finding 7.41**: kNNDM raises drone within-site accuracy to 0.913 and lowers
+  satellite study-area accuracy to 0.50-0.78 - the two regimes separated, W per
+  task. Averaging vindicated: between-learner Neltuma-area spread reaches 640%
+  on sparse sites, svm collapses (NA) on two satellite scenes, and the average
+  sits sensibly among the members every time. Phase C next: soft-vote accuracy,
+  then conformal.
