@@ -102,16 +102,40 @@ predict_site <- function(cube_path, aoi_path, training, spec, shared, config,
                      overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
                      gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
                               "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
+  tag_prob_scale(prob_path)
   c(class_path, prob_path)
 }
 
 
-#' Probability rasters are stored as scaled integers; read them back as [0, 1]
+#' Probability rasters are stored as Int16 x PROB_SCALE, with a GDAL Scale tag
+#' (1/PROB_SCALE) written into every band by `tag_prob_scale()`. terra and any
+#' GDAL-scale-aware reader therefore return [0, 1] automatically, so read_prob()
+#' is now a plain read - the +/- 10000 convention lives in the file metadata,
+#' not in this code (decision 2026-09-18 [HUGH]).
 PROB_SCALE <- 10000L
 
-#' @param path a prob raster written by predict_site()
+#' @param path a prob raster written by the prediction targets
 #' @return SpatRaster of class probabilities on [0, 1]
-read_prob <- function(path) terra::rast(path) / PROB_SCALE
+read_prob <- function(path) terra::rast(path)
+
+#' Embed the probability scale (1/PROB_SCALE) into a raster's band metadata
+#'
+#' terra's writeRaster cannot emit a GDAL Scale tag without also applying it and
+#' destroying the integer values, so the tag is set as a post-write metadata
+#' edit via gdal_edit. Self-describing: gdalinfo shows Scale=1e-04, and readers
+#' that honour it (terra, gdalwarp, rasterio scaled reads) return [0, 1].
+#'
+#' @param path a written Int16 prob raster
+#' @return `path`, invisibly
+tag_prob_scale <- function(path) {
+  scale <- format(1 / PROB_SCALE, scientific = FALSE)
+  ok <- system2("gdal_edit.py", c("-scale", scale, "-offset", "0", shQuote(path)),
+                stdout = FALSE, stderr = FALSE)
+  if (!identical(ok, 0L)) {
+    warning("gdal_edit.py did not tag the probability scale on ", path, call. = FALSE)
+  }
+  invisible(path)
+}
 
 
 #' Summarise a predicted surface
@@ -332,6 +356,7 @@ predict_unit_average <- function(cube_path, aoi_path, training, specs, shared, c
                      overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
                      gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
                               "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
+  tag_prob_scale(prob_path)
   terra::writeRaster(pred[[1L + n_c + seq_len(n_l)]], learners_path, overwrite = TRUE,
                      datatype = "INT1U", gdal = int_opts, NAflag = 255)
   c(class_path, prob_path, learners_path)
