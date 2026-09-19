@@ -18,6 +18,9 @@
 run_checks <- function(score_index_all, training_index, cube_index, resampling, sensors_cfg, cv_index) {
   fail <- character(0)
   note <- function(ok, msg) if (!isTRUE(ok)) fail <<- c(fail, msg)
+  # The soft-vote 'average' is a derived reporting row, not a fitted learner:
+  # exclude it from the per-learner completeness and iteration checks.
+  score_index_all <- score_index_all[score_index_all$learner != "average", ]
 
   # Every fit ran its task's kNNDM design in full (folds x repeats), and scored.
   key <- function(d) paste(d$sensor, d$unit, d$tag, d$source)
