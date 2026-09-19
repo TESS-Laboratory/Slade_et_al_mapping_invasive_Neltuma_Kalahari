@@ -136,6 +136,48 @@ cover_aoa <- function(train_df, bands, folds, newdata, weight = NULL) {
 }
 
 
+#' Fast dissimilarity index + AOA threshold (KD-tree), scalable to full scenes
+#'
+#' `CAST::aoa` (see `cover_aoa()`) brute-forces the DI single-threaded and does
+#' not scale to satellite scenes (S2's 4.5M px ran >30 min at 12 GB; WV2's 175M
+#' px is infeasible). This computes the same quantity - Meyer & Pebesma's DI: the
+#' nearest-training distance in scaled (equal-weight) feature space, normalised by
+#' the mean pairwise training distance - via an FNN KD-tree, with the CV training
+#' DI and the outlier-rule threshold (Q3 + 1.5*IQR) taken over the kNNDM folds.
+#' `cover_aoa()` is retained for small-data cross-checks against CAST.
+#'
+#' @param train_df cover training table (row order matches the OOF residuals)
+#' @param bands predictor band names
+#' @param folds kNNDM (or leave-site-out) design, for the CV DI and threshold
+#' @param weights optional per-band weights (permutation importance); NULL = equal
+#' @param norm_sample number of point pairs sampled to estimate the normaliser
+#' @return list(di_cal, threshold, di_of = function(feature matrix) -> DI vector,
+#'   center, scale, weights, norm)
+cover_di <- function(train_df, bands, folds, weights = NULL, norm_sample = 4000L) {
+  X <- as.matrix(train_df[, bands, drop = FALSE])
+  ctr <- colMeans(X); scl <- apply(X, 2, stats::sd); scl[scl == 0 | !is.finite(scl)] <- 1
+  w <- if (is.null(weights)) rep(1, length(bands)) else as.numeric(weights)
+  tr <- function(M) sweep(sweep(sweep(M, 2, ctr, "-"), 2, scl, "/"), 2, w, "*")
+  Xs <- tr(X)
+
+  set.seed(1L); m <- min(norm_sample, nrow(Xs))
+  i1 <- sample(nrow(Xs), m, TRUE); i2 <- sample(nrow(Xs), m, TRUE)
+  norm <- mean(sqrt(rowSums((Xs[i1, , drop = FALSE] - Xs[i2, , drop = FALSE])^2)))
+  if (!is.finite(norm) || norm == 0) norm <- 1
+
+  di_cal <- numeric(nrow(Xs))
+  for (i in seq_along(folds$test_sets)) {
+    te <- folds$test_sets[[i]]; trn <- folds$train_sets[[i]]
+    di_cal[te] <- FNN::get.knnx(Xs[trn, , drop = FALSE], Xs[te, , drop = FALSE],
+                                k = 1L)$nn.dist[, 1] / norm
+  }
+  threshold <- as.numeric(stats::quantile(di_cal, 0.75) + 1.5 * stats::IQR(di_cal))
+  di_of <- function(M) FNN::get.knnx(Xs, tr(as.matrix(M)), k = 1L)$nn.dist[, 1] / norm
+  list(di_cal = di_cal, threshold = threshold, di_of = di_of,
+       center = ctr, scale = scl, weights = w, norm = norm)
+}
+
+
 #' DI-stratified (Mondrian) conformal cover intervals - the novel piece (3.9)
 #'
 #' Marginal conformal loses local coverage under covariate shift: the interval is
@@ -314,6 +356,74 @@ cover_ensemble_oof <- function(oof) {
     acc <- acc + o$response[ord]
   }
   list(row_ids = ids, response = acc / length(oof), truth = oof[[1]]$truth)
+}
+
+
+#' Pool the drone soft-vote OOF across sites and fit the Neltuma calibrator
+#'
+#' Pooled across the seven sites for stability (sparse field truth per site). The
+#' drone OOF is already held out, so fitting the calibrator on it is honest.
+#'
+#' @param sv_list list of drone `softvote_oof()` outputs (one per site)
+#' @param neltuma_code Neltuma class code
+#' @param method "platt" or "isotonic"
+#' @return calibrator g from `calibrate_neltuma_prob()`
+drone_calibrator <- function(sv_list, neltuma_code, method = "platt") {
+  nk <- as.character(neltuma_code)
+  p <- unlist(lapply(sv_list, function(sv) as.numeric(sv$prob[, nk])), use.names = FALSE)
+  y <- unlist(lapply(sv_list, function(sv) as.integer(as.character(sv$truth) == nk)),
+              use.names = FALSE)
+  pooled <- list(prob = matrix(p, ncol = 1L, dimnames = list(NULL, nk)),
+                 truth = factor(ifelse(y == 1L, nk, "_rest"), levels = c("_rest", nk)))
+  calibrate_neltuma_prob(pooled, neltuma_code, method = method)
+}
+
+
+#' Fit the cover ensemble on full data and predict the scene cover surface
+#'
+#' The regression analogue of `predict_unit_average()`: fit each regr twin on the
+#' full cover table, predict the satellite cube, average the per-learner responses
+#' (equal weight, clamped to [0, 1]) and write the cover raster.
+#'
+#' @param train_df cover table from `cover_training_table()`
+#' @param cube_path satellite predictor cube
+#' @param bands predictor band names
+#' @param learner_ids regr twin ids
+#' @param out_path output cover raster path
+#' @param epsg CRS code for the task
+#' @return `out_path`
+predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_path,
+                                epsg = 32734) {
+  data.table::setDTthreads(1L)
+  task <- make_cover_task(train_df, train_df$site[1], train_df$tag[1], epsg)
+  models <- lapply(learner_ids, function(id) { l <- cover_learner(id); l$train(task); l })
+
+  cube <- terra::rast(cube_path)
+  if (!all(bands %in% names(cube))) {
+    stop("Cube lacks band(s): ", paste(setdiff(bands, names(cube)), collapse = ", "),
+         call. = FALSE)
+  }
+  wrap <- function(model, dat, ...) {
+    out <- rep(NA_real_, nrow(dat))
+    ok <- stats::complete.cases(dat)
+    if (any(ok)) {
+      acc <- numeric(sum(ok))
+      for (m in model) {
+        acc <- acc + pmin(pmax(m$predict_newdata(dat[ok, , drop = FALSE])$response, 0), 1)
+      }
+      out[ok] <- acc / length(model)
+    }
+    out
+  }
+  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+  cover <- terra::predict(cube[[bands]], models, fun = wrap, na.rm = FALSE, cores = n_cores)
+  names(cover) <- "cover"
+  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
+  terra::writeRaster(terra::round(cover * PROB_SCALE), out_path, overwrite = TRUE,
+                     datatype = "INT2S", NAflag = -1L,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  tag_prob_scale(out_path)
+  out_path
 }
 
 

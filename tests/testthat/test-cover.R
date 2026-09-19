@@ -117,6 +117,21 @@ test_that("DI-stratified conformal widens with DI and holds ~1-alpha coverage pe
   expect_true(all(cov$by_bin$coverage > 0.82))
 })
 
+test_that("cover_di (FNN) gives low DI in-distribution, high DI out, threshold separates", {
+  skip_if_not_installed("FNN")
+  set.seed(5); n <- 400L; bands <- c("b1", "b2", "b3")
+  tr <- data.frame(b1 = rnorm(n), b2 = rnorm(n), b3 = rnorm(n))
+  folds <- list(train_sets = list((n/2 + 1):n, 1:(n/2)),
+                test_sets  = list(1:(n/2), (n/2 + 1):n))
+  di <- cover_di(tr, bands, folds)
+  expect_length(di$di_cal, n)
+  expect_true(is.finite(di$threshold) && di$threshold > 0)
+  ind <- data.frame(b1 = rnorm(50), b2 = rnorm(50), b3 = rnorm(50))       # in-distribution
+  oud <- data.frame(b1 = rnorm(50, 8), b2 = rnorm(50, 8), b3 = rnorm(50, 8)) # far away
+  expect_lt(mean(di$di_of(ind) > di$threshold), 0.2)   # in-dist mostly inside AOA
+  expect_gt(mean(di$di_of(oud) > di$threshold), 0.9)   # out-of-dist outside AOA
+})
+
 test_that("cover_aoa derives a CV threshold and separates in/out-of-distribution", {
   skip_if_not_installed("CAST")
   set.seed(1); n <- 200L; bands <- c("b1", "b2", "b3")
