@@ -70,8 +70,11 @@ Every one of these maps onto a pipeline product below.
    is an interval.
 3. **One code path for every sensor.** The drone is the finest sensor, not a
    special case: sites x sensors x training-source x learner, one graph.
-4. **Raw surfaces only.** The modal filter is retired as a processing step and
-   reported once as a sensitivity analysis (it is a recall penalty, 7.35).
+4. **Raw surfaces only, no smoothing at all.** The modal filter is dropped
+   entirely (2026-09-19 [HUGH], superseding the D5 "sensitivity only"): with the
+   C2 cover regression there is no hard per-pixel map to smooth, and the filter
+   was a net recall penalty (7.35). Removal is explained to reviewers, not
+   reproduced (rationale in refactor-findings.md 2026-09-19).
 5. **Measured, not argued.** Fold-count curves, coverage curves, calibration
    plots and timing tables are figures, not paragraphs.
 
@@ -418,7 +421,7 @@ Phases A and B can run while C is designed; C is the critical path.
 | D2 | Primary CV design | **decided: kNNDM via CAST**, domains per question | done |
 | D3 | Learner set; keep the stacked ensemble? | **decided 2026-09-17 [HUGH]: drop the stacked ensemble.** Five tuned learners (glmnet, svm, ranger, lightgbm, xgboost) + the untuned ranger as a control. The manuscript's "SVM and ensemble performed best" goes [ANDY]. | done |
 | D4 | Training sources reported per satellite | **decided 2026-09-17 [HUGH for ANDY]:** field points + purity from OUR raw drone surfaces; Glen's archived extraction kept as a reproduction check only | done |
-| D5 | Retire the modal filter; smoothing as sensitivity only | **decided 2026-09-17 [HUGH for ANDY]: yes** - raw surfaces are the products; the filter is reported once as a sensitivity analysis (7.31, 7.35) | done |
+| D5 | Retire the modal filter; smoothing as sensitivity only | **decided 2026-09-17 [HUGH for ANDY]: yes** - raw surfaces are the products; the filter is reported once as a sensitivity analysis (7.31, 7.35). **SUPERSEDED 2026-09-19 [HUGH]: dropped entirely** - the C2 cover regression leaves no hard map to smooth; removal explained to reviewers, not reproduced. All smoothed targets (pred_smooth_*, confusion_*_smooth, smooth_areas/smooth_index, area_comparison, raw-vs-smooth phases, fig_wv2_map smoothed panel, paper_values *_smooth) retire with the C2 build. | superseded -> drop |
 | D6 | PPI for areas and settlement gradients | **decided [HUGH]; area PPI implemented 2026-09-18** (ppi_neltuma_area, corrects each scene's Neltuma area by the drone-overlap bias with a CI). The settlement/road GRADIENT PPI is BLOCKED: buffers_settlement / buffers_road are unknown_lost in the manifest - needs the distance layers to be located or rebuilt [ANDY/HUGH] | area done; gradient data-blocked |
 | D7 | Phase map as probabilistic membership with area ranges | **decided 2026-09-17 [HUGH for ANDY]: yes** | done |
 | D8 | Paper outputs: docx + HTML, SI as qmd | **decided 2026-09-17 [HUGH for ANDY]: yes** | done |

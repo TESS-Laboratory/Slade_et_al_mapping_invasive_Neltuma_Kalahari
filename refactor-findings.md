@@ -2048,3 +2048,68 @@ manifest, lockfile and library in agreement.
   after one clean rebuild the tag is written from birth and the store is
   internally consistent. Worth doing overnight before the final archival run so
   provenance matches, but not needed for the paper's numbers.
+- **2026-09-19 [C2 REDESIGN - fractional cover, agreed with HUGH]** The hard-class
+  PPI headline is unsound: the rectifier is a single global scalar measured only
+  inside the invaded drone sites (high Neltuma prevalence) and applied to a scene
+  that is overwhelmingly un-surveyed background - PPI's exchangeability is violated,
+  and coarse sensors collapse to ~0 ha (S2) / 16 ha (Planet) because the in-site
+  bias (Delta) exceeds the scene prevalence (theta_tilde). Compounded by a
+  resolution artifact: "drone truth" is majority-per-satellite-cell, so it shrinks
+  as the grid coarsens (S2 sites 1.6% vs WV2 2.8% for the SAME ground). Footprint
+  check confirms PPI recovers drone truth exactly IN-DOMAIN (WV2 5.0 ha, Planet
+  4.4, S2 2.7 ha, tight CIs) - the pathology is purely in extrapolating the in-site
+  rectifier to the scene. WV2 (near-unbiased in-site, +0.3pp) is the only trustworthy
+  hard-class number (388->264 ha).
+  REPLACEMENT DESIGN (supersedes the frac_5/purity-threshold approach in plan 3.8):
+  (1) drone full classification as now -> extract the CALIBRATED Neltuma probability
+  (Platt/logistic on the drone OOF, binary Neltuma-vs-rest; isotonic as a check;
+  fit per-fold to avoid optimism) so mean(P)=areal cover is unbiased - calibration
+  fixes the PER-CELL target (map, phases, AOA sub-regions), a spatial fix, distinct
+  from PPI. (2) warp -r average the calibrated drone P onto each satellite grid ->
+  per-cell expected Neltuma cover = the regression target (no majority vote, no
+  purity threshold, no relaxing 0.95->0.65, no shrinking class roster - that whole
+  apparatus deletes). (3) regression twins (glmnet/ranger/lgbm/svm) on the same
+  cubes; UNCERTAINTY = CV+ (K-fold jackknife+, a split-free CONFORMAL method) run on
+  our kNNDM folds, NOT mlr3's default random-fold CV+ (random folds under spatial
+  autocorrelation -> optimistically narrow, same optimism kNNDM was adopted to kill).
+  kNNDM breaks the exchangeability the CV+ theorem needs, so the guarantee weakens to
+  empirical - we EARN it by validating coverage out-of-sample (extend the K-fold
+  honest-coverage check to the regression). One conformal-on-kNNDM philosophy across
+  classification (C1) and regression (C2). (4) propagate the drone conformal band into
+  the coarse-cell target uncertainty and combine with the CV+ interval, being careful
+  NOT to double-count (CV+ residuals on the noisy target already absorb some target
+  noise). (5) area = sum(cover x px); the AGGREGATE bias+CI comes from PPI ON TOP of
+  the regression - PPI's designed use (inference over an ML predictor), well-behaved
+  on continuous cover, and it mops up residual drone calibration bias. AOA/DI defines
+  the trust region; report area within-AOA as label-supported, flag extrapolation
+  beyond. Feasibility high: drone prob raster Neltuma band, pred_conformal_drone_*,
+  learner_pi_cvplus, and the kNNDM folds all already exist. TODO: verify
+  learner_pi_cvplus accepts our custom kNNDM resampling (else compute CV+ residuals
+  directly on the folds); work out the non-double-counting combination explicitly.
+- **2026-09-19 [DECISION - drop smoothing entirely, HUGH]** The post-classification
+  modal (focal-majority, w=9) filter is removed from the analysis outright,
+  superseding D5's "retain as a sensitivity analysis". It served only to reproduce
+  and critique the original study's filter; with the C2 cover regression there is no
+  longer a hard per-pixel classification to smooth, so the step is both inapplicable
+  and redundant. All smoothed targets retire when the C2 satellite arm is built:
+  pred_smooth_*, confusion_raw_smooth_*, confusion_smooth_smooth_*, smooth_areas_*,
+  smooth_index, class_areas_smooth, area_comparison, the raw-vs-smooth phase layers,
+  the fig_wv2_map "smoothed (w=9)" panel, and the paper_values *_smooth fields
+  (qmd:80, qmd:242 rewrite to the cover product). Planet/S2 smoothed products were
+  degenerate anyway (smooth_window=0 -> identical to raw). NOTE: sequence the removal
+  WITH the C2 build, not as a standalone edit, so the manuscript's filter passages
+  are rewritten to the cover product in one pass rather than left broken.
+
+  REVIEWER-FACING RATIONALE (for the SI / response to reviewers): "We do not apply
+  the post-classification modal filter used in the original study. First, our
+  independent reproduction showed the filter halves Neltuma recall for no gain in
+  precision, and that the +24.8% agreement improvement attributed to it (Table S10)
+  arises from applying the same filter to both the satellite and drone maps - two
+  filters largely cancelling - rather than from any genuine improvement; it also
+  erases the sparse 0.1% invasion-phase floor, shifting the landscape phase split by
+  ~40 points. Second, our satellite Neltuma product is no longer a hard per-pixel
+  class map but a continuous sub-pixel cover estimate (regression on the
+  area-averaged drone Neltuma probability), so majority smoothing of a categorical
+  surface is neither applicable nor desirable - it would blur the very cover
+  gradients that define the invasion phases. Predictive uncertainty is carried
+  explicitly through conformal/CV+ intervals rather than suppressed by smoothing."
