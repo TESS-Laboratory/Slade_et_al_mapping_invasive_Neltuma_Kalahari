@@ -107,6 +107,111 @@ cover_training_table <- function(cube_path, prob_path, grid_path, site, tag, g, 
 }
 
 
+#' Spatial regression task for sub-pixel cover
+#'
+#' The regression twin of `make_task()`: coordinates drive spatial resampling
+#' only (`coords_as_features = FALSE`), never predict. Response is the continuous
+#' `cover` fraction.
+#'
+#' @param df a cover table from `cover_training_table()`
+#' @param site,tag ids
+#' @param epsg the unit CRS code
+#' @return a TaskRegrST
+make_cover_task <- function(df, site, tag, epsg) {
+  drop <- intersect(c("site", "tag"), names(df))
+  d <- df[, setdiff(names(df), drop), drop = FALSE]
+  mlr3spatiotempcv::as_task_regr_st(
+    d, target = "cover", id = paste0(site, "__", tag),
+    coordinate_names = c("x", "y"), crs = paste0("EPSG:", epsg),
+    coords_as_features = FALSE)
+}
+
+
+#' Build one regression twin of the classification learner set
+#'
+#' Same four capacity learners as the classification arm, in their regr guise,
+#' each encapsulated with a featureless fallback so a failing spatial fold scores
+#' as a failure rather than killing the run (as with_fallback() does for
+#' classification).
+#'
+#' @param id "glmnet" | "ranger" | "lightgbm" | "svm"
+#' @return a regr Learner
+cover_learner <- function(id) {
+  l <- switch(id,
+    glmnet   = mlr3::lrn("regr.glmnet"),
+    ranger   = mlr3::lrn("regr.ranger", importance = "impurity"),
+    lightgbm = mlr3::lrn("regr.lightgbm", verbose = -1L, num_threads = 1L),
+    svm      = mlr3::lrn("regr.svm", type = "eps-regression"),
+    stop("Unknown cover learner '", id, "'.", call. = FALSE))
+  l$encapsulate("evaluate", fallback = mlr3::lrn("regr.featureless"))
+  l
+}
+
+
+#' Resample one cover learner on a task's stored kNNDM design
+#'
+#' Mirrors `run_resample()`: the folds are the task's kNNDM design so residuals
+#' are honest for spatial extrapolation and paired across learners.
+#'
+#' @param task a TaskRegrST
+#' @param learner a regr Learner
+#' @param folds `list(train_sets, test_sets)` (the kNNDM design)
+#' @param seed RNG seed
+#' @return a ResampleResult
+run_cover_resample <- function(task, learner, folds, seed = 1L) {
+  data.table::setDTthreads(1L)
+  resampling <- as_custom_resampling(task, folds)
+  set.seed(seed)
+  mlr3::resample(task, learner, resampling, store_models = FALSE)
+}
+
+
+#' Out-of-fold cover predictions from a ResampleResult
+#'
+#' The regression analogue of `tidy_oof()`: one predicted cover per observation
+#' (averaged over repeats), clamped to [0, 1] because cover is a fraction. These
+#' are the honest kNNDM residual source for the DI-stratified conformal.
+#'
+#' @param rr a regr ResampleResult
+#' @return list(row_ids, response, truth) aligned and sorted by row id
+cover_oof <- function(rr) {
+  p <- rr$prediction()
+  resp <- pmin(pmax(p$response, 0), 1)
+  ids <- p$row_ids; truth <- as.numeric(p$truth)
+  uid <- sort(unique(ids))
+  if (length(uid) < length(ids)) {
+    resp <- as.numeric(tapply(resp, ids, mean)[as.character(uid)])
+    truth <- truth[match(uid, ids)]
+    ids <- uid
+  } else {
+    ord <- order(ids); resp <- resp[ord]; truth <- truth[ord]; ids <- ids[ord]
+  }
+  list(row_ids = ids, response = resp, truth = truth)
+}
+
+
+#' Equal-weight ensemble of cover OOF predictions
+#'
+#' The regression analogue of `softvote_oof()` and the D16 decision carried into
+#' C2: equal weights are fixed a priori, so wrapping the conformal around this
+#' averaged predictor stays honest (no nested selection leakage; plan 3.8).
+#'
+#' @param oof list of per-learner `cover_oof()` outputs (shared kNNDM folds)
+#' @return list(row_ids, response, truth) for the averaged model
+cover_ensemble_oof <- function(oof) {
+  ids <- oof[[1]]$row_ids
+  acc <- numeric(length(ids))
+  for (o in oof) {
+    ord <- match(ids, o$row_ids)
+    if (anyNA(ord)) {
+      stop("learners disagree on row ids; kNNDM folds should be shared.", call. = FALSE)
+    }
+    acc <- acc + o$response[ord]
+  }
+  list(row_ids = ids, response = acc / length(oof), truth = oof[[1]]$truth)
+}
+
+
 #' Reliability of a probability against a binary outcome
 #'
 #' Expected calibration error (bin-weighted |mean(p) - mean(y)|) and Brier score,

@@ -63,6 +63,43 @@ test_that("cover_training_table averages the CALIBRATED prob (mean(g(p)), not g(
   expect_true(all(c("cover","site","tag","x","y","blue") %in% names(out$training)))
 })
 
+test_that("cover regression OOF and ensemble align by row id and clamp to [0,1]", {
+  skip_if_not_installed("mlr3"); skip_if_not_installed("mlr3spatiotempcv")
+  skip_if_not_installed("mlr3learners"); skip_if_not_installed("ranger")
+  suppressMessages({library(mlr3); library(mlr3learners)})
+  set.seed(3)
+  n <- 60L
+  x1 <- stats::rnorm(n); x2 <- stats::rnorm(n)
+  cover <- pmin(pmax(stats::plogis(1.5 * x1) + stats::rnorm(n, 0, 0.05), 0), 1)
+  df <- data.frame(cover = cover, site = "s", tag = "t",
+                   x = stats::runif(n, 0, 100), y = stats::runif(n, 0, 100),
+                   b1 = x1, b2 = x2)
+  task <- make_cover_task(df, "s", "t", epsg = 32734)
+  # two-fold design where every row is tested exactly once
+  folds <- list(train_sets = list(31:60, 1:30), test_sets = list(1:30, 31:60))
+
+  rr_rf <- run_cover_resample(task, cover_learner("ranger"), folds)
+  rr_fl <- run_cover_resample(task, mlr3::lrn("regr.featureless"), folds)
+  o1 <- cover_oof(rr_rf); o2 <- cover_oof(rr_fl)
+
+  expect_identical(o1$row_ids, 1:60)                    # every row once, sorted
+  expect_true(all(o1$response >= 0 & o1$response <= 1)) # clamped to cover range
+
+  ens <- cover_ensemble_oof(list(o1, o2))
+  expect_identical(ens$row_ids, 1:60)
+  # equal-weight average, aligned by row id
+  expect_equal(ens$response, (o1$response + o2$response) / 2, tolerance = 1e-9)
+  # ranger should beat the featureless baseline on this learnable signal
+  rmse <- function(o) sqrt(mean((o$response - o$truth)^2))
+  expect_lt(rmse(o1), rmse(o2))
+})
+
+test_that("cover_ensemble_oof rejects learners with mismatched row ids", {
+  o1 <- list(row_ids = 1:5, response = runif(5), truth = runif(5))
+  o2 <- list(row_ids = 2:6, response = runif(5), truth = runif(5))
+  expect_error(cover_ensemble_oof(list(o1, o2)), "row ids")
+})
+
 test_that("calibrate_neltuma_prob errors when the Neltuma column is absent", {
   sv <- list(row_ids = 1:3, prob = cbind(`0` = c(.2, .3, .4), `6` = c(.8, .7, .6)),
              truth = factor(c("0", "6", "0"), levels = c("0", "6")))
