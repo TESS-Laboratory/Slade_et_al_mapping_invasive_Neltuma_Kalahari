@@ -287,7 +287,7 @@ for a handful of pure pixels become labels for all of them.
 | Learners | regression twins of the classification set: glmnet, lightgbm, ranger, svm; **equal-weight average (conformal-honesty rationale, see box)** | same 9-band cubes; same kNNDM folds |
 | Zero inflation | evaluate direct regression against a hurdle (presence classifier x cover regression); trees may not need it, glmnet will | 86% of WV2 pixels are zero |
 | Evaluation | kNNDM folds; RMSE/MAE and calibration of cover, plus detection metrics at cover thresholds (>0, >0.1, >0.5) | the sparse-detection question is a threshold on cover |
-| Uncertainty | **CV+ (split-free conformal) on OUR kNNDM folds** via `learner_pi_cvplus` (custom resampling), DI-stratified (3.9); coverage EARNED by out-of-sample validation | NOT random-fold CV+ (optimistic under spatial autocorrelation) |
+| Uncertainty | **conformal on OUR kNNDM OOF residuals, computed directly** (mlr3's `PipeOpLearnerPICVPlus` only takes an integer fold count = internal RANDOM CV, so it cannot use kNNDM folds - verified 2026-09-19), DI-stratified (3.9); mirrors the C1 classification conformal (thresholds from kNNDM OOF, applied to the full-data surface); coverage EARNED by out-of-sample validation | NOT random-fold CV+ (optimistic under spatial autocorrelation) |
 | Baseline | linear spectral unmixing with endmembers from pure pixels | the classical method reviewers will expect to see beaten |
 | Products | Neltuma fractional-cover raster + lower/upper interval rasters per sensor; area = sum of fractions x pixel area with PPI intervals; phases per hexagon from mean cover directly | no majority vote, no purity threshold anywhere in the chain |
 

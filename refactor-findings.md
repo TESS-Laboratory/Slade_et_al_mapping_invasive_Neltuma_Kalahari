@@ -2086,6 +2086,18 @@ manifest, lockfile and library in agreement.
   learner_pi_cvplus, and the kNNDM folds all already exist. TODO: verify
   learner_pi_cvplus accepts our custom kNNDM resampling (else compute CV+ residuals
   directly on the folds); work out the non-double-counting combination explicitly.
+- **2026-09-19 [C2 build - CV+ TODO resolved]** Verified `PipeOpLearnerPICVPlus`
+  (mlr3pipelines; there is no `learner_pi_cvplus` sugar fn) exposes only
+  `picvplus.folds` (integer) + `picvplus.alpha` - it runs its own INTERNAL RANDOM
+  K-fold CV and cannot accept a custom resampling. So the off-the-shelf pipeop
+  can't use our kNNDM folds. Decision: implement the regression conformal on the
+  kNNDM OOF residuals DIRECTLY (mirrors R/conformal.R for classification -
+  thresholds/quantiles from the kNNDM OOF, applied to the full-data cover surface),
+  DI-stratified. Point estimate from the full-data equal-weight ensemble; intervals
+  from the DI-binned quantiles of the honest kNNDM OOF residuals; strict CV+ (K
+  fold-models scored over the scene) available as a coverage cross-check. Progress:
+  R/cover.R has calibrate_neltuma_prob (+ calibration_quality) and
+  cover_training_table (warp-average target), both tested (tests/testthat/test-cover.R).
 - **2026-09-19 [DECISION - drop smoothing entirely, HUGH]** The post-classification
   modal (focal-majority, w=9) filter is removed from the analysis outright,
   superseding D5's "retain as a sensitivity analysis". It served only to reproduce
