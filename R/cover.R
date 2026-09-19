@@ -107,6 +107,35 @@ cover_training_table <- function(cube_path, prob_path, grid_path, site, tag, g, 
 }
 
 
+#' Dissimilarity index and area of applicability from the kNNDM folds (CAST)
+#'
+#' `aoa()` with our kNNDM CV folds, so the AOA threshold is the outlier-removed
+#' maximum DI seen DURING cross-validation - the threshold is tied to the
+#' prediction situation (3.9). Equal feature weights by default (`useWeight=FALSE`);
+#' the permutation-importance variant passes `weight` (compared, simpler kept -
+#' Q1). LPD is off (not core to the interval). The returned `di_cal` is the DI of
+#' each training point (aligned to `train_df`'s row order, hence to the OOF
+#' residuals) and feeds `di_conformal_bounds()`; `di_new` is the scene DI
+#' (SpatRaster or vector) and `threshold` masks beyond the AOA.
+#'
+#' @param train_df cover training table (row order matches the OOF residuals)
+#' @param bands predictor band names
+#' @param folds kNNDM design `list(train_sets, test_sets)`
+#' @param newdata scene cube (SpatRaster) or feature data.frame
+#' @param weight optional 1-row data.frame of feature weights; NULL = equal
+#' @return list(threshold, di_cal, di_new, aoa, raw)
+cover_aoa <- function(train_df, bands, folds, newdata, weight = NULL) {
+  args <- list(newdata = newdata, train = train_df[, bands, drop = FALSE],
+               variables = bands, CVtrain = folds$train_sets,
+               CVtest = folds$test_sets, useCV = TRUE, LPD = FALSE, verbose = FALSE)
+  if (is.null(weight)) args$useWeight <- FALSE else args$weight <- weight
+  a <- do.call(CAST::aoa, args)
+  list(threshold = a$parameters$threshold,
+       di_cal = as.numeric(a$parameters$trainDI),
+       di_new = a$DI, aoa = a$AOA, raw = a)
+}
+
+
 #' DI-stratified (Mondrian) conformal cover intervals - the novel piece (3.9)
 #'
 #' Marginal conformal loses local coverage under covariate shift: the interval is

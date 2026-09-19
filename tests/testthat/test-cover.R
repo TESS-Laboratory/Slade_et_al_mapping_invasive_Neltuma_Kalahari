@@ -117,6 +117,23 @@ test_that("DI-stratified conformal widens with DI and holds ~1-alpha coverage pe
   expect_true(all(cov$by_bin$coverage > 0.82))
 })
 
+test_that("cover_aoa derives a CV threshold and separates in/out-of-distribution", {
+  skip_if_not_installed("CAST")
+  set.seed(1); n <- 200L; bands <- c("b1", "b2", "b3")
+  tr <- data.frame(b1 = rnorm(n), b2 = rnorm(n), b3 = rnorm(n),
+                   cover = runif(n), site = "s", tag = "t",
+                   x = runif(n), y = runif(n))
+  folds <- list(train_sets = list(1:100, 101:200), test_sets = list(101:200, 1:100))
+  newd <- data.frame(b1 = c(rnorm(30), rnorm(30, 8)),
+                     b2 = c(rnorm(30), rnorm(30, 8)),
+                     b3 = c(rnorm(30), rnorm(30, 8)))
+  out <- cover_aoa(tr, bands, folds, newd)
+  expect_length(out$di_cal, n)                    # DI per training point
+  expect_true(is.finite(out$threshold))
+  expect_gt(mean(as.numeric(out$aoa)[1:30]),  0.8) # in-distribution mostly inside
+  expect_lt(mean(as.numeric(out$aoa)[31:60]), 0.2) # out-of-distribution outside
+})
+
 test_that("beyond the AOA threshold no interval is issued; sparse bins clamp to [0,1]", {
   resid <- stats::rnorm(200, 0, 0.05)
   di_cal <- stats::runif(200, 0, 0.5)
