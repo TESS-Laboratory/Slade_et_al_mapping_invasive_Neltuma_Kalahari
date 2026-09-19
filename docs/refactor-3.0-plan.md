@@ -215,6 +215,53 @@ Table 1 with the intervals R1 asked for.
 
 ### 3.8 Sub-pixel fractional cover ("unmixing") - a separate product, not a by-product **[HUGH]** **[ANDY]**
 
+> **FINALIZED 2026-09-19 [HUGH] - merged C2+C3, this supersedes the frac_5/purity
+> approach and the "sensitivity-only" smoothing of D5.** Full derivation and the
+> rejected hard-class PPI in refactor-findings.md (2026-09-19).
+>
+> **Target construction (the key change from the frac_5 idea):** build the drone
+> full classification as now, extract the Neltuma channel, **calibrate it** (Platt
+> logistic on the drone OOF logit, binary Neltuma-vs-rest, fit per-fold to avoid
+> optimism; isotonic as a check - pick the simpler if reliability curves agree),
+> then **warp -r average** the calibrated drone P(Neltuma) onto each satellite grid.
+> mean(calibrated P) over a coarse cell = expected areal Neltuma cover = the
+> regression target. No majority vote, no purity threshold, no relaxing 0.95->0.65,
+> no shrinking class roster - that whole apparatus deletes. Calibration is a
+> PER-CELL/spatial fix (correct map, phases, AOA sub-regions); it is distinct from
+> PPI, which is the AGGREGATE fix.
+>
+> **Regression + uncertainty:** regression twins (glmnet/ranger/lgbm/svm) on the same
+> cubes and kNNDM folds. **Combiner = equal-weight average, and the reason is
+> conformal-honesty, not the D16 instability hedge:** fixed a-priori weights let CV+
+> wrap the averaged predictor with no leakage, whereas any data-driven combiner
+> (CV-weighting, best-single) is a selection step that must be re-selected *inside
+> every conformal fold* or it breaks coverage. Keep equal-weight as default; adopt a
+> data-driven combiner only if it clearly wins under *properly nested* evaluation.
+> Measure best-single/CV-weighted (nested) and direct-vs-hurdle (zero-inflation, ~86%
+> zeros) on the kNNDM folds; pick the simplest that isn't clearly beaten. D16 is
+> untouched - it governs the classification arm; this is the regression arm's own call.
+> **Interval = CV+ (split-free conformal) on OUR kNNDM folds, NOT mlr3's random-fold
+> default** (random -> optimistically narrow under spatial autocorrelation). kNNDM
+> breaks exchangeability so the guarantee is EARNED empirically by out-of-sample
+> coverage validation (extend the honest-coverage check to the regression). One
+> conformal-on-kNNDM philosophy across C1 (class sets) and C2 (cover).
+>
+> **Uncertainty budget (resolves the double-count):** per-pixel scene map = DI-stratified
+> CV+ only (no drone label at scene pixels, so nothing to add; training-label noise is
+> already inside the CV+ residuals). The drone-conformal target uncertainty enters
+> **once, in the aggregate**, as the "ground truth is itself uncertain" term inflating
+> the PPI rectifier variance. Each source once, each where it belongs.
+>
+> **Area = sum(cover x px) within the AOA**, aggregate bias+CI from **PPI on top of the
+> regression** (its designed use; well-behaved on continuous cover; absorbs residual
+> drone-calibration bias); out-of-AOA area reported separately as un-assessable, never a
+> fabricated point. See 3.9 for the DI/AOA integration.
+>
+> **Phases: kept, but thin** - mean cover per phase cell -> threshold, conformal band
+> propagated into a phase-assignment uncertainty, within-AOA cells only. No hard-class
+> aggregation. (The grid is no longer needed to *estimate* cover - cover is per-pixel -
+> only to express the landscape phase pattern, which is a neighbourhood concept.)
+
 Class probabilities and fractional cover are different quantities. The
 classifier's p(Neltuma) is the calibrated probability that a pixel's
 *dominant* cover is Neltuma, learned from pixels that were >= 95% / 85% /
@@ -236,11 +283,11 @@ for a handful of pure pixels become labels for all of them.
 | Element | Choice | Note |
 |---|---|---|
 | Response | Neltuma fraction per satellite pixel (0-1); woody-vs-other fraction as a second target if the paper wants it | Compositional all-class unmixing (Dirichlet / multi-output) is a later option; Neltuma is the claim |
-| Labels | raw drone surfaces only (7.31); label noise from drone error (~10%) carried into PPI | the filtered surfaces would erase the sparse end of the target |
-| Learners | regression twins of the classification set: glmnet, lightgbm, ranger, svm | same 9-band cubes; same kNNDM folds |
+| Labels | **calibrated drone P(Neltuma), warp -r average onto the satellite grid** (NOT the frac_5 hard-class fraction); raw drone surfaces only (7.31); drone label uncertainty carried into the PPI rectifier variance | keeps the drone's soft information end-to-end; the whole purity/majority apparatus deletes |
+| Learners | regression twins of the classification set: glmnet, lightgbm, ranger, svm; **equal-weight average (conformal-honesty rationale, see box)** | same 9-band cubes; same kNNDM folds |
 | Zero inflation | evaluate direct regression against a hurdle (presence classifier x cover regression); trees may not need it, glmnet will | 86% of WV2 pixels are zero |
 | Evaluation | kNNDM folds; RMSE/MAE and calibration of cover, plus detection metrics at cover thresholds (>0, >0.1, >0.5) | the sparse-detection question is a threshold on cover |
-| Uncertainty | **CV+ / jackknife+ intervals via mlr3pipelines `learner_pi_cvplus`** - the regression conformal tool already in our stack and the one Hugh has used | coverage checked per site as for the sets |
+| Uncertainty | **CV+ (split-free conformal) on OUR kNNDM folds** via `learner_pi_cvplus` (custom resampling), DI-stratified (3.9); coverage EARNED by out-of-sample validation | NOT random-fold CV+ (optimistic under spatial autocorrelation) |
 | Baseline | linear spectral unmixing with endmembers from pure pixels | the classical method reviewers will expect to see beaten |
 | Products | Neltuma fractional-cover raster + lower/upper interval rasters per sensor; area = sum of fractions x pixel area with PPI intervals; phases per hexagon from mean cover directly | no majority vote, no purity threshold anywhere in the chain |
 
@@ -263,6 +310,20 @@ regression, decided by measurement [HUGH]; D13 include the endmember
 baseline (recommend yes, it costs a day) [HUGH].
 
 ### 3.9 Epistemic x aleatoric: conformal prediction conditioned on the area of applicability **[HUGH]** **[ANDY]** - the novel piece
+
+> **FINALIZED 2026-09-19 [HUGH] - merged into C2, built together.** DI plays three
+> roles: (1) **mask** beyond the AOA threshold - no comparable calibration residuals
+> exist there, so abstain and report that area as un-assessable (this is what honestly
+> replaces the hard-class S2->0 ha pathology); (2) **stratify the conformal interval**
+> within the AOA (Mondrian-by-DI, level 1) so intervals widen with DI and conditional
+> coverage is restored; (3) **scope PPI** to within-AOA (optionally DI-stratified),
+> where the drone-overlap rectifier is actually representative. AOA threshold from
+> `trainDI(..., useCV=TRUE, CVtrain/CVtest = our kNNDM folds)` - AOA and conformal share
+> the same honest CV. **DI feature weighting: compare permutation-importance vs
+> equal-weight, default to equal-weight if no material difference** (measure, don't argue).
+> **Method kept INTERNAL for now** (no "in prep" citation); the D15 methods paper writes
+> it up strictly after the Neltuma paper. Per-DI-band out-of-sample coverage is both our
+> honesty check and, later, the methods paper's headline figure.
 
 Proposed by Hugh, 2026-09-16. Two uncertainty sources, two tools that have
 not been combined:
@@ -292,7 +353,7 @@ folds. A proper literature review is the first task of the phase.
 | Level | Method | What it buys |
 |---|---|---|
 | 1 | **DI-stratified Mondrian conformal**: calibration groups = class x DI-bin (bins from the CV DI quantiles); per-group thresholds | Coverage guaranteed *within each DI stratum* (DI is a function of the features, so grouping on it is legitimate). Set size / interval width grow with DI automatically. Outside the AOA there are no calibration points, so no set is issued: the AOA becomes the *domain of validity* of the conformal guarantee, which is the sentence that has not been written. |
-| 2 | **DI-normalised scores**: s = (1 - p_y) / g(DI) with g from CAST's DI-to-error calibration (`DItoErrormetric`) | One global guarantee with continuously adaptive sets; compare against level 1 on efficiency (mean set size at equal coverage). |
+| 2 | **DI-normalised scores**: s = (1 - p_y) / g(DI), g our own DI->spread fit on the kNNDM CV residuals (CAST 1.1.2 dropped `DItoErrormetric`, so we fit it - no loss, it's our contribution) | One global guarantee with continuously adaptive sets; compare against level 1 on efficiency. Use only if level-1 bins are too sparse at high DI (esp. S2). |
 | 3 | **Weighted conformal beyond the AOA**: likelihood-ratio weights from feature-space density (kNN / LPD) to extend partial guarantees outside the AOA | The extrapolation zone gets a stated, weaker guarantee instead of nothing. Research-grade; optional. |
 
 Applies to both arms: classification (sets, cross-conformal) and
