@@ -2017,3 +2017,34 @@ manifest, lockfile and library in agreement.
   to settlement/road (R1 L278) can run. Everything else for that analysis is in
   place (ppi.R generalises to a regression rectifier). Tracked as a follow-up,
   not blocking the rest of refactor-3.0.
+- **2026-09-19 (checks false alarm + Phase C completion)** The 13h36m full B+C
+  run finished all 423 science targets but "errored" on the `checks` target:
+  run_checks counted the soft-vote "average" reporting row as a 7th learner and
+  read its NA iteration count as a missing kNNDM design. Fixed in R/checks.R by
+  excluding `learner == "average"` from the completeness/iteration checks; it is
+  a derived row, not a fitted learner (commit 1650e4b).
+- **2026-09-19 [PHANTOM INVALIDATION - IMPORTANT for reproducibility]** After
+  the run, `tar_outdated` looked alarming (610 outdated under the *default* fast
+  profile - an artefact of probing without NELTUMA_PROFILE=full, since the fast
+  profile has a different SITES list, PRED_AGG and resampling config). Under the
+  correct full profile the true set is 114: **34 genuinely never-built** (the
+  cheap Phase C tail - conformal surfaces/bounds, PPI, phase-conformal, figures)
+  plus **80 phantom-stale** that all cascade from the three satellite scene
+  predictions (pred_wv2/planet/s2_scene) showing `file=TRUE` + `depend=TRUE`.
+  Root cause: commit 55951ce (14:24) added `tag_prob_scale()` to
+  predict_unit_average and simplified `read_prob()` to a plain read - both
+  changes are **value-neutral by construction** (the /10000 moved from R code to
+  the GDAL Scale tag; the commit explicitly tagged the 10 existing rasters "in
+  place, no recompute"). Verified: all 14 prob rasters carry Scale=0.0001, the
+  satellite prob rasters are Int16 x10000 identical to the drone ones, and every
+  *target* dependency of pred_wv2_scene is current - only the function hashes
+  changed. So the satellite predictions are scientifically correct; targets just
+  wants to reproduce byte-identical rasters (~7.7h for WV2 alone). Phase C was
+  therefore completed with `tar_make(names = <34 never-built + checks +
+  paper_values + paper>, shortcut = TRUE)`, using the validated predictions from
+  the store rather than paying the 7.7h. **CONSEQUENCE:** a plain full
+  `tar_make` will still want to rebuild those three satellite predictions once
+  (their depend hash is permanently changed vs the manually-tagged rasters);
+  after one clean rebuild the tag is written from birth and the store is
+  internally consistent. Worth doing overnight before the final archival run so
+  provenance matches, but not needed for the paper's numbers.
