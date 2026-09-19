@@ -94,6 +94,40 @@ test_that("cover regression OOF and ensemble align by row id and clamp to [0,1]"
   expect_lt(rmse(o1), rmse(o2))
 })
 
+test_that("DI-stratified conformal widens with DI and holds ~1-alpha coverage per bin", {
+  set.seed(4)
+  n <- 4000L
+  di_cal <- stats::runif(n)                       # dissimilarity index in [0,1]
+  spread <- 0.02 + 0.30 * di_cal                  # heteroscedastic in DI
+  resid  <- stats::rnorm(n, 0, spread)            # OOF residuals
+
+  # fresh held-out set from the same process, to check coverage honestly
+  m <- 4000L
+  di_new <- stats::runif(m)
+  yhat_new <- rep(0.5, m)
+  truth_new <- yhat_new + stats::rnorm(m, 0, 0.02 + 0.30 * di_new)
+
+  b <- di_conformal_bounds(resid, di_cal, di_new, yhat_new, alpha = 0.10, n_bins = 5L)
+  q <- attr(b, "q")
+  # half-widths increase with the DI bin
+  expect_true(all(diff(q) > 0))
+  # empirical coverage ~ 0.90 overall and within each bin
+  cov <- di_coverage(truth_new, b$lower, b$upper, b$bin)
+  expect_gt(cov$overall, 0.86)
+  expect_true(all(cov$by_bin$coverage > 0.82))
+})
+
+test_that("beyond the AOA threshold no interval is issued; sparse bins clamp to [0,1]", {
+  resid <- stats::rnorm(200, 0, 0.05)
+  di_cal <- stats::runif(200, 0, 0.5)
+  di_new <- c(0.1, 0.4, 5.0)                       # last is outside the AOA
+  b <- di_conformal_bounds(resid, di_cal, di_new, yhat_new = c(.5, .5, .5),
+                           alpha = 0.1, n_bins = 4L, aoa_threshold = 1.0)
+  expect_false(b$inside_aoa[3])
+  expect_true(is.na(b$lower[3]) && is.na(b$upper[3]))
+  expect_true(all(b$lower[1:2] >= 0 & b$upper[1:2] <= 1))
+})
+
 test_that("cover_ensemble_oof rejects learners with mismatched row ids", {
   o1 <- list(row_ids = 1:5, response = runif(5), truth = runif(5))
   o2 <- list(row_ids = 2:6, response = runif(5), truth = runif(5))

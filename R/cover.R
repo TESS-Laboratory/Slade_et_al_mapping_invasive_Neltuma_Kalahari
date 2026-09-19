@@ -107,6 +107,82 @@ cover_training_table <- function(cube_path, prob_path, grid_path, site, tag, g, 
 }
 
 
+#' DI-stratified (Mondrian) conformal cover intervals - the novel piece (3.9)
+#'
+#' Marginal conformal loses local coverage under covariate shift: the interval is
+#' calibrated on the training feature distribution, so pixels far from training
+#' (high dissimilarity index, DI) are under-covered. We stratify: bin the honest
+#' kNNDM OOF residuals by DI (bins from the calibration DI quantiles, so each has
+#' comparable support), take the split-conformal quantile of |residual| PER BIN,
+#' and issue each scene pixel the quantile of its own DI bin. Intervals widen with
+#' DI automatically. A bin too small to form the (1 - alpha) quantile gets an
+#' infinite half-width (interval clamps to [0, 1] - maximal honesty, not a
+#' fabricated tight bound). Beyond the AOA threshold there are no comparable
+#' residuals at all, so no interval is issued (NA - the pixel is un-assessable).
+#'
+#' This is Mondrian conformal with DI as the stratifier, the direct analogue of
+#' the per-class Mondrian in R/conformal.R. Coverage is EARNED empirically
+#' (`di_coverage()` on held-out data), since kNNDM + DI-conditioning break the
+#' exchangeability a finite-sample theorem would need.
+#'
+#' @param resid OOF residuals (truth - response) from `cover_ensemble_oof()`
+#' @param di_cal DI of each calibration/OOF point (same order as `resid`)
+#' @param di_new DI of each new (scene) point
+#' @param yhat_new point cover prediction at each new point
+#' @param alpha miscoverage level
+#' @param n_bins number of DI strata (bins from calibration DI quantiles)
+#' @param aoa_threshold DI above which no interval is issued (from `trainDI`)
+#' @return data.frame(yhat, lower, upper, di, bin, inside_aoa) per new point,
+#'   and attr(,"q") the per-bin half-widths
+di_conformal_bounds <- function(resid, di_cal, di_new, yhat_new, alpha,
+                                n_bins = 5L, aoa_threshold = Inf) {
+  probs <- seq(0, 1, length.out = n_bins + 1L)
+  edges <- unique(stats::quantile(di_cal, probs, na.rm = TRUE))
+  edges[1] <- -Inf; edges[length(edges)] <- Inf
+  nb <- length(edges) - 1L
+  bin_cal <- findInterval(di_cal, edges, rightmost.closed = TRUE)
+  bin_new <- findInterval(di_new, edges, rightmost.closed = TRUE)
+
+  q_of <- function(r) {
+    n <- length(r); if (n == 0L) return(NA_real_)
+    k <- ceiling((n + 1) * (1 - alpha))
+    if (k > n) return(Inf)                     # too few to guarantee -> maximal
+    sort(abs(r))[k]
+  }
+  q <- vapply(seq_len(nb), function(b) q_of(resid[bin_cal == b]), numeric(1))
+
+  qn <- q[bin_new]
+  lo <- pmax(yhat_new - qn, 0); hi <- pmin(yhat_new + qn, 1)
+  inside <- di_new <= aoa_threshold
+  lo[!inside] <- NA_real_; hi[!inside] <- NA_real_
+  out <- data.frame(yhat = yhat_new, lower = lo, upper = hi,
+                    di = di_new, bin = bin_new, inside_aoa = inside)
+  attr(out, "q") <- q
+  out
+}
+
+
+#' Empirical coverage of cover intervals, overall and per DI bin
+#'
+#' The honesty check the guarantee is replaced by: on held-out data, does each DI
+#' stratum actually cover ~ (1 - alpha)? This is the internal validation and,
+#' later, the methods paper's headline figure.
+#'
+#' @param truth held-out cover values
+#' @param lower,upper interval bounds (NA outside the AOA are dropped)
+#' @param bin DI bin of each point
+#' @return list(overall, by_bin = data.frame(bin, n, coverage))
+di_coverage <- function(truth, lower, upper, bin) {
+  ok <- !is.na(lower) & !is.na(upper)
+  covered <- truth >= lower & truth <= upper
+  by_bin <- do.call(rbind, lapply(sort(unique(bin[ok])), function(b) {
+    idx <- ok & bin == b
+    data.frame(bin = b, n = sum(idx), coverage = mean(covered[idx]))
+  }))
+  list(overall = mean(covered[ok]), by_bin = by_bin)
+}
+
+
 #' Spatial regression task for sub-pixel cover
 #'
 #' The regression twin of `make_task()`: coordinates drive spatial resampling
