@@ -59,6 +59,54 @@ calibrate_neltuma_prob <- function(sv, neltuma_code, method = c("platt", "isoton
 }
 
 
+#' Build the sub-pixel Neltuma cover target/training table for one drone site
+#'
+#' The warp-average, done as an area-weighted extraction. Mirrors
+#' `build_training_table()` - same `exact_extract("mean")` feature extraction and
+#' the same band-name contract - but the response is CONTINUOUS Neltuma cover, not
+#' a class, and NO pixel is filtered: every satellite pixel over the drone site is
+#' a training row (that is the whole point - no purity threshold). Cover is the
+#' area-weighted mean of the CALIBRATED drone Neltuma probability over each
+#' satellite pixel polygon; the nonlinear calibrator `g` is applied to the drone
+#' raster BEFORE averaging, so the result is mean(g(p)), not g(mean(p)).
+#'
+#' @param cube_path satellite predictor cube (VRT)
+#' @param prob_path drone probability raster for this site (GDAL-scaled to [0, 1])
+#' @param grid_path satellite pixel-grid polygons over this drone site
+#' @param site,tag ids recorded in the table
+#' @param g calibrator from `calibrate_neltuma_prob()` (or any [0,1]->[0,1] fn)
+#' @param nel_band band index of the Neltuma class in the drone prob raster
+#' @return list(training = data.frame(cover, site, tag, x, y, <bands>),
+#'   drops = attrition summary), rows with any NA feature or cover dropped
+cover_training_table <- function(cube_path, prob_path, grid_path, site, tag, g, nel_band) {
+  cube <- terra::rast(cube_path)
+  grid <- sf::st_read(grid_path, quiet = TRUE)
+  nel  <- terra::rast(prob_path)[[nel_band]]          # [0, 1] via the GDAL scale tag
+  cov_r <- terra::app(nel, g)                          # calibrate BEFORE averaging
+
+  cover <- exactextractr::exact_extract(cov_r, grid, "mean", progress = FALSE)
+  ex <- exactextractr::exact_extract(cube, grid, "mean", progress = FALSE)
+  if (is.null(dim(ex))) ex <- stats::setNames(data.frame(ex), paste0("mean.", names(cube)))
+  ex <- as.data.frame(ex)
+  names(ex) <- sub("^mean\\.", "", names(ex))
+  if (!identical(names(ex), names(cube))) {
+    stop("Cover feature columns do not match the cube bands for ", site, "/", tag,
+         ".\n  cube: ", paste(names(cube), collapse = ", "),
+         "\n  got : ", paste(names(ex), collapse = ", "), call. = FALSE)
+  }
+
+  xy <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(grid)))
+  df <- data.frame(cover = as.numeric(cover), site = site, tag = tag,
+                   x = xy[, 1], y = xy[, 2], ex, stringsAsFactors = FALSE)
+
+  bands <- names(cube)
+  ok <- stats::complete.cases(df[, c("cover", bands), drop = FALSE])
+  drops <- data.frame(site = site, tag = tag, n_in = nrow(df), n_kept = sum(ok),
+                      n_dropped = sum(!ok), stringsAsFactors = FALSE)
+  list(training = df[ok, , drop = FALSE], drops = drops)
+}
+
+
 #' Reliability of a probability against a binary outcome
 #'
 #' Expected calibration error (bin-weighted |mean(p) - mean(y)|) and Brier score,
