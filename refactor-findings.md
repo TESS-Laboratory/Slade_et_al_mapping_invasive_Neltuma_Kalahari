@@ -2167,3 +2167,17 @@ manifest, lockfile and library in agreement.
   (AOI-cropped), cover_di_raster 3 min, cover_oof 3 min. NEXT: add wv2/planet to
   COVER_SENSORS (WV2 175M px is the scaling test), cover-based thin phases,
   figures, wire into paper_values/manuscript, retire smoothed targets.
+- **2026-09-20 [cover area CI - cluster-robust between-site, HUGH]** The PPI CI on
+  the cover area was collapsing to +/-44 ha because it used theta(1-theta)/N_pixel
+  with N=3.7M autocorrelated pixels (effectively independent -> zero mean-error).
+  Replaced with a CLUSTER-ROBUST between-site SE: sd(per-site held-out mean
+  residual)/sqrt(n_sites), t(n_sites-1) - the analytic form of a site block
+  bootstrap and coherent with leave-site-out (site = unit of independence). Chosen
+  over (i) a 7-unit block bootstrap (too coarse) and (ii) variogram/N_eff weighting
+  (fixes only the mean-sampling term, misses site-representativeness, the dominant
+  uncertainty). S2 cover: 1228 ha [0, 3557]. FINDING: the width is driven by
+  struizendam_4 - true cover 21% (vs 0.7-4% at the other 6 sites); held out, the
+  model under-predicts it by 17pp because it has never seen invasion that dense. So
+  S2 (on these 7 sites) genuinely cannot rule out dense-invasion regimes it can't
+  extrapolate to. Honest, not an artifact; report the struizendam_4 sensitivity in
+  the paper. Per-pixel conformal remains the MAP uncertainty; this is the aggregate.
