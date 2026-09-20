@@ -284,10 +284,15 @@ make_cover_task <- function(df, site, tag, epsg) {
 #' @param id "glmnet" | "ranger" | "lightgbm" | "svm"
 #' @return a regr Learner
 cover_learner <- function(id) {
+  # Thread the FIT (large cover training sets: ~150k rows Planet, ~690k WV2).
+  # Fitting runs in one crew task at a time, so N threads is safe; the mirai
+  # daemons override each model to 1 thread at PREDICT so N daemons = N cores,
+  # no oversubscription (raster_predict_parallel).
+  nthr <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
   l <- switch(id,
     glmnet   = mlr3::lrn("regr.glmnet"),
-    ranger   = mlr3::lrn("regr.ranger", importance = "impurity"),
-    lightgbm = mlr3::lrn("regr.lightgbm", verbose = -1L, num_threads = 1L),
+    ranger   = mlr3::lrn("regr.ranger", importance = "impurity", num.threads = nthr),
+    lightgbm = mlr3::lrn("regr.lightgbm", verbose = -1L, num_threads = nthr),
     svm      = mlr3::lrn("regr.svm", type = "eps-regression"),
     stop("Unknown cover learner '", id, "'.", call. = FALSE))
   l$encapsulate("evaluate", fallback = mlr3::lrn("regr.featureless"))
@@ -439,6 +444,13 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
     # assign to the daemon global env so the mirai_map function resolves them
     assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
     assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
+    # 1 thread per daemon at predict -> N daemons = N cores, no oversubscription
+    # (models were fit multi-threaded; predict is per-daemon single-threaded)
+    if (identical(kind, "cover")) for (m in setup) {
+      ids <- m$param_set$ids()
+      if ("num.threads" %in% ids) m$param_set$set_values(num.threads = 1L)
+      if ("num_threads" %in% ids) m$param_set$set_values(num_threads = 1L)
+    }
   }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
 
   res <- mirai::mirai_map(intiles, function(tp) {
