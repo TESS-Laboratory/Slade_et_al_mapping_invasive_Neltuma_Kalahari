@@ -402,34 +402,85 @@ leave_site_out_folds <- function(train_df) {
 }
 
 
-#' Scene dissimilarity-index raster (block-processed via the FNN closure)
+#' Parallel scene prediction over mirai daemons, one tile per daemon (2026-09-20 [HUGH])
 #'
-#' Applies `cover_di()`'s `di_of` over the cube; terra handles blocking so it
-#' scales past in-memory limits (WV2). Written as INT2S x1000 with a scale tag,
-#' like the cover raster, so it reads back as DI.
+#' terra::predict's own cluster, nested inside a crew mirai daemon, re-serialised
+#' the heavy models per block and stalled (~50% idle for hours). Instead: split
+#' the AOI cube into row-tiles (terra::makeTiles), start mirai daemons on a SEPARATE
+#' compute profile, load the predictor ONCE per daemon (`everywhere`, so the tile
+#' function references it as a daemon global - no per-tile re-serialisation), map
+#' tiles to daemons, each writing its OWN output tile (no concurrent-write
+#' contention), then mosaic. `mori` (shared memory across daemons) would avoid the
+#' N model copies but is not essential here (754 GB) - a future memory optimisation.
 #'
-#' @param cube_path satellite cube
-#' @param bands predictor band names
-#' @param di_obj output of `cover_di()`
-#' @param out_path output DI raster path
-#' @param aoi optional study-area vector to crop/mask to
+#' @param cube SpatRaster of predictor bands (already band-subset)
+#' @param aoi study-area vector to crop/mask to, or NULL
+#' @param out_path final INT2S x `scale` raster
+#' @param scale integer store scale
+#' @param setup object sent once to each daemon (models list, or cover_di output)
+#' @param kind "cover" (ensemble mean) or "di" (dissimilarity index)
+#' @param bands band names, in cube order
+#' @param n number of daemons
+#' @return `out_path`
+raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, bands,
+                                     n = as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))) {
+  if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
+  tdir <- paste0(out_path, ".tiles"); unlink(tdir, recursive = TRUE)
+  dir.create(tdir, recursive = TRUE, showWarnings = FALSE)
+  nrpt <- as.integer(ceiling(terra::nrow(cube) / n))
+  intiles <- terra::makeTiles(cube, c(nrpt, terra::ncol(cube)),
+                              file.path(tdir, "in_.tif"), na.rm = FALSE, overwrite = TRUE)
+
+  mirai::daemons(n, .compute = "coverpred")
+  on.exit(mirai::daemons(0, .compute = "coverpred"), add = TRUE)
+  mirai::everywhere({
+    suppressMessages({library(terra); library(mlr3); library(mlr3learners)
+      library(mlr3extralearners); library(FNN)})
+    # assign to the daemon global env so the mirai_map function resolves them
+    assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
+    assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
+  }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
+
+  res <- mirai::mirai_map(intiles, function(tp) {
+    r <- terra::rast(tp); names(r) <- BANDS      # makeTiles may drop names; restore band order
+    v <- terra::values(r, mat = TRUE)
+    out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
+    if (any(ok)) {
+      if (identical(KIND, "cover")) {
+        dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
+        for (m in PRED) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
+        out[ok] <- acc / length(PRED)
+      } else {
+        out[ok] <- PRED$di_of(v[ok, , drop = FALSE])
+      }
+    }
+    o <- terra::rast(r, nlyrs = 1L)
+    terra::values(o) <- as.integer(round(out * SCALE))
+    op <- sub("in_", "out_", tp, fixed = TRUE)
+    terra::writeRaster(o, op, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                       gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
+    op
+  }, .compute = "coverpred")
+  outtiles <- unlist(res[])                                   # blocks until all tiles done
+
+  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
+  terra::writeRaster(terra::vrt(outtiles), out_path, overwrite = TRUE,
+                     datatype = "INT2S", NAflag = -1L,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  unlink(tdir, recursive = TRUE)
+  out_path
+}
+
+
+#' Scene dissimilarity-index raster (parallel over mirai daemons)
+#'
+#' @param cube_path satellite cube; @param bands predictor bands
+#' @param di_obj output of `cover_di()`; @param out_path output; @param aoi crop/mask
 #' @return `out_path`
 predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
   cube <- terra::rast(cube_path)[[bands]]
-  if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
-  fun <- function(model, dat, ...) {
-    out <- rep(NA_real_, nrow(dat))
-    ok <- stats::complete.cases(dat)
-    if (any(ok)) out[ok] <- model$di_of(as.matrix(dat[ok, , drop = FALSE]))
-    out
-  }
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  di <- terra::predict(cube, di_obj, fun = fun, na.rm = FALSE, cores = n_cores)
-  names(di) <- "di"
-  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(terra::round(di * 1000), out_path, overwrite = TRUE,
-                     datatype = "INT2S", NAflag = -1L,
-                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  raster_predict_parallel(cube, aoi, out_path, scale = 1000, setup = di_obj,
+                          kind = "di", bands = bands)
   ok <- system2("gdal_edit.py", c("-scale", "0.001", "-offset", "0", shQuote(out_path)),
                 stdout = FALSE, stderr = FALSE)
   if (!identical(ok, 0L)) warning("gdal_edit.py did not tag the DI scale on ", out_path, call. = FALSE)
@@ -631,28 +682,10 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
     stop("Cube lacks band(s): ", paste(setdiff(bands, names(cube)), collapse = ", "),
          call. = FALSE)
   }
-  # Predict over the study-area AOI only: the prediction domain (and it matches
-  # the DI raster's extent, ~6x less area than the full S2 tile).
-  if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
-  wrap <- function(model, dat, ...) {
-    out <- rep(NA_real_, nrow(dat))
-    ok <- stats::complete.cases(dat)
-    if (any(ok)) {
-      acc <- numeric(sum(ok))
-      for (m in model) {
-        acc <- acc + pmin(pmax(m$predict_newdata(dat[ok, , drop = FALSE])$response, 0), 1)
-      }
-      out[ok] <- acc / length(model)
-    }
-    out
-  }
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  cover <- terra::predict(cube[[bands]], models, fun = wrap, na.rm = FALSE, cores = n_cores)
-  names(cover) <- "cover"
-  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(terra::round(cover * PROB_SCALE), out_path, overwrite = TRUE,
-                     datatype = "INT2S", NAflag = -1L,
-                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  # Predict over the study-area AOI only (matches the DI raster extent, ~6x less
+  # than the full S2 tile), in parallel over mirai daemons with the models resident.
+  raster_predict_parallel(cube[[bands]], aoi, out_path, scale = PROB_SCALE,
+                          setup = models, kind = "cover", bands = bands)
   tag_prob_scale(out_path)
   out_path
 }
