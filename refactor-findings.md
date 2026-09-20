@@ -2098,6 +2098,34 @@ manifest, lockfile and library in agreement.
   fold-models scored over the scene) available as a coverage cross-check. Progress:
   R/cover.R has calibrate_neltuma_prob (+ calibration_quality) and
   cover_training_table (warp-average target), both tested (tests/testthat/test-cover.R).
+- **2026-09-20 [C2/C3 VALIDATED end-to-end on real S2 data]** Vertical slice
+  (tools scratch s2_cover_slice.R) ran the full chain on S2. KEY RESULTS:
+  (1) the cover target recovers the sparse Neltuma the purity threshold discarded -
+  43% of S2 cells have SOME Neltuma cover vs only ~1.6% being majority-Neltuma;
+  in-site mean cover 3.7%. (2) OOF RMSE (leave-site-out): ranger 0.0766 (best),
+  lightgbm 0.0801, glmnet 0.0825, svm 0.0832; equal-weight ensemble 0.0794 -
+  competitive with best-single, so equal-weight stands. (3) DI-stratified conformal
+  coverage @90%: overall 0.907, per-DI-bin ~0.900 (top bin 0.975, safe) - THE
+  METHODS RESULT: DI-stratification holds coverage empirically across the
+  feature-space gradient. (4) S2 Neltuma AREA: cover sum-of-fractions 1203 ha
+  (naive) / 857 ha (within-AOA, ~80% of scene), vs hard-class naive 2593 / PPI 0 -
+  a physically plausible middle-ground where the hard-class arm gave 2.6x-too-much
+  or exactly zero. The redesign is vindicated.
+  THREE ENGINEERING FINDINGS that shape the wiring:
+  (a) kNNDM's kmeans FAILS on the dense cover cells ("more cluster centers than
+  distinct data points", 16,860 cells clustered in 7 sites) -> the cover arm uses
+  LEAVE-ONE-SITE-OUT folds (k=7), which is anyway the honest "predict a new site"
+  spatial CV for this design. (b) CAST::aoa does NOT scale to scene rasters (S2
+  4.5M px ran >30 min single-threaded at 12 GB; WV2 175M px infeasible) -> DI is
+  computed via an FNN KD-tree (R/cover.R cover_di: same Meyer DI, CV threshold
+  Q3+1.5IQR over the folds); cover_aoa (CAST) retained for small-data cross-checks.
+  (c) svm is BOTH the worst cover learner (RMSE 0.0832) AND prohibitively slow to
+  train (libsvm ~15 min for the OOF) and predict (>15 min on a 300k-px sample) ->
+  DECISION: drop svm from the cover twins, keep glmnet/ranger/lightgbm (fast, and
+  ranger is best); this also fixes scene-prediction scalability. Functions all in
+  R/cover.R, tested (31 tests). NEXT: wire the tar_map (S2 first) with leave-site-out
+  folds, {glmnet,ranger,lightgbm}, cover_di, full-scene cover raster + DI + conformal
+  bounds + within-AOA PPI area, then generalise to WV2/Planet and retire smoothing.
 - **2026-09-19 [DECISION - drop smoothing entirely, HUGH]** The post-classification
   modal (focal-majority, w=9) filter is removed from the analysis outright,
   superseding D5's "retain as a sensitivity analysis". It served only to reproduce

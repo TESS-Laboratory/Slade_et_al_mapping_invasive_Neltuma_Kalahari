@@ -295,6 +295,26 @@ cover_learner <- function(id) {
 }
 
 
+#' Fit the deployment cover ensemble on all data (plain regr task)
+#'
+#' The spatial (ST) task is only needed for the honest CV folds; the DEPLOYED
+#' models train on a plain regr task over the bands, because coordinates are never
+#' features and mlr3's ST `predict_newdata` rejects a bands-only prediction frame.
+#' The fitted model is identical either way.
+#'
+#' @param train_df cover table
+#' @param bands predictor band names
+#' @param learner_ids regr twin ids
+#' @return named list of trained regr Learners
+fit_cover_models <- function(train_df, bands, learner_ids) {
+  task <- mlr3::as_task_regr(train_df[, c("cover", bands), drop = FALSE],
+                             target = "cover", id = "cover")
+  stats::setNames(lapply(learner_ids, function(id) {
+    l <- cover_learner(id); l$train(task); l
+  }), learner_ids)
+}
+
+
 #' Resample one cover learner on a task's stored kNNDM design
 #'
 #' Mirrors `run_resample()`: the folds are the task's kNNDM design so residuals
@@ -395,8 +415,7 @@ drone_calibrator <- function(sv_list, neltuma_code, method = "platt") {
 predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_path,
                                 epsg = 32734) {
   data.table::setDTthreads(1L)
-  task <- make_cover_task(train_df, train_df$site[1], train_df$tag[1], epsg)
-  models <- lapply(learner_ids, function(id) { l <- cover_learner(id); l$train(task); l })
+  models <- fit_cover_models(train_df, bands, learner_ids)
 
   cube <- terra::rast(cube_path)
   if (!all(bands %in% names(cube))) {
