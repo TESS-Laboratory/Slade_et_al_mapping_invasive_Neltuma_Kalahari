@@ -444,13 +444,6 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
     # assign to the daemon global env so the mirai_map function resolves them
     assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
     assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
-    # 1 thread per daemon at predict -> N daemons = N cores, no oversubscription
-    # (models were fit multi-threaded; predict is per-daemon single-threaded)
-    if (identical(kind, "cover")) for (m in setup) {
-      ids <- m$param_set$ids()
-      if ("num.threads" %in% ids) m$param_set$set_values(num.threads = 1L)
-      if ("num_threads" %in% ids) m$param_set$set_values(num_threads = 1L)
-    }
   }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
 
   res <- mirai::mirai_map(intiles, function(tp) {
@@ -688,6 +681,14 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
                                 epsg = 32734, aoi = NULL) {
   data.table::setDTthreads(1L)
   models <- fit_cover_models(train_df, bands, learner_ids)
+  # Models were fit multi-threaded; set them to 1 thread for PREDICT so the mirai
+  # daemons (N of them) each use one thread -> N cores, no oversubscription. Done
+  # in the main process (mutating deserialised R6 inside daemons is fragile).
+  for (m in models) {
+    ids <- m$param_set$ids()
+    if ("num.threads" %in% ids) m$param_set$set_values(num.threads = 1L)
+    if ("num_threads" %in% ids) m$param_set$set_values(num_threads = 1L)
+  }
 
   cube <- terra::rast(cube_path)
   if (!all(bands %in% names(cube))) {
