@@ -284,10 +284,14 @@ make_cover_task <- function(df, site, tag, epsg) {
 #' @param id "glmnet" | "ranger" | "lightgbm" | "svm"
 #' @return a regr Learner
 cover_learner <- function(id) {
+  # Internal threading (safe because scene prediction runs terra with cores=1 -
+  # no fork/cluster, so the lightgbm OpenMP deadlock of the classification arm
+  # cannot occur; and it avoids terra serialising heavy models to workers).
+  nthr <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
   l <- switch(id,
     glmnet   = mlr3::lrn("regr.glmnet"),
-    ranger   = mlr3::lrn("regr.ranger", importance = "impurity"),
-    lightgbm = mlr3::lrn("regr.lightgbm", verbose = -1L, num_threads = 1L),
+    ranger   = mlr3::lrn("regr.ranger", importance = "impurity", num.threads = nthr),
+    lightgbm = mlr3::lrn("regr.lightgbm", verbose = -1L, num_threads = nthr),
     svm      = mlr3::lrn("regr.svm", type = "eps-regression"),
     stop("Unknown cover learner '", id, "'.", call. = FALSE))
   l$encapsulate("evaluate", fallback = mlr3::lrn("regr.featureless"))
@@ -423,8 +427,7 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
     if (any(ok)) out[ok] <- model$di_of(as.matrix(dat[ok, , drop = FALSE]))
     out
   }
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  di <- terra::predict(cube, di_obj, fun = fun, na.rm = FALSE, cores = n_cores)
+  di <- terra::predict(cube, di_obj, fun = fun, na.rm = FALSE, cores = 1L)  # no closure serialization
   names(di) <- "di"
   dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
   terra::writeRaster(terra::round(di * 1000), out_path, overwrite = TRUE,
@@ -646,8 +649,9 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
     }
     out
   }
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  cover <- terra::predict(cube[[bands]], models, fun = wrap, na.rm = FALSE, cores = n_cores)
+  # cores=1: no cluster serialization of the heavy models; the learners thread
+  # internally (cover_learner sets num.threads). Far faster here than cores>1.
+  cover <- terra::predict(cube[[bands]], models, fun = wrap, na.rm = FALSE, cores = 1L)
   names(cover) <- "cover"
   dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
   terra::writeRaster(terra::round(cover * PROB_SCALE), out_path, overwrite = TRUE,
