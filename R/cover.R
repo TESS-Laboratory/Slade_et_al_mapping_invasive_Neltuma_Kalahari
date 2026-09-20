@@ -549,7 +549,7 @@ drone_calibrator <- function(sv_list, neltuma_code, method = "platt") {
 #' @param epsg CRS code for the task
 #' @return `out_path`
 predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_path,
-                                epsg = 32734) {
+                                epsg = 32734, aoi = NULL) {
   data.table::setDTthreads(1L)
   models <- fit_cover_models(train_df, bands, learner_ids)
 
@@ -558,6 +558,9 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
     stop("Cube lacks band(s): ", paste(setdiff(bands, names(cube)), collapse = ", "),
          call. = FALSE)
   }
+  # Predict over the study-area AOI only: the prediction domain (and it matches
+  # the DI raster's extent, ~6x less area than the full S2 tile).
+  if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
   wrap <- function(model, dat, ...) {
     out <- rep(NA_real_, nrow(dat))
     ok <- stats::complete.cases(dat)
