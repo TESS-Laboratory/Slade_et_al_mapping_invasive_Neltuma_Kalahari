@@ -624,3 +624,63 @@ fig_area_bounds <- function(bounds, ppi, alpha = 0.10,
                   device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Figure: DI-stratified cover-interval coverage vs nominal, per sensor (C2/C3)
+#'
+#' The methods result: on leave-site-out held-out data, the DI-stratified conformal
+#' cover intervals cover at ~ the nominal rate along the diagonal.
+#'
+#' @param cov cover_coverage_index (sensor, alpha, nominal, overall, n)
+#' @param out_png output path
+#' @return `out_png`
+fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover_coverage.png") {
+  d <- cov
+  d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
+                     labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
+  base <- ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+  fig <- ggplot2::ggplot(d, ggplot2::aes(nominal, overall, colour = sensor, group = sensor)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60") +
+    ggplot2::geom_line() + ggplot2::geom_point(size = 1.8) +
+    ggplot2::scale_x_continuous("Nominal coverage (1 - alpha)", labels = scales::percent) +
+    ggplot2::scale_y_continuous("Empirical (leave-site-out) coverage", labels = scales::percent) +
+    ggplot2::labs(title = "DI-stratified cover intervals: coverage holds on the diagonal",
+                  colour = NULL) + base
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 6.5, height = 4.2, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figure: sub-pixel Neltuma cover area per sensor - PPI estimate + cluster-robust CI
+#'
+#' The PPI point with its between-site (cluster-robust) 95% CI, the naive
+#' sum-of-fractions, and the within-AOA fraction - the honest area statement that
+#' replaces the hard-class number.
+#'
+#' @param area cover_area_index (one row per sensor)
+#' @param out_png output path
+#' @return `out_png`
+fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.png") {
+  d <- area
+  d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
+                     labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
+  base <- ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+  fig <- ggplot2::ggplot(d, ggplot2::aes(y = sensor)) +
+    ggplot2::geom_linerange(ggplot2::aes(xmin = ppi_lo_ha, xmax = ppi_hi_ha),
+                            colour = "#457B9D", linewidth = 3, alpha = 0.35) +
+    ggplot2::geom_point(ggplot2::aes(x = ppi_ha), colour = "grey20", size = 2.6) +
+    ggplot2::geom_point(ggplot2::aes(x = naive_ha), shape = 4, colour = "#E63946", size = 2.4) +
+    ggplot2::scale_x_continuous("Neltuma cover area (ha)") +
+    ggplot2::labs(y = NULL,
+                  title = "Sub-pixel Neltuma cover area",
+                  subtitle = "point = PPI estimate; bar = between-site 95% CI; x = naive sum-of-fractions") +
+    base
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 7, height = 3.6, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}

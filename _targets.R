@@ -398,8 +398,24 @@ cover_targets <- c(
           rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
           rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
           rlang::call2("$", di_sym, quote(threshold)),
-          rlang::sym(paste0("cover_oof_", s)), train_sym, quote(wv2_aoi), px_ha, s))))
-  }), recursive = FALSE))
+          rlang::sym(paste0("cover_oof_", s)), train_sym, quote(wv2_aoi), px_ha, s)),
+      # thin cover-based invasion phases (mean cover per hexagon -> band)
+      targets::tar_target_raw(paste0("cover_phase_", s),
+        rlang::call2("cover_phase_layer", rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
+          rlang::call2("[", quote(wv2_grid_phase), 1L), quote(wv2_aoi),
+          quote(sensors_cfg$wv2$phases), file.path("data-out", s, "cover_phases.fgb")),
+        format = "file"),
+      targets::tar_target_raw(paste0("cover_phase_summary_", s),
+        rlang::call2("cover_phase_summary", rlang::call2("[", rlang::sym(paste0("cover_phase_", s)), 1L), s))))
+  }), recursive = FALSE),
+  # result indexes across cover sensors
+  list(
+    targets::tar_target_raw("cover_area_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_area_", COVER_SENSORS)))),
+    targets::tar_target_raw("cover_coverage_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_coverage_", COVER_SENSORS)))),
+    targets::tar_target_raw("cover_phase_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_phase_summary_", COVER_SENSORS))))))
 
 # ---------------------------------------------------------------------------
 list(
@@ -574,6 +590,9 @@ list(
                                "data-out/figures/figC1_conformal_wv2.png"), format = "file"),
   tar_target(fig_coverage, fig_coverage_curve(conformal_coverage_honest), format = "file"),
   tar_target(fig_area, fig_area_bounds(conformal_bounds, ppi_area, CONF_ALPHA_MAP), format = "file"),
+  # ---- Cover (C2/C3) figures ----------------------------------------------
+  tar_target(fig_cover_coverage, fig_cover_coverage(cover_coverage_index), format = "file"),
+  tar_target(fig_cover_area, fig_cover_area(cover_area_index), format = "file"),
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------

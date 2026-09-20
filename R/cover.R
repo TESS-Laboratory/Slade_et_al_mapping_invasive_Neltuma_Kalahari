@@ -295,6 +295,55 @@ cover_learner <- function(id) {
 }
 
 
+PHASE_LABELS <- c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance")
+
+#' Invasion phase per grid cell from the continuous cover surface (thin, no smoothing)
+#'
+#' The cover-based replacement for `build_phase_layer()`: mean of the CONTINUOUS
+#' cover surface per hexagon (no hard-class majority, no modal filter), assigned to
+#' a phase by the sensors.yml thresholds. Restricted to cells that intersect the
+#' study-area AOI. Uncertainty (the conformal cover band per cell) is a later add.
+#'
+#' @param cover_path scene cover raster ([0,1] via scale tag)
+#' @param grid_path the analysis grid (250 m hexagons)
+#' @param aoi study-area vector path
+#' @param phases sensors.yml phases block (incursion/expansion/dominance, in %)
+#' @param out_path output layer path (.fgb)
+#' @return `out_path`
+cover_phase_layer <- function(cover_path, grid_path, aoi, phases, out_path) {
+  cover <- terra::rast(cover_path)
+  grid  <- sf::st_read(grid_path, quiet = TRUE)
+  av    <- sf::st_union(sf::st_read(aoi, quiet = TRUE))
+  grid  <- grid[lengths(sf::st_intersects(grid, av)) > 0, ]
+  pct <- 100 * exactextractr::exact_extract(cover, grid, "mean", progress = FALSE)
+  grid$cover_pct <- pct
+  grid$phase <- as.character(cut(pct,
+    breaks = c(-Inf, phases$incursion, phases$expansion, phases$dominance, Inf),
+    labels = PHASE_LABELS, right = FALSE))
+  write_fgb(grid, out_path)
+  out_path
+}
+
+
+#' Area per invasion phase from a cover phase layer
+#'
+#' @param layer_path output of `cover_phase_layer()`
+#' @param sensor label
+#' @return data.frame(sensor, phase, area_ha, pct_of_area, n_cells) over fixed
+#'   phase levels (0 for absent phases)
+cover_phase_summary <- function(layer_path, sensor = NA_character_) {
+  g <- sf::st_read(layer_path, quiet = TRUE)
+  a <- as.numeric(sf::st_area(g)) / 1e4
+  tot <- sum(a[!is.na(g$phase)])
+  do.call(rbind, lapply(PHASE_LABELS, function(p) {
+    idx <- !is.na(g$phase) & g$phase == p
+    data.frame(sensor = sensor, phase = p, area_ha = sum(a[idx]),
+               pct_of_area = if (tot > 0) 100 * sum(a[idx]) / tot else 0,
+               n_cells = sum(idx), stringsAsFactors = FALSE)
+  }))
+}
+
+
 #' Predictor band columns of a cover table (everything but the metadata)
 #' @param train_df cover table
 #' @return character band names
