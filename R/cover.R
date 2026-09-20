@@ -443,15 +443,16 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
 #' (label-supported). The within-AOA scene-MEAN cover is PPI-corrected by the
 #' model's bias on the labelled drone cells (delta = mean OOF residual).
 #'
-#' The interval is a CLUSTER-ROBUST (between-site) CI: with leave-site-out folds the
-#' SITE is the unit of spatial independence, so the honest uncertainty of the mean
-#' cover is the between-site spread of the held-out per-site mean residuals -
-#' sd(site means)/sqrt(n_sites), with a t(n_sites-1) multiplier for the few clusters
-#' (finding 2026-09-20, [HUGH]). This is the analytic form of a site block bootstrap
-#' and captures the dominant site-representativeness uncertainty; the naive
-#' theta(1-theta)/N_pixel term is WRONG here - it treats millions of autocorrelated
-#' pixels as independent and collapses the interval. The per-pixel conformal bounds
-#' remain the MAP uncertainty; this is the AGGREGATE.
+#' The interval is a SITE BLOCK-BOOTSTRAP percentile CI: with leave-site-out folds
+#' the SITE is the unit of spatial independence, so the aggregate uncertainty comes
+#' from resampling the per-site held-out mean biases (finding 2026-09-20, [HUGH]).
+#' It is ASYMMETRIC and positive-bounded by construction - correct here because the
+#' dominant site bias is under-prediction of dense invasion (struizendam_4), skewing
+#' true area UP, and because zero area is essentially impossible. Two shapes it fixes
+#' vs the earlier attempts: the naive theta(1-theta)/N_pixel term (treats millions of
+#' autocorrelated pixels as independent -> collapses to nothing) and a symmetric
+#' SE clamped at 0 (silly lower bound of 0). The per-pixel conformal bounds remain
+#' the MAP uncertainty; this is the AGGREGATE.
 #'
 #' @param cover_path scene cover raster ([0,1] via scale tag)
 #' @param di_path scene DI raster
@@ -478,20 +479,28 @@ cover_scene_area <- function(cover_path, di_path, threshold, oof, train_df, aoi,
   d <- oof$response - oof$truth
   delta <- mean(d)
   theta_ppi <- min(max(theta_in - delta, 0), 1)
-  # cluster-robust between-site SE: sites are the leave-site-out unit
-  site <- train_df$site[oof$row_ids]
-  site_bias <- tapply(d, factor(site), mean)
-  n_sites <- length(site_bias)
-  se <- stats::sd(site_bias) / sqrt(n_sites)
-  tcrit <- stats::qt(1 - alpha / 2, df = n_sites - 1L)
   tot_in <- inside_cells * px_ha
+
+  # ASYMMETRIC CI via a site block bootstrap of the bias correction. A symmetric
+  # SE clamped at 0 is wrong (finding 2026-09-20, [HUGH]): the dominant site bias
+  # is UNDER-prediction of dense sites (struizendam_4, -17pp), so the true area is
+  # skewed UPWARD, and zero area is essentially impossible. Resampling the per-site
+  # biases gives a positive-bounded, upward-skewed percentile interval.
+  site <- factor(train_df$site[oof$row_ids])
+  site_bias <- tapply(d, site, mean); n_sites <- length(site_bias)
+  set.seed(1L); B <- 4000L
+  area_b <- vapply(seq_len(B), function(b) {
+    db <- mean(site_bias[sample.int(n_sites, n_sites, replace = TRUE)])
+    min(max(theta_in - db, 0), 1) * tot_in
+  }, numeric(1))
+  ci <- stats::quantile(area_b, c(alpha / 2, 1 - alpha / 2), names = FALSE)
+
   data.frame(sensor = sensor, scene_ha = scene_cells * px_ha, aoa_ha = tot_in,
              aoa_frac = inside_cells / scene_cells, naive_ha = naive_ha,
              cover_aoa_ha = aoa_ha, ppi_ha = theta_ppi * tot_in,
-             ppi_lo_ha = max(theta_ppi - tcrit * se, 0) * tot_in,
-             ppi_hi_ha = min(theta_ppi + tcrit * se, 1) * tot_in,
-             bias_pp = 100 * delta, se_pp = 100 * se, n_sites = n_sites,
-             n_overlap = length(d), stringsAsFactors = FALSE)
+             ppi_lo_ha = ci[1], ppi_hi_ha = ci[2],
+             bias_pp = 100 * delta, site_bias_sd_pp = 100 * stats::sd(site_bias),
+             n_sites = n_sites, n_overlap = length(d), stringsAsFactors = FALSE)
 }
 
 
