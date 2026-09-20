@@ -83,7 +83,6 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
   ci  <- class_index[match(key, paste(class_index$site, class_index$tag, class_index$learner)), ]
   nel_by_stack <- tapply(ci$recall, best_models$tag, mean, na.rm = TRUE)
 
-  m  <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion)
   mr <- xtabs(n_pixels ~ wv2_class + drone_class, wv2_confusion_raw)
   woody <- c("5", "6", "7")
   # A class can be absent from a matrix (the fast profile's aggregated
@@ -126,18 +125,13 @@ satellite_paper_values <- function(best_models, class_index, wv2_scores, sat_sco
     s2_best_pct             = pct1(sa$classif.acc), s2_best_learner = sa$learner,
     planet_neltuma_recall_pct = pct0(recall_of("planet_archived", pa$learner)),
     s2_neltuma_recall_pct   = pct0(recall_of("s2_archived", sa$learner)),
-    s10_over_smooth_pct     = sprintf("%.1f", 100 * (nel_area("wv2", "smoothed") / nel_area("drone", "smoothed") - 1)),
     s10_over_raw_pct        = sprintf("%.1f", 100 * (nel_area("wv2", "raw") / nel_area("drone", "raw") - 1)),
-    s10_woody_smooth_pct    = pct1(woody_share(m)),
     s10_woody_raw_pct       = pct1(woody_share(mr)),
-    s10_recall_smooth       = sprintf("%.2f", drone_recall(m)),
     s10_recall_raw          = sprintf("%.2f", drone_recall(mr)),
     dominance_km2_raw       = sprintf("%.0f", ph("raw", "Dominance")$area_ha / 100),
     dominance_pct_raw       = sprintf("%.1f", ph("raw", "Dominance")$pct_of_area),
-    dominance_pct_smooth    = sprintf("%.1f", ph("smooth", "Dominance")$pct_of_area),
     expanding_km2_raw       = sprintf("%.0f", (ph("raw", "Expansion")$area_ha + ph("raw", "Initial Incursion")$area_ha) / 100),
     expanding_pct_raw       = sprintf("%.1f", ph("raw", "Expansion")$pct_of_area + ph("raw", "Initial Incursion")$pct_of_area),
-    expanding_pct_smooth    = sprintf("%.1f", ph("smooth", "Expansion")$pct_of_area + ph("smooth", "Initial Incursion")$pct_of_area),
     s9_neltuma_pct          = pct1(s9$accuracy), s9_neltuma_n = s9$n
   )
 }

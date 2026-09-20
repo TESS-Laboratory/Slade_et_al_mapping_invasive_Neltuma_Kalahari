@@ -78,7 +78,6 @@ TUNED_IDS   <- vapply(Filter(function(x) isTRUE(x$tuned), read_resampling()$lear
 PREDCFG     <- read_prediction()
 PRED_TAG    <- PREDCFG$stack
 PRED_AGG    <- if (PROFILE == "fast") as.integer(PREDCFG$fast_aggregate) else 1L
-PRED_SMOOTH <- as.integer(PREDCFG$smooth_window %||% 0L)
 
 SENSORS     <- read_sensors_yml()
 SAT_SENSORS <- setdiff(names(SENSORS), "drone")
@@ -86,7 +85,6 @@ CG <- cube_grid(SENSORS, SITES, TAGS)
 TG <- task_grid(SENSORS, SITES, TAGS)
 FG <- fit_grid(TG, LEARNER_IDS)
 PG <- pred_grid(TG, SENSORS, PRED_TAG, TUNED_IDS)
-PG$window <- ifelse(PG$sensor == "drone", PRED_SMOOTH, PG$smooth_window)
 
 # ---------------------------------------------------------------------------
 # DRONE INPUTS: per-site rasters and vectors, tracked and validated.
@@ -159,14 +157,11 @@ pur <- unique(TG[TG$source_type == "purity", c("sensor", "surface", "purity")])
 # Extraction runs against BOTH drone surfaces for every satellite sensor: the
 # raw one feeds training (D4); the filtered one is kept only for the smoothing
 # sensitivity analysis and the v2.0-style S10 comparison (D5).
-ext_base <- data.frame(sensor = rep(SAT_SENSORS, each = 2), surface = rep(c("raw", "smoothed"), length(SAT_SENSORS)),
-                       stringsAsFactors = FALSE)
+ext_base <- data.frame(sensor = SAT_SENSORS, surface = "raw", stringsAsFactors = FALSE)
 ext_base$grids <- vapply(ext_base$sensor, function(s) SENSORS[[s]]$sources$purity_raw$grids, "")
 ext_grid <- merge(ext_base, data.frame(site = SITES, stringsAsFactors = FALSE), by = NULL)
 ext_grid$grid_path <- mapply(fill_path, ext_grid$grids, ext_grid$site, USE.NAMES = FALSE)
-ext_grid$pred_sym  <- rlang::syms(ifelse(ext_grid$surface == "raw",
-                                         paste0("pred_drone_", ext_grid$site),
-                                         paste0("pred_smooth_drone_", ext_grid$site)))
+ext_grid$pred_sym  <- rlang::syms(paste0("pred_drone_", ext_grid$site))
 extracts <- tar_map(
   values = ext_grid[, c("sensor", "surface", "site", "grid_path", "pred_sym")],
   names = c("sensor", "surface", "site"),
@@ -271,7 +266,7 @@ per_sensor_scores <- unlist(lapply(names(SENSORS), function(s) {
 # stack; the winner's spec and configuration are the only tuning inputs.
 preds <- tar_map(
   values = PG[, c("sensor", "unit", "tag", "pred_id", "site_label", "cube_sym", "train_sym",
-                  "aoi_path", "window", paste0("cfg_", TUNED_IDS))],
+                  "aoi_path", paste0("cfg_", TUNED_IDS))],
   names = c("sensor", "unit"),
   # D16: no winner. Every tuned learner is refitted on all of the unit's data
   # and their class probabilities are averaged with equal weights, in one pass
@@ -289,10 +284,6 @@ preds <- tar_map(
              format = "file", resources = predict_resources),
   tar_target(pred_summary, summarise_prediction(pred, pred_id, tag)),
   tar_target(pred_learner_areas, learner_area_table(pred, pred_id, tag)),
-  # The modal filter is retired as a product (D5); kept as a sensitivity surface.
-  tar_target(pred_smooth, smooth_prediction(pred, window, pred_id, tag),
-             format = "file", resources = predict_resources),
-  tar_target(smooth_areas, class_area_table(pred_smooth, pred_id, tag, "smoothed")),
   # Conformal uncertainty surfaces + Neltuma area bounds (Phase C, R1 L253/L272).
   # The unit's calibration is its MAPPED task (site_label at PRED/native tag).
   # [[ ]] not $: tar_map substitutes value symbols even inside `$` accessors,
@@ -312,38 +303,29 @@ preds <- tar_map(
 # sensor x drone site, in all four raw/smoothed combinations.
 cmp_grid <- expand.grid(sensor = SAT_SENSORS, site = SITES, stringsAsFactors = FALSE)
 cmp_grid$pred_sym   <- rlang::syms(paste0("pred_drone_", cmp_grid$site))
-cmp_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_drone_", cmp_grid$site))
 cmp_grid$aoi_sym    <- rlang::syms(paste0("aoi_paths_", cmp_grid$site))
 cmp_grid$sat_pred_sym   <- rlang::syms(paste0("pred_", cmp_grid$sensor, "_scene"))
-cmp_grid$sat_smooth_sym <- rlang::syms(paste0("pred_smooth_", cmp_grid$sensor, "_scene"))
 compares <- tar_map(
   values = cmp_grid, names = c("sensor", "site"),
   tar_target(site_areas,
-             compare_site_surfaces(site, aoi_sym[1],
-                                   drone = list(raw = pred_sym, smoothed = smooth_sym),
-                                   wv2   = list(raw = sat_pred_sym, smoothed = sat_smooth_sym),
-                                   sensor = sensor))
+             compare_site_surfaces(site, aoi_sym[1], drone = pred_sym,
+                                   wv2 = sat_pred_sym, sensor = sensor))
 )
 conf_grid <- data.frame(sensor = SAT_SENSORS, stringsAsFactors = FALSE)
 conf_grid$ext_raw    <- rlang::syms(paste0("ext_all_", SAT_SENSORS, "_raw"))
-conf_grid$ext_smooth <- rlang::syms(paste0("ext_all_", SAT_SENSORS, "_smoothed"))
 conf_grid$pred_sym   <- rlang::syms(paste0("pred_", SAT_SENSORS, "_scene"))
-conf_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_", SAT_SENSORS, "_scene"))
 confusions <- tar_map(
   values = conf_grid, names = sensor,
-  tar_target(confusion_raw_raw, wv2_drone_confusion(ext_raw, pred_sym, sensors_cfg[[sensor]]$classes)),
-  tar_target(confusion_smooth_smooth, wv2_drone_confusion(ext_smooth, smooth_sym, sensors_cfg[[sensor]]$classes)),
-  tar_target(confusion_raw_smooth, wv2_drone_confusion(ext_raw, smooth_sym, sensors_cfg[[sensor]]$classes))
+  tar_target(confusion_raw_raw, wv2_drone_confusion(ext_raw, pred_sym, sensors_cfg[[sensor]]$classes))
 )
 
 # Plant-scale validation (Table S9) per drone site.
 s9_grid <- data.frame(site = SITES, stringsAsFactors = FALSE)
 s9_grid$pred_sym   <- rlang::syms(paste0("pred_drone_", SITES))
-s9_grid$smooth_sym <- rlang::syms(paste0("pred_smooth_drone_", SITES))
 s9_grid$aoi_sym    <- rlang::syms(paste0("aoi_paths_", SITES))
 plant_scale <- tar_map(
   values = s9_grid, names = site,
-  tar_target(plant_rows, plant_scale_site(site, s9_points_path, aoi_sym[1], pred_sym, smooth_sym))
+  tar_target(plant_rows, plant_scale_site(site, s9_points_path, aoi_sym[1], pred_sym))
 )
 
 # ---------------------------------------------------------------------------
@@ -509,13 +491,9 @@ list(
   tar_combine(pred_index, preds[["pred_summary"]], command = rbind(!!!.x)),
   # Sensitivity of every class area to the learner, beside the average (7.39).
   tar_combine(learner_area_index, preds[["pred_learner_areas"]], command = rbind(!!!.x)),
-  tar_combine(smooth_index, preds[["smooth_areas"]], command = rbind(!!!.x)),
   tar_combine(conformal_bounds, preds[["pred_conf_bounds"]], command = rbind(!!!.x)),
   tar_target(class_areas, pred_index[grepl("^drone_", pred_index$site), ]),
-  tar_target(class_areas_smooth, smooth_index[grepl("^drone_", smooth_index$site), ]),
-  tar_target(area_comparison, compare_areas(class_areas, class_areas_smooth)),
   tar_target(wv2_pred_summary, pred_index[pred_index$site == "wv2_scene", ]),
-  tar_target(wv2_smooth_areas, smooth_index[smooth_index$site == "wv2_scene", ]),
   tar_target(sat_pred_index, pred_index[pred_index$site %in% c("planet_scene", "s2_scene"), ]),
 
   compares,
@@ -525,13 +503,6 @@ list(
   tar_target(sat_drone_areas, drone_areas_all),
   confusions,
   tar_target(wv2_confusion_raw_raw, confusion_raw_raw_wv2),
-  tar_target(wv2_confusion_smooth_smooth, confusion_smooth_smooth_wv2),
-  # PPI (D6): correct each sensor's scene Neltuma area by the bias measured on
-  # the drone overlap, with a CI (R1 range / R2 propagate-the-discrepancy).
-  tar_target(ppi_wv2, ppi_neltuma_area(pred_wv2_scene, confusion_raw_raw_wv2, neltuma_code, "wv2")),
-  tar_target(ppi_planet, ppi_neltuma_area(pred_planet_scene, confusion_raw_raw_planet, neltuma_code, "planet")),
-  tar_target(ppi_s2, ppi_neltuma_area(pred_s2_scene, confusion_raw_raw_s2, neltuma_code, "s2")),
-  tar_target(ppi_area, rbind(ppi_wv2, ppi_planet, ppi_s2)),
   cover_targets,
   plant_scale,
   tar_combine(plant_validation, plant_scale[["plant_rows"]], command = rbind(!!!.x)),
@@ -545,10 +516,10 @@ list(
              make_analysis_grid(wv2_aoi, sensors_cfg$wv2$phases$prevalence_cell_m,
                                 "data-out/wv2/grid_prevalence.fgb", square = TRUE), format = "file"),
   tar_target(wv2_phase_layer,
-             build_phase_layer(pred_wv2_scene, pred_smooth_wv2_scene, wv2_grid_phase, neltuma_code,
+             build_phase_layer(pred_wv2_scene, wv2_grid_phase, neltuma_code,
                                sensors_cfg$wv2$phases, "data-out/wv2/phases.fgb"), format = "file"),
   tar_target(wv2_prevalence_layer,
-             build_phase_layer(pred_wv2_scene, pred_smooth_wv2_scene, wv2_grid_prevalence, neltuma_code,
+             build_phase_layer(pred_wv2_scene, wv2_grid_prevalence, neltuma_code,
                                sensors_cfg$wv2$phases, "data-out/wv2/prevalence.fgb"), format = "file"),
   tar_target(wv2_phase_table, phase_summary(wv2_phase_layer)),
   # Probabilistic phases (D7): the hard map, plus the conformal lower/upper
@@ -567,7 +538,7 @@ list(
   tar_target(fig_acc, fig_accuracy(best_models, score_index), format = "file"),
   tar_target(fig_cover, fig_subpixel_cover(list(wv2 = ext_all_wv2_raw, planet = ext_all_planet_raw,
                                                 s2 = ext_all_s2_raw), sensor_table), format = "file"),
-  tar_target(fig_wv2_map, fig_satellite_map(list(raw = pred_wv2_scene, "smoothed (w = 9)" = pred_smooth_wv2_scene),
+  tar_target(fig_wv2_map, fig_satellite_map(list(raw = pred_wv2_scene),
                                             "WorldView-2 (1.6 m)", "data-out/figures/fig6c_wv2_landscape.png"),
              format = "file"),
   tar_target(fig7_scores, sensor_accuracy_summary(SITES[1], PRED_TAG, best_models, class_index,
@@ -589,7 +560,6 @@ list(
              fig_conformal_map(pred_conformal_wv2_scene, "WorldView-2 (1.6 m), 90% coverage",
                                "data-out/figures/figC1_conformal_wv2.png"), format = "file"),
   tar_target(fig_coverage, fig_coverage_curve(conformal_coverage_honest), format = "file"),
-  tar_target(fig_area, fig_area_bounds(conformal_bounds, ppi_area, CONF_ALPHA_MAP), format = "file"),
   # ---- Cover (C2/C3) figures ----------------------------------------------
   tar_target(fig_cover_coverage, fig_cover_coverage(cover_coverage_index), format = "file"),
   tar_target(fig_cover_area, fig_cover_area(cover_area_index), format = "file"),
@@ -603,7 +573,6 @@ list(
                                 class_index = class_index, wv2_scores = wv2_scores, sat_scores = sat_scores,
                                 sat_class_index = rbind(wv2_class_index, sat_class_index),
                                 wv2_drone_areas = wv2_drone_areas,
-                                wv2_confusion = wv2_confusion_smooth_smooth,
                                 wv2_confusion_raw = wv2_confusion_raw_raw,
                                 wv2_phase_table = wv2_phase_table,
                                 plant_validation_summary = plant_validation_summary)),

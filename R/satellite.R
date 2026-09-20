@@ -185,13 +185,10 @@ masked_class_areas <- function(class_tif, aoi) {
 #' @return long data.frame: site, sensor, surface, Type, area_ha
 compare_site_surfaces <- function(site, aoi_path, drone, wv2, sensor = "wv2") {
   aoi <- terra::vect(aoi_path)
-  sets <- list(drone$raw[1], drone$smoothed[1], wv2$raw[1], wv2$smoothed[1])
-  names(sets) <- c("drone_raw", "drone_smoothed",
-                   paste0(sensor, "_raw"), paste0(sensor, "_smoothed"))
+  sets <- list(drone[1], wv2[1]); names(sets) <- c("drone", sensor)
   out <- lapply(names(sets), function(nm) {
     a <- masked_class_areas(sets[[nm]], aoi)
-    parts <- strsplit(nm, "_")[[1]]
-    cbind(site = site, sensor = parts[1], surface = parts[2], a)
+    cbind(site = site, sensor = nm, surface = "raw", a)
   })
   do.call(rbind, out)
 }
@@ -330,33 +327,25 @@ make_analysis_grid <- function(aoi_path, cell_m, out, square = FALSE) {
 #' boundaries here go to the LOWER phase, which only matters for cells landing
 #' exactly on a threshold.
 #'
-#' @param raw_tif,smooth_tif class raster paths
+#' @param raw_tif class raster path
 #' @param grid_path analysis grid (.fgb)
 #' @param neltuma_code integer class code for Neltuma
 #' @param th thresholds list: dominance, expansion, incursion (percent)
 #' @param out output layer path (.fgb)
 #' @return `out`
-build_phase_layer <- function(raw_tif, smooth_tif, grid_path, neltuma_code,
-                              th, out) {
+build_phase_layer <- function(raw_tif, grid_path, neltuma_code, th, out) {
   grid <- sf::st_read(grid_path, quiet = TRUE)
-
   cover_of <- function(tif) {
     r <- terra::rast(tif[1])[[1]] == neltuma_code
     100 * exactextractr::exact_extract(r, grid, "mean", progress = FALSE)
   }
   phase_of <- function(cover) {
-    cut(cover,
-        breaks = c(-Inf, th$incursion, th$expansion, th$dominance, Inf),
-        labels = c("Pre-Incursion", "Initial Incursion", "Expansion",
-                   "Dominance"),
+    cut(cover, breaks = c(-Inf, th$incursion, th$expansion, th$dominance, Inf),
+        labels = c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance"),
         right = FALSE)
   }
-
-  grid$cover_raw    <- cover_of(raw_tif)
-  grid$cover_smooth <- cover_of(smooth_tif)
-  grid$phase_raw    <- phase_of(grid$cover_raw)
-  grid$phase_smooth <- phase_of(grid$cover_smooth)
-
+  grid$cover_raw <- cover_of(raw_tif)
+  grid$phase_raw <- phase_of(grid$cover_raw)
   write_fgb(grid, out)
 }
 
@@ -367,7 +356,7 @@ build_phase_layer <- function(raw_tif, smooth_tif, grid_path, neltuma_code,
 #' @return data.frame: surface, phase, n_cells, area_ha, pct_of_area
 phase_summary <- function(layer_path) {
   g <- sf::st_read(layer_path, quiet = TRUE)
-  phase_table(g$phase_raw, g$phase_smooth, as.numeric(sf::st_area(g)) / 1e4)
+  phase_table(g$phase_raw, as.numeric(sf::st_area(g)) / 1e4)
 }
 
 
@@ -379,19 +368,16 @@ phase_summary <- function(layer_path) {
 #' version labelled rows by the first surface's phases and failed when the
 #' surfaces disagreed.
 #'
-#' @param phase_raw,phase_smooth phase labels per cell
+#' @param phase_raw phase labels per cell
 #' @param area_ha cell areas
 #' @return data.frame: surface, phase, n_cells, area_ha, pct_of_area
-phase_table <- function(phase_raw, phase_smooth, area_ha) {
+phase_table <- function(phase_raw, area_ha) {
   lv <- c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance")
-  one <- function(ph, surface) {
-    f <- factor(as.character(ph), levels = lv)
-    a <- as.numeric(tapply(area_ha, f, sum, default = 0)); a[is.na(a)] <- 0
-    data.frame(surface = surface, phase = lv, n_cells = as.integer(table(f)),
-               area_ha = a, pct_of_area = 100 * a / sum(area_ha[!is.na(f)]),
-               stringsAsFactors = FALSE)
-  }
-  rbind(one(phase_raw, "raw"), one(phase_smooth, "smooth"))
+  f <- factor(as.character(phase_raw), levels = lv)
+  a <- as.numeric(tapply(area_ha, f, sum, default = 0)); a[is.na(a)] <- 0
+  data.frame(surface = "raw", phase = lv, n_cells = as.integer(table(f)),
+             area_ha = a, pct_of_area = 100 * a / sum(area_ha[!is.na(f)]),
+             stringsAsFactors = FALSE)
 }
 
 
@@ -414,10 +400,10 @@ phase_table <- function(phase_raw, phase_smooth, area_ha) {
 #' @param site drone site id
 #' @param points_path the buffered points shapefile
 #' @param aoi_path this site's boundary
-#' @param raw_tif,smooth_tif this site's class surfaces
+#' @param raw_tif this site's class surface
 #' @param epsg CRS to declare on the layer
-#' @return data.frame: site, Type, pred_raw, pred_smooth for points on-site
-plant_scale_site <- function(site, points_path, aoi_path, raw_tif, smooth_tif,
+#' @return data.frame: site, Type, pred_raw for points on-site
+plant_scale_site <- function(site, points_path, aoi_path, raw_tif,
                              epsg = 32734L) {
   v <- sf::st_read(points_path, quiet = TRUE)
   if (is.na(sf::st_crs(v))) v <- sf::st_set_crs(v, epsg)
@@ -431,15 +417,12 @@ plant_scale_site <- function(site, points_path, aoi_path, raw_tif, smooth_tif,
   v <- v[inside, , drop = FALSE]
   r_raw <- terra::rast(raw_tif[1])[[1]]
   if (!nrow(v)) {
-    return(data.frame(site = character(0), Type = integer(0),
-                      pred_raw = integer(0), pred_smooth = integer(0)))
+    return(data.frame(site = character(0), Type = integer(0), pred_raw = integer(0)))
   }
 
   maj <- function(r) as.integer(
     exactextractr::exact_extract(r, v, "majority", progress = FALSE))
-  data.frame(site = site, Type = as.integer(v$Type),
-             pred_raw = maj(r_raw),
-             pred_smooth = maj(terra::rast(smooth_tif[1])[[1]]))
+  data.frame(site = site, Type = as.integer(v$Type), pred_raw = maj(r_raw))
 }
 
 
@@ -450,7 +433,7 @@ plant_scale_site <- function(site, points_path, aoi_path, raw_tif, smooth_tif,
 plant_scale_summary <- function(df) {
   # Uniqueness comes from plant_scale_site's AOI-membership test - the site
   # AOIs do not overlap, so no further deduplication is needed here.
-  out <- lapply(c(raw = "pred_raw", smooth = "pred_smooth"), function(col) {
+  out <- lapply(c(raw = "pred_raw"), function(col) {
     ok <- !is.na(df[[col]])
     agg <- aggregate(list(n = ok, n_correct = ok & df[[col]] == df$Type),
                      by = list(Type = df$Type), FUN = sum)

@@ -77,7 +77,7 @@ Landscape-scale mapping showed Neltuma is already established across [`r values$
 
 
 ::: {.pipeline-contradicts}
-(finding 7.35): Dominance reproduces (raw surface [`r values$dominance_pct_raw`]{.substituted}%, filtered [`r values$dominance_pct_smooth`]{.substituted}%; original 3.6%). "Expanding" (Expansion + Initial Incursion) is [`r values$expanding_pct_raw`]{.substituted}% ([`r values$expanding_km2_raw`]{.substituted} km²) on the raw surface and [`r values$expanding_pct_smooth`]{.substituted}% on the filtered one - neither is 79.9%, and the two differ by 40 points of landscape because the 0.1% phase floor is exactly what the modal filter erases. Surface choice is an authorial decision [ANDY].
+(finding 7.35): Dominance is [`r values$dominance_pct_raw`]{.substituted}% (original 3.6%); "Expanding" (Expansion + Initial Incursion) is [`r values$expanding_pct_raw`]{.substituted}% ([`r values$expanding_km2_raw`]{.substituted} km²) - not the reported 79.9%. The post-classification modal filter that inflated the original phase split is not applied here: it erases the 0.1% incursion floor and halves WV2 Neltuma recall for no precision gain (see Methods).
 :::
 
  highlighting substantial but uneven invasion risk across rangelands important for people and wildlife. Beyond species mapping, our results show how integrating fine-resolution ecological observations with satellite Earth observation via a hierarchical drone–satellite remote sensing framework can help overcome scale mismatch, improving early detection and management of sparse biological invasions. This multi-scale framework has wider relevance for biodiversity surveillance, woody encroachment, degradation monitoring and dryland early-warning systems.
@@ -239,11 +239,11 @@ Applied to WorldView-2 imagery, the mlr3 workflow produced robust landscape-scal
 
 
 
-Independent comparison with the drone-derived classification revealed discrepancies that were not fully reflected by the satellite classification's internal validation metrics. The satellite classification overpredicted Neltuma extent by [`r values$s10_over_smooth_pct`]{.substituted}% relative to drone classifications (Table S10), while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted} in satellite imagery.
+Independent comparison with the drone-derived classification revealed discrepancies that were not fully reflected by the satellite classification's internal validation metrics. The satellite classification overpredicted Neltuma extent by [`r values$s10_over_raw_pct`]{.substituted}% relative to drone classifications (raw surfaces; Table S10), while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted} in satellite imagery.
 
 
 ::: {.pipeline-note}
-(finding 7.35): [`r values$s10_over_smooth_pct`]{.substituted}% is the smoothed-vs-smoothed comparison the original made (it reported 24.8%); raw against raw the over-prediction is [`r values$s10_over_raw_pct`]{.substituted}% - the headline is two filters roughly cancelling, and the WV2 filter halves Neltuma recall ([`r values$s10_recall_raw`]{.substituted} -> [`r values$s10_recall_smooth`]{.substituted}) for no precision gain. PIPELINE-CONTRADICTS: the woody-confusion share of drone-Neltuma pixels is [`r values$s10_woody_smooth_pct`]{.substituted}% (smoothed) / [`r values$s10_woody_raw_pct`]{.substituted}% (raw) here, not 34.6%; the original's definition of that figure is not recoverable from the S10 matrix [ANDY].
+(finding 7.35): raw-against-raw the over-prediction is [`r values$s10_over_raw_pct`]{.substituted}%. The original reported 24.8% from a smoothed-vs-smoothed comparison - two modal filters roughly cancelling; that filter also halves WV2 Neltuma recall for no precision gain, so we retire it (see Methods). PIPELINE-CONTRADICTS: the woody-confusion share of drone-Neltuma pixels is [`r values$s10_woody_raw_pct`]{.substituted}% here, not 34.6%; the original's definition of that figure is not recoverable from the S10 matrix [ANDY].
 :::
 
  These comparisons indicate greater classification error than suggested by internal training and validation statistics alone, while reinforcing both the value of drone-informed calibration and the importance of spatially explicit validation.
