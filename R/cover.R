@@ -368,7 +368,12 @@ leave_site_out_folds <- function(train_df) {
 predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
   cube <- terra::rast(cube_path)[[bands]]
   if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
-  fun <- function(model, dat, ...) model$di_of(as.matrix(dat))
+  fun <- function(model, dat, ...) {
+    out <- rep(NA_real_, nrow(dat))
+    ok <- stats::complete.cases(dat)
+    if (any(ok)) out[ok] <- model$di_of(as.matrix(dat[ok, , drop = FALSE]))
+    out
+  }
   n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
   di <- terra::predict(cube, di_obj, fun = fun, na.rm = FALSE, cores = n_cores)
   names(di) <- "di"
