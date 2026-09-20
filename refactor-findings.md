@@ -2153,3 +2153,17 @@ manifest, lockfile and library in agreement.
   surface is neither applicable nor desirable - it would blur the very cover
   gradients that define the invasion phases. Predictive uncertainty is carried
   explicitly through conformal/CV+ intervals rather than suppressed by smoothing."
+- **2026-09-20 [S2 COVER ARM WIRED + VALIDATED IN-PIPELINE]** cover_targets in
+  _targets.R (17 targets, tar_validate passes; built via
+  tar_make(names=starts_with("cover_"), shortcut=TRUE)). AUTHORITATIVE S2 numbers:
+  study area 45,072 ha, AOA 36,949 ha (82% of scene), naive sum-of-fractions
+  1337 ha, within-AOA cover sum 963 ha, PPI-corrected 1228 ha [1184,1272]
+  (model bias on drone cells only -0.72pp), vs hard-class naive 2593 / PPI 0
+  [0,186]. DI-stratified conformal coverage nominal 0.95/0.90/0.80 -> actual
+  0.954/0.907/0.812 (lands on nominal, in-pipeline). Two integration fixes:
+  predict_di_raster skips NA cells (FNN rejects NAs); predict_cover_scene gains
+  aoi= and predicts the 445 km2 study area only (matches the DI raster extent and
+  is ~6x faster than the full 2907 km2 S2 tile). Timings: cover_scene_s2 5 min
+  (AOI-cropped), cover_di_raster 3 min, cover_oof 3 min. NEXT: add wv2/planet to
+  COVER_SENSORS (WV2 175M px is the scaling test), cover-based thin phases,
+  figures, wire into paper_values/manuscript, retire smoothed targets.
