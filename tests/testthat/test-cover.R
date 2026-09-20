@@ -117,6 +117,16 @@ test_that("DI-stratified conformal widens with DI and holds ~1-alpha coverage pe
   expect_true(all(cov$by_bin$coverage > 0.82))
 })
 
+test_that("leave_site_out_folds gives one fold per site, each row tested once", {
+  df <- data.frame(site = rep(c("a","b","c"), c(4,3,5)), cover = runif(12))
+  f <- leave_site_out_folds(df)
+  expect_length(f$test_sets, 3L)
+  expect_setequal(unlist(f$test_sets), 1:12)              # every row tested once
+  expect_true(all(mapply(function(tr,te) length(intersect(tr,te))==0,
+                         f$train_sets, f$test_sets)))     # disjoint train/test
+  expect_identical(sort(f$test_sets[[1]]), 1:4)           # site 'a' rows
+})
+
 test_that("cover_di (FNN) gives low DI in-distribution, high DI out, threshold separates", {
   skip_if_not_installed("FNN")
   set.seed(5); n <- 400L; bands <- c("b1", "b2", "b3")

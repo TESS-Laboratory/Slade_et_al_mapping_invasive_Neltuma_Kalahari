@@ -295,6 +295,95 @@ cover_learner <- function(id) {
 }
 
 
+#' Leave-one-site-out folds for the cover cells
+#'
+#' kNNDM's k-means clustering fails on the dense cover cells (thousands packed
+#' into 7 sites); leave-one-site-out is the honest "predict an unseen site"
+#' spatial CV for this design (finding 2026-09-20) and gives the residuals for the
+#' DI-stratified conformal.
+#'
+#' @param train_df cover table with a `site` column
+#' @return list(train_sets, test_sets) of row-index vectors, one fold per site
+leave_site_out_folds <- function(train_df) {
+  s <- factor(train_df$site); lv <- levels(s)
+  list(train_sets = lapply(lv, function(l) which(s != l)),
+       test_sets  = lapply(lv, function(l) which(s == l)))
+}
+
+
+#' Scene dissimilarity-index raster (block-processed via the FNN closure)
+#'
+#' Applies `cover_di()`'s `di_of` over the cube; terra handles blocking so it
+#' scales past in-memory limits (WV2). Written as INT2S x1000 with a scale tag,
+#' like the cover raster, so it reads back as DI.
+#'
+#' @param cube_path satellite cube
+#' @param bands predictor band names
+#' @param di_obj output of `cover_di()`
+#' @param out_path output DI raster path
+#' @param aoi optional study-area vector to crop/mask to
+#' @return `out_path`
+predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
+  cube <- terra::rast(cube_path)[[bands]]
+  if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
+  fun <- function(model, dat, ...) model$di_of(as.matrix(dat))
+  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+  di <- terra::predict(cube, di_obj, fun = fun, na.rm = FALSE, cores = n_cores)
+  names(di) <- "di"
+  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
+  terra::writeRaster(terra::round(di * 1000), out_path, overwrite = TRUE,
+                     datatype = "INT2S", NAflag = -1L,
+                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  ok <- system2("gdal_edit.py", c("-scale", "0.001", "-offset", "0", shQuote(out_path)),
+                stdout = FALSE, stderr = FALSE)
+  if (!identical(ok, 0L)) warning("gdal_edit.py did not tag the DI scale on ", out_path, call. = FALSE)
+  out_path
+}
+
+
+#' Neltuma cover area from the scene surface: naive, within-AOA, and PPI-corrected
+#'
+#' Area = sum(cover x pixel) over the study area (naive) and over the AOA only
+#' (label-supported). The within-AOA scene-MEAN cover is then PPI-corrected by the
+#' model's bias measured on the labelled drone cells (rectifier = mean(OOF response
+#' - true cover)); the CI carries the rectifier's own variance (drone-label
+#' uncertainty enters here, once - plan 3.8). Out-of-AOA area is reported but
+#' flagged as extrapolation.
+#'
+#' @param cover_path scene cover raster ([0,1] via scale tag)
+#' @param di_path scene DI raster
+#' @param threshold AOA DI threshold
+#' @param oof ensemble OOF `list(response, truth)` on the drone cells
+#' @param aoi study-area vector path
+#' @param px_ha ha per pixel
+#' @param sensor label
+#' @param alpha CI level
+#' @return one-row data.frame of areas
+cover_scene_area <- function(cover_path, di_path, threshold, oof, aoi, px_ha,
+                             sensor = NA_character_, alpha = 0.05) {
+  v <- terra::vect(aoi)
+  cover <- terra::mask(terra::rast(cover_path), v)
+  di <- terra::mask(terra::rast(di_path), v)
+  inside <- di <= threshold
+  scene_cells  <- terra::global(!is.na(cover), "sum", na.rm = TRUE)[1, 1]
+  inside_cells <- terra::global(inside, "sum", na.rm = TRUE)[1, 1]
+  naive_ha  <- terra::global(cover, "sum", na.rm = TRUE)[1, 1] * px_ha
+  aoa_ha    <- terra::global(terra::mask(cover, inside, maskvalue = FALSE), "sum", na.rm = TRUE)[1, 1] * px_ha
+  theta_in  <- aoa_ha / (inside_cells * px_ha)              # within-AOA mean cover
+  d <- oof$response - oof$truth
+  delta <- mean(d); var_d <- stats::var(d) / length(d)
+  theta_ppi <- min(max(theta_in - delta, 0), 1)
+  se <- sqrt(theta_in * (1 - theta_in) / inside_cells + var_d)
+  z <- stats::qnorm(1 - alpha / 2); tot_in <- inside_cells * px_ha
+  data.frame(sensor = sensor, scene_ha = scene_cells * px_ha, aoa_ha = tot_in,
+             aoa_frac = inside_cells / scene_cells, naive_ha = naive_ha,
+             cover_aoa_ha = aoa_ha, ppi_ha = theta_ppi * tot_in,
+             ppi_lo_ha = max(theta_ppi - z * se, 0) * tot_in,
+             ppi_hi_ha = min(theta_ppi + z * se, 1) * tot_in,
+             bias_pp = 100 * delta, n_overlap = length(d), stringsAsFactors = FALSE)
+}
+
+
 #' Fit the deployment cover ensemble on all data (plain regr task)
 #'
 #' The spatial (ST) task is only needed for the honest CV folds; the DEPLOYED
