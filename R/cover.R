@@ -431,47 +431,61 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
                                      n = as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8")),
                                      tile_cells = as.numeric(Sys.getenv("NELTUMA_TILE_CELLS", "2e6"))) {
   if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
-  tdir <- paste0(out_path, ".tiles"); unlink(tdir, recursive = TRUE)
+  tdir <- paste0(out_path, ".tiles")
   dir.create(tdir, recursive = TRUE, showWarnings = FALSE)
   # Tile to a fixed MEMORY-SAFE cell budget (NOT one giant tile per daemon):
   # ranger's predict on ~17.5M-row tiles ballooned to ~50 GB/daemon and OOM'd the
   # WV2 run (2026-09-20). ~2M-cell tiles keep each daemon's predict to a few GB;
   # mirai_map streams the many tiles across the n daemons in rounds.
+  #
+  # RESUMABLE (2026-09-20): session teardowns keep killing long scene predicts, and
+  # re-tiling + re-predicting the whole scene each restart is wasteful. We do NOT
+  # wipe `tdir` at the start. makeTiles is deterministic (same cube extent + tile
+  # size -> same in_1.tif, in_2.tif, ...), so re-running it is safe even if a prior
+  # tiling was cut off mid-way (it overwrites the partial set and completes it), and
+  # each in_N.tif maps to a stable out_N.tif. We then predict ONLY the tiles whose
+  # output is missing, writing each output atomically (temp + rename) so a kill
+  # mid-write can never leave a truncated out-tile that a later resume would trust.
   nrpt <- max(1L, as.integer(ceiling(tile_cells / terra::ncol(cube))))
   intiles <- terra::makeTiles(cube, c(nrpt, terra::ncol(cube)),
                               file.path(tdir, "in_.tif"), na.rm = FALSE, overwrite = TRUE)
+  outtiles <- sub("in_", "out_", intiles, fixed = TRUE)
+  todo <- intiles[!file.exists(outtiles)]                     # resume: skip completed tiles
 
-  mirai::daemons(n, .compute = "coverpred")
-  on.exit(mirai::daemons(0, .compute = "coverpred"), add = TRUE)
-  mirai::everywhere({
-    suppressMessages({library(terra); library(mlr3); library(mlr3learners)
-      library(mlr3extralearners); library(FNN)})
-    # assign to the daemon global env so the mirai_map function resolves them
-    assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
-    assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
-  }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
+  if (length(todo)) {
+    mirai::daemons(n, .compute = "coverpred")
+    on.exit(mirai::daemons(0, .compute = "coverpred"), add = TRUE)
+    mirai::everywhere({
+      suppressMessages({library(terra); library(mlr3); library(mlr3learners)
+        library(mlr3extralearners); library(FNN)})
+      # assign to the daemon global env so the mirai_map function resolves them
+      assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
+      assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
+    }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
 
-  res <- mirai::mirai_map(intiles, function(tp) {
-    r <- terra::rast(tp); names(r) <- BANDS      # makeTiles may drop names; restore band order
-    v <- terra::values(r, mat = TRUE)
-    out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
-    if (any(ok)) {
-      if (identical(KIND, "cover")) {
-        dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
-        for (m in PRED) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
-        out[ok] <- acc / length(PRED)
-      } else {
-        out[ok] <- PRED$di_of(v[ok, , drop = FALSE])
+    res <- mirai::mirai_map(todo, function(tp) {
+      r <- terra::rast(tp); names(r) <- BANDS    # makeTiles may drop names; restore band order
+      v <- terra::values(r, mat = TRUE)
+      out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
+      if (any(ok)) {
+        if (identical(KIND, "cover")) {
+          dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
+          for (m in PRED) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
+          out[ok] <- acc / length(PRED)
+        } else {
+          out[ok] <- PRED$di_of(v[ok, , drop = FALSE])
+        }
       }
-    }
-    o <- terra::rast(r, nlyrs = 1L)
-    terra::values(o) <- as.integer(round(out * SCALE))
-    op <- sub("in_", "out_", tp, fixed = TRUE)
-    terra::writeRaster(o, op, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
-                       gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
-    op
-  }, .compute = "coverpred")
-  outtiles <- unlist(res[])                                   # blocks until all tiles done
+      o <- terra::rast(r, nlyrs = 1L)
+      terra::values(o) <- as.integer(round(out * SCALE))
+      op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
+      terra::writeRaster(o, tmp, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                         gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
+      file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
+      op
+    }, .compute = "coverpred")
+    invisible(res[])                                          # blocks until all tiles done
+  }
 
   dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
   terra::writeRaster(terra::vrt(outtiles), out_path, overwrite = TRUE,
