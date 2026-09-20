@@ -2214,3 +2214,16 @@ manifest, lockfile and library in agreement.
   a result); satellite hard-class classification + conformal SETS (sensor-comparison /
   set-size story -> SI, and the foil that motivates cover); the cover arm; conformal_bounds;
   checks; paper. Now-dead helpers left in place (harmless): compare_areas, class_area_table.
+- **2026-09-20 [cleanup reverify deferred; wv2_prevalence_layer is slow]** After the
+  smoothing/PPI prune, a paper_values reverify rebuilt all the invalidated targets
+  cleanly (site_areas x21 incl the WV2/Planet scene crops, plant_rows, plant_validation
+  - proving the raw-only functions work) but then sat >1.5h on wv2_prevalence_layer:
+  build_phase_layer does exact_extract(r == neltuma_code, grid, "mean") over the 175M-px
+  WV2 scene x the 44,500-cell 100m prevalence grid - inherently heavy (and possibly worse
+  because the `== code` raster is lazy, not materialised). Stopped it consciously to free
+  the store (low reverify value; not needed for WV2). wv2_phase_layer/wv2_prevalence_layer/
+  wv2_phase_table/paper_values are therefore OUTDATED - they rebuild at the final paper
+  render, where the cost is unavoidable. TODO before that render: consider materialising
+  the boolean raster (writeRaster r==code to a temp file, then exact_extract the concrete
+  raster) to see if it collapses the wv2_prevalence_layer time; or drop the 100m prevalence
+  layer if the cover phases supersede it. Cleanup itself is committed + tar_validate-clean.
