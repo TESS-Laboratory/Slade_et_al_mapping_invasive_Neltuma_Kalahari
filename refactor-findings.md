@@ -2181,3 +2181,20 @@ manifest, lockfile and library in agreement.
   S2 (on these 7 sites) genuinely cannot rule out dense-invasion regimes it can't
   extrapolate to. Honest, not an artifact; report the struizendam_4 sensitivity in
   the paper. Per-pixel conformal remains the MAP uncertainty; this is the aggregate.
+- **2026-09-20 [cover predict parallelism - mirai daemons, HUGH]** The cover
+  scene-prediction bottleneck: predict_cover_scene called terra::predict(cores=N),
+  whose own parallel cluster ran NESTED inside a crew mirai daemon and
+  re-serialised the heavy ranger models per block -> ~50% idle, Planet stalled >3h.
+  Tried and rejected: cores=1 (ranger single-threaded, S2 5min->>20min) and a
+  single-process block loop (also >20min). FIX (Hugh's design): raster_predict_parallel
+  in R/cover.R - makeTiles the AOI cube, start mirai daemons on a SEPARATE
+  "coverpred" compute profile, load the models ONCE per daemon via
+  everywhere({ assign("PRED", setup, envir=globalenv()) ... }) (note: everywhere
+  assignments must go to globalenv() or the mirai_map fn can't see them - verified),
+  map tiles to daemons each writing its OWN output tile (no concurrent-write
+  contention), then terra::vrt mosaic. mori (shared memory across daemons) would
+  avoid the N model copies but is optional at 754GB. Validated: S2 cover 163s
+  standalone / 3m8s in-crew (nested daemons on a separate profile WORK), correct
+  (1335 ha ~ 1337). Planet ~20-40min instead of 3.5h; makes the deferred WV2 (175M
+  px) tractable. NELTUMA_PREDICT_CORES sets the daemon count; run with bounded
+  crew workers (WORKERS=2) so concurrent predict targets don't over-spawn daemons.
