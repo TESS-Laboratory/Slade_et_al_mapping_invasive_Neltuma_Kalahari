@@ -295,6 +295,48 @@ cover_learner <- function(id) {
 }
 
 
+#' Predictor band columns of a cover table (everything but the metadata)
+#' @param train_df cover table
+#' @return character band names
+cover_bands <- function(train_df) {
+  setdiff(names(train_df), c("cover", "site", "tag", "x", "y"))
+}
+
+
+#' Run the cover regression twins on the folds and return the ensemble OOF
+#'
+#' @param train_df cover table
+#' @param ids regr twin ids (svm dropped: worst + slowest, finding 2026-09-20)
+#' @param folds leave-site-out (or kNNDM) design
+#' @param epsg CRS code
+#' @return ensemble OOF `list(row_ids, response, truth)`
+cover_run_oof <- function(train_df, ids, folds, epsg = 32734) {
+  task <- make_cover_task(train_df, train_df$site[1], train_df$tag[1], epsg)
+  oof <- lapply(ids, function(id) cover_oof(run_cover_resample(task, cover_learner(id), folds)))
+  cover_ensemble_oof(oof)
+}
+
+
+#' DI-stratified conformal coverage of the ensemble OOF across alphas
+#'
+#' The earned-empirically honesty check (per plan 3.9), reported per nominal level.
+#'
+#' @param oof ensemble OOF
+#' @param di_obj `cover_di()` output
+#' @param alphas miscoverage levels
+#' @param sensor label
+#' @return data.frame(sensor, alpha, nominal, overall, n)
+cover_coverage_table <- function(oof, di_obj, alphas, sensor = NA_character_) {
+  resid <- oof$truth - oof$response
+  do.call(rbind, lapply(alphas, function(a) {
+    b <- di_conformal_bounds(resid, di_obj$di_cal, di_obj$di_cal, oof$response, a, 5L, di_obj$threshold)
+    cv <- di_coverage(oof$truth, b$lower, b$upper, b$bin)
+    data.frame(sensor = sensor, alpha = a, nominal = 1 - a,
+               overall = cv$overall, n = length(oof$truth), stringsAsFactors = FALSE)
+  }))
+}
+
+
 #' Leave-one-site-out folds for the cover cells
 #'
 #' kNNDM's k-means clustering fails on the dense cover cells (thousands packed

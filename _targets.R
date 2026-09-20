@@ -347,6 +347,60 @@ plant_scale <- tar_map(
 )
 
 # ---------------------------------------------------------------------------
+# SUB-PIXEL NELTUMA COVER (C2/C3): the satellites' primary Neltuma product.
+# Calibrated drone P(Neltuma) warp-averaged onto each satellite grid = cover
+# target; regr twins (svm dropped: worst + slowest, 2026-09-20) on leave-site-out
+# folds; DI-stratified conformal (cover_di, FNN); full-scene cover raster + DI +
+# within-AOA PPI area. S2 first; wv2/planet added once S2 validates in-pipeline.
+COVER_IDS <- c("glmnet", "ranger", "lightgbm")
+COVER_SENSORS <- c("s2")
+cover_targets <- c(
+  list(targets::tar_target_raw("cover_calibrator",
+    rlang::call2("drone_calibrator",
+      rlang::call2("list", !!!rlang::syms(paste0("sv_drone_", SITES, "_5_CHM_ALLVI_field"))),
+      quote(neltuma_code)))),
+  unlist(lapply(COVER_SENSORS, function(s) {
+    cube_sym  <- rlang::sym(paste0("cube_", s, "_scene_4_ALLVI"))
+    bands_sym <- rlang::sym(paste0("cover_bands_", s))
+    folds_sym <- rlang::sym(paste0("cover_folds_", s))
+    di_sym    <- rlang::sym(paste0("cover_di_", s))
+    train_sym <- rlang::sym(paste0("cover_train_", s))
+    px_ha <- (SENSORS[[s]]$pixel_m^2) / 1e4
+    cube_path <- rlang::call2("[", cube_sym, 1L)
+    cells <- lapply(SITES, function(site) targets::tar_target_raw(
+      paste0("cover_cells_", s, "_", site),
+      rlang::call2("$", rlang::call2("cover_training_table",
+        cube_path, rlang::call2("[", rlang::sym(paste0("pred_drone_", site)), 2L),
+        file.path("data-in", s, "grids", paste0(site, ".fgb")),
+        site, "4_ALLVI", quote(cover_calibrator), 1L), quote(training))))
+    c(cells, list(
+      targets::tar_target_raw(paste0("cover_train_", s),
+        rlang::call2("rbind", !!!rlang::syms(paste0("cover_cells_", s, "_", SITES)))),
+      targets::tar_target_raw(paste0("cover_bands_", s), rlang::call2("cover_bands", train_sym)),
+      targets::tar_target_raw(paste0("cover_folds_", s), rlang::call2("leave_site_out_folds", train_sym)),
+      targets::tar_target_raw(paste0("cover_oof_", s),
+        rlang::call2("cover_run_oof", train_sym, COVER_IDS, folds_sym)),
+      targets::tar_target_raw(paste0("cover_di_", s),
+        rlang::call2("cover_di", train_sym, bands_sym, folds_sym)),
+      targets::tar_target_raw(paste0("cover_coverage_", s),
+        rlang::call2("cover_coverage_table", rlang::sym(paste0("cover_oof_", s)), di_sym, quote(CONF_ALPHAS), s)),
+      targets::tar_target_raw(paste0("cover_scene_", s),
+        rlang::call2("predict_cover_scene", train_sym, cube_path, bands_sym, COVER_IDS,
+                     file.path("data-out", "predict", paste0(s, "_scene__4_ALLVI_cover.tif"))),
+        format = "file"),
+      targets::tar_target_raw(paste0("cover_di_raster_", s),
+        rlang::call2("predict_di_raster", cube_path, bands_sym, di_sym,
+                     file.path("data-out", "predict", paste0(s, "_scene__4_ALLVI_di.tif")), quote(wv2_aoi)),
+        format = "file"),
+      targets::tar_target_raw(paste0("cover_area_", s),
+        rlang::call2("cover_scene_area",
+          rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
+          rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
+          rlang::call2("$", di_sym, quote(threshold)),
+          rlang::sym(paste0("cover_oof_", s)), quote(wv2_aoi), px_ha, s))))
+  }), recursive = FALSE))
+
+# ---------------------------------------------------------------------------
 list(
   # ---- configuration ------------------------------------------------------
   tar_file(sites_file,      file.path(CONFIG_DIR, "sites.csv")),
@@ -461,6 +515,7 @@ list(
   tar_target(ppi_planet, ppi_neltuma_area(pred_planet_scene, confusion_raw_raw_planet, neltuma_code, "planet")),
   tar_target(ppi_s2, ppi_neltuma_area(pred_s2_scene, confusion_raw_raw_s2, neltuma_code, "s2")),
   tar_target(ppi_area, rbind(ppi_wv2, ppi_planet, ppi_s2)),
+  cover_targets,
   plant_scale,
   tar_combine(plant_validation, plant_scale[["plant_rows"]], command = rbind(!!!.x)),
   tar_target(plant_validation_summary, plant_scale_summary(plant_validation)),
