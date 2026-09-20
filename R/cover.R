@@ -391,22 +391,30 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
 #' Neltuma cover area from the scene surface: naive, within-AOA, and PPI-corrected
 #'
 #' Area = sum(cover x pixel) over the study area (naive) and over the AOA only
-#' (label-supported). The within-AOA scene-MEAN cover is then PPI-corrected by the
-#' model's bias measured on the labelled drone cells (rectifier = mean(OOF response
-#' - true cover)); the CI carries the rectifier's own variance (drone-label
-#' uncertainty enters here, once - plan 3.8). Out-of-AOA area is reported but
-#' flagged as extrapolation.
+#' (label-supported). The within-AOA scene-MEAN cover is PPI-corrected by the
+#' model's bias on the labelled drone cells (delta = mean OOF residual).
+#'
+#' The interval is a CLUSTER-ROBUST (between-site) CI: with leave-site-out folds the
+#' SITE is the unit of spatial independence, so the honest uncertainty of the mean
+#' cover is the between-site spread of the held-out per-site mean residuals -
+#' sd(site means)/sqrt(n_sites), with a t(n_sites-1) multiplier for the few clusters
+#' (finding 2026-09-20, [HUGH]). This is the analytic form of a site block bootstrap
+#' and captures the dominant site-representativeness uncertainty; the naive
+#' theta(1-theta)/N_pixel term is WRONG here - it treats millions of autocorrelated
+#' pixels as independent and collapses the interval. The per-pixel conformal bounds
+#' remain the MAP uncertainty; this is the AGGREGATE.
 #'
 #' @param cover_path scene cover raster ([0,1] via scale tag)
 #' @param di_path scene DI raster
 #' @param threshold AOA DI threshold
-#' @param oof ensemble OOF `list(response, truth)` on the drone cells
+#' @param oof ensemble OOF `list(row_ids, response, truth)` on the drone cells
+#' @param train_df cover table (its `site` column, aligned to `oof$row_ids`)
 #' @param aoi study-area vector path
 #' @param px_ha ha per pixel
 #' @param sensor label
 #' @param alpha CI level
 #' @return one-row data.frame of areas
-cover_scene_area <- function(cover_path, di_path, threshold, oof, aoi, px_ha,
+cover_scene_area <- function(cover_path, di_path, threshold, oof, train_df, aoi, px_ha,
                              sensor = NA_character_, alpha = 0.05) {
   v <- terra::vect(aoi)
   cover <- terra::mask(terra::rast(cover_path), v)
@@ -417,17 +425,24 @@ cover_scene_area <- function(cover_path, di_path, threshold, oof, aoi, px_ha,
   naive_ha  <- terra::global(cover, "sum", na.rm = TRUE)[1, 1] * px_ha
   aoa_ha    <- terra::global(terra::mask(cover, inside, maskvalue = FALSE), "sum", na.rm = TRUE)[1, 1] * px_ha
   theta_in  <- aoa_ha / (inside_cells * px_ha)              # within-AOA mean cover
+
   d <- oof$response - oof$truth
-  delta <- mean(d); var_d <- stats::var(d) / length(d)
+  delta <- mean(d)
   theta_ppi <- min(max(theta_in - delta, 0), 1)
-  se <- sqrt(theta_in * (1 - theta_in) / inside_cells + var_d)
-  z <- stats::qnorm(1 - alpha / 2); tot_in <- inside_cells * px_ha
+  # cluster-robust between-site SE: sites are the leave-site-out unit
+  site <- train_df$site[oof$row_ids]
+  site_bias <- tapply(d, factor(site), mean)
+  n_sites <- length(site_bias)
+  se <- stats::sd(site_bias) / sqrt(n_sites)
+  tcrit <- stats::qt(1 - alpha / 2, df = n_sites - 1L)
+  tot_in <- inside_cells * px_ha
   data.frame(sensor = sensor, scene_ha = scene_cells * px_ha, aoa_ha = tot_in,
              aoa_frac = inside_cells / scene_cells, naive_ha = naive_ha,
              cover_aoa_ha = aoa_ha, ppi_ha = theta_ppi * tot_in,
-             ppi_lo_ha = max(theta_ppi - z * se, 0) * tot_in,
-             ppi_hi_ha = min(theta_ppi + z * se, 1) * tot_in,
-             bias_pp = 100 * delta, n_overlap = length(d), stringsAsFactors = FALSE)
+             ppi_lo_ha = max(theta_ppi - tcrit * se, 0) * tot_in,
+             ppi_hi_ha = min(theta_ppi + tcrit * se, 1) * tot_in,
+             bias_pp = 100 * delta, se_pp = 100 * se, n_sites = n_sites,
+             n_overlap = length(d), stringsAsFactors = FALSE)
 }
 
 

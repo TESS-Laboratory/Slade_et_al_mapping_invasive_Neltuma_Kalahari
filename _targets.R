@@ -398,7 +398,7 @@ cover_targets <- c(
           rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
           rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
           rlang::call2("$", di_sym, quote(threshold)),
-          rlang::sym(paste0("cover_oof_", s)), quote(wv2_aoi), px_ha, s))))
+          rlang::sym(paste0("cover_oof_", s)), train_sym, quote(wv2_aoi), px_ha, s))))
   }), recursive = FALSE))
 
 # ---------------------------------------------------------------------------
