@@ -335,7 +335,7 @@ plant_scale <- tar_map(
 # folds; DI-stratified conformal (cover_di, FNN); full-scene cover raster + DI +
 # within-AOA PPI area. S2 first; wv2/planet added once S2 validates in-pipeline.
 COVER_IDS <- c("glmnet", "ranger", "lightgbm")
-COVER_SENSORS <- c("s2", "planet")   # wv2 (175M px) added for a quiet-machine run
+COVER_SENSORS <- c("s2", "planet", "wv2")
 cover_targets <- c(
   list(targets::tar_target_raw("cover_calibrator",
     rlang::call2("drone_calibrator",
