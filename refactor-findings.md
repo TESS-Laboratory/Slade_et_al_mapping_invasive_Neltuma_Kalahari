@@ -2198,3 +2198,19 @@ manifest, lockfile and library in agreement.
   (1335 ha ~ 1337). Planet ~20-40min instead of 3.5h; makes the deferred WV2 (175M
   px) tractable. NELTUMA_PREDICT_CORES sets the daemon count; run with bounded
   crew workers (WORKERS=2) so concurrent predict targets don't over-spawn daemons.
+- **2026-09-20 [graph pruned to new-paper minimal, HUGH]** Removed the modal-filter
+  apparatus entirely and the hard-class satellite PPI: 1924 -> 1843 targets, zero
+  orphans, tar_validate OK. Dropped targets: pred_smooth, smooth_areas, smooth_index,
+  area_comparison, class_areas_smooth, wv2_smooth_areas, confusion_raw_smooth_*,
+  confusion_smooth_smooth_*, wv2_confusion_smooth_smooth, ppi_wv2/planet/s2, ppi_area,
+  fig_area, and the ext smoothed surface. Functions made raw-only (build_phase_layer,
+  compare_site_surfaces, plant_scale_site, plant_scale_summary, phase_summary,
+  phase_table); smooth_prediction deleted; paper_values dropped the *_smooth fields +
+  the smoothed-confusion arg; manuscript passages (qmd:80/242/246) rewritten to the raw
+  findings + the 'filter retired' rationale. Rationale for hard-class PPI drop [HUGH]:
+  PPI is new since the original (D6), and the hard-class version (S2->0) was our own
+  dead-end that the cover PPI supersedes - so describe in prose, don't reproduce.
+  KEPT per HUGH's scope decisions: drone all 4 predictor stacks (predictor comparison
+  a result); satellite hard-class classification + conformal SETS (sensor-comparison /
+  set-size story -> SI, and the foil that motivates cover); the cover arm; conformal_bounds;
+  checks; paper. Now-dead helpers left in place (harmless): compare_areas, class_area_table.
