@@ -429,7 +429,9 @@ leave_site_out_folds <- function(train_df) {
 #' @return `out_path`
 raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, bands,
                                      n = as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8")),
-                                     tile_cells = as.numeric(Sys.getenv("NELTUMA_TILE_CELLS", "2e6"))) {
+                                     tile_cells = as.numeric(Sys.getenv("NELTUMA_TILE_CELLS", "2e6")),
+                                     engine = c("daemon", "threaded")) {
+  engine <- match.arg(engine)
   if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
   tdir <- paste0(out_path, ".tiles")
   dir.create(tdir, recursive = TRUE, showWarnings = FALSE)
@@ -452,7 +454,38 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
   outtiles <- sub("in_", "out_", intiles, fixed = TRUE)
   todo <- intiles[!file.exists(outtiles)]                     # resume: skip completed tiles
 
-  if (length(todo)) {
+  if (length(todo) && identical(engine, "threaded")) {
+    # SINGLE-COPY, THREADED engine (2026-09-21): the daemon engine copies `setup`
+    # to every daemon, which is fatal for a big model - the WV2 cover ensemble's
+    # ranger model is ~28 GB, so 10 daemons held ~290 GB + a ~219 GB dispatcher
+    # serialisation buffer and the OOM killer fired (3x). mori can't help (mlr3
+    # learners are R6 environments, which share() returns unchanged, and ranger's
+    # C++ predict copies the forest per call anyway). Here we keep ONE model copy
+    # in-process and let the learners' own num.threads parallelise each predict
+    # across rows - parallelism on the row axis, not by duplicating the model.
+    # Peak memory is bounded to ~one model + one tile. Tiling/resume/atomic-write
+    # are shared with the daemon path, so a teardown still resumes from out-tiles.
+    for (tp in todo) {
+      r <- terra::rast(tp); names(r) <- bands
+      v <- terra::values(r, mat = TRUE)
+      out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
+      if (any(ok)) {
+        if (identical(kind, "cover")) {
+          dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
+          for (m in setup) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
+          out[ok] <- acc / length(setup)
+        } else {
+          out[ok] <- setup$di_of(v[ok, , drop = FALSE])
+        }
+      }
+      o <- terra::rast(r, nlyrs = 1L)
+      terra::values(o) <- as.integer(round(out * scale))
+      op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
+      terra::writeRaster(o, tmp, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                         gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
+      file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
+    }
+  } else if (length(todo)) {
     mirai::daemons(n, .compute = "coverpred")
     on.exit(mirai::daemons(0, .compute = "coverpred"), add = TRUE)
     mirai::everywhere({
@@ -700,13 +733,16 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
                                 epsg = 32734, aoi = NULL) {
   data.table::setDTthreads(1L)
   models <- fit_cover_models(train_df, bands, learner_ids)
-  # Models were fit multi-threaded; set them to 1 thread for PREDICT so the mirai
-  # daemons (N of them) each use one thread -> N cores, no oversubscription. Done
-  # in the main process (mutating deserialised R6 inside daemons is fragile).
+  # SINGLE-COPY threaded predict (see raster_predict_parallel): keep the models
+  # multi-threaded so ranger/lightgbm parallelise each tile's predict across rows
+  # with ONE resident model copy, instead of the daemon engine duplicating the
+  # ~28 GB model per worker (which OOM'd the box). num.threads was set at fit; make
+  # sure it is the predict-core budget for the single in-process predictor.
+  nthr <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
   for (m in models) {
     ids <- m$param_set$ids()
-    if ("num.threads" %in% ids) m$param_set$set_values(num.threads = 1L)
-    if ("num_threads" %in% ids) m$param_set$set_values(num_threads = 1L)
+    if ("num.threads" %in% ids) m$param_set$set_values(num.threads = nthr)
+    if ("num_threads" %in% ids) m$param_set$set_values(num_threads = nthr)
   }
 
   cube <- terra::rast(cube_path)
@@ -717,7 +753,8 @@ predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_pat
   # Predict over the study-area AOI only (matches the DI raster extent, ~6x less
   # than the full S2 tile), in parallel over mirai daemons with the models resident.
   raster_predict_parallel(cube[[bands]], aoi, out_path, scale = PROB_SCALE,
-                          setup = models, kind = "cover", bands = bands)
+                          setup = models, kind = "cover", bands = bands,
+                          engine = "threaded")
   tag_prob_scale(out_path)
   out_path
 }
