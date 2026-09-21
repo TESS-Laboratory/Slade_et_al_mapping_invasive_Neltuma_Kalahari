@@ -481,7 +481,7 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
       o <- terra::rast(r, nlyrs = 1L)
       terra::values(o) <- as.integer(round(out * scale))
       op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
-      terra::writeRaster(o, tmp, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+      terra::writeRaster(o, tmp, filetype = "GTiff", overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
                          gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
       file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
     }
@@ -512,7 +512,7 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
       o <- terra::rast(r, nlyrs = 1L)
       terra::values(o) <- as.integer(round(out * SCALE))
       op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
-      terra::writeRaster(o, tmp, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+      terra::writeRaster(o, tmp, filetype = "GTiff", overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
                          gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
       file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
       op
