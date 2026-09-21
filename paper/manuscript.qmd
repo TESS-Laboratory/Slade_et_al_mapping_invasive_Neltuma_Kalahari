@@ -39,6 +39,14 @@ fig_sensors_path <- normalizePath(targets::tar_read(fig_sensors, store = store))
 fig_phases_path  <- normalizePath(targets::tar_read(fig_phases, store = store))
 fig_study_path   <- normalizePath(targets::tar_read(fig_study, store = store))
 fig_wv2_bench_path <- normalizePath(targets::tar_read(fig_wv2_bench, store = store))
+# Sub-pixel cover arm (D11: the satellite primary product)
+fig_cover_area_path     <- normalizePath(targets::tar_read(fig_cover_area, store = store))
+fig_cover_coverage_path <- normalizePath(targets::tar_read(fig_cover_coverage, store = store))
+cover_phase_ix    <- targets::tar_read(cover_phase_index, store = store)
+sensor_label      <- c(wv2 = "WorldView-2", planet = "PlanetScope", s2 = "Sentinel-2")
+cover_phase_tab   <- transform(
+  cover_phase_ix[cover_phase_ix$sensor == "wv2", c("phase", "n_cells", "area_ha", "pct_of_area")],
+  row.names = NULL)
 ```
 
 ::: {.pipeline-legend}
@@ -73,11 +81,11 @@ Using drone surveys, we achieved classification accuracies of ~[`r values$fig4_h
 
  produced lower, but likely more realistic, accuracy estimates than random cross-validation, highlighting the importance of accounting for spatial dependence when assessing model performance.
 
-Landscape-scale mapping showed Neltuma is already established across [`r values$dominance_km2_raw`]{.substituted} km² ([`r values$dominance_pct_raw`]{.substituted}%) of the study area and is expanding across a further [356 km² (79.9%)]{.contradicted},
+Landscape-scale sub-pixel cover regression, with distribution-free conformal uncertainty, estimated that Neltuma occupies approximately [`r values$cover_wv2_ha`]{.substituted} ha (95% CI [`r values$cover_wv2_lo`]{.substituted}–[`r values$cover_wv2_hi`]{.substituted}) of the WorldView-2 study area, almost entirely at low fractional cover: [`r values$cover_wv2_expansion_pct`]{.substituted}% of the mapped invasion falls within an active expansion phase and a further [`r values$cover_wv2_incursion_pct`]{.substituted}% within early incursion, with negligible dense dominance,
 
 
-::: {.pipeline-contradicts}
-(finding 7.35): Dominance is [`r values$dominance_pct_raw`]{.substituted}% (original 3.6%); "Expanding" (Expansion + Initial Incursion) is [`r values$expanding_pct_raw`]{.substituted}% ([`r values$expanding_km2_raw`]{.substituted} km²) - not the reported 79.9%. The post-classification modal filter that inflated the original phase split is not applied here: it erases the 0.1% incursion floor and halves WV2 Neltuma recall for no precision gain (see Methods).
+::: {.pipeline-note}
+Landscape numbers are now the sub-pixel cover product (D11), not the original hard-class map: continuous Neltuma cover regressed from calibrated drone probabilities, area corrected by a cover-stratified prediction-powered rectifier with a site-cluster-bootstrap CI, reported within the AOA-supported domain. The original hard-class prevalence/phase map is retained as a sensor-comparison foil (Supplementary). Cover phases place ~0% of the invasion in a dense "dominance" phase, sharpening the sparse-invasion signal relative to the filtered hard-class map.
 :::
 
  highlighting substantial but uneven invasion risk across rangelands important for people and wildlife. Beyond species mapping, our results show how integrating fine-resolution ecological observations with satellite Earth observation via a hierarchical drone–satellite remote sensing framework can help overcome scale mismatch, improving early detection and management of sparse biological invasions. This multi-scale framework has wider relevance for biodiversity surveillance, woody encroachment, degradation monitoring and dryland early-warning systems.
@@ -183,7 +191,9 @@ To support interpretation of species co-occurrence patterns, we assessed potenti
 
 ## 2.7 Mapping invasion extent and invasion phase
 
-We used the best-performing satellite classifications to generate landscape-scale maps of Neltuma invasion extent and invasion phase across the 445 km² study area. We quantified invasion extent from final classified outputs and classified Neltuma prevalence into invasion phases based on cover thresholds to aid land manager interpretation (Table S8; after Müllerová et al. 2023), distinguishing areas of advanced invasion from broader zones of active expansion and treating invasion as a dynamic landscape process rather than presence–absence alone. We used the mapped invasion patterns to explore spatial variation in Neltuma occurrence and density in relation to settlement proximity, geomorphic setting and vegetation structure. These exploratory observations informed interpretation of invasion dynamics and potential management relevance across the study system. 
+We used the best-performing satellite classifications to generate landscape-scale maps of Neltuma invasion extent and invasion phase across the 445 km² study area. We quantified invasion extent from final classified outputs and classified Neltuma prevalence into invasion phases based on cover thresholds to aid land manager interpretation (Table S8; after Müllerová et al. 2023), distinguishing areas of advanced invasion from broader zones of active expansion and treating invasion as a dynamic landscape process rather than presence–absence alone. We used the mapped invasion patterns to explore spatial variation in Neltuma occurrence and density in relation to settlement proximity, geomorphic setting and vegetation structure. These exploratory observations informed interpretation of invasion dynamics and potential management relevance across the study system.
+
+Because sparse invasions rarely dominate coarse pixels, we treated continuous sub-pixel Neltuma cover, rather than a discrete class, as the primary landscape product. Neltuma probabilities from the drone classifications were first calibrated (Platt scaling on out-of-fold predictions) so that the mean predicted probability is an unbiased estimate of fractional cover, then averaged within each satellite pixel footprint to give a per-cell cover target. We regressed this target on the satellite predictors using an equal-weight ensemble of regularised regression, random forest and gradient-boosted trees. Predictions were restricted to an area of applicability defined by a dissimilarity index relative to the training data, and per-cell prediction intervals were obtained by dissimilarity-stratified conformal prediction on leave-one-site-out folds, with interval coverage validated empirically out of sample. Landscape Neltuma area was estimated by summing predicted cover within the area of applicability and correcting the aggregate for model bias with a cover-stratified, prediction-powered rectifier measured on the held-out drone cells; its uncertainty was propagated through a site-level cluster bootstrap that treats each drone survey area as the unit of spatial replication. This continuous, uncertainty-aware estimate is reported as the primary satellite measure of invasion extent, and the same cover surface was thresholded into invasion phases (Table S8); the discrete hard-class map is retained for the sensor-grain comparison.
 
 ::: {.pipeline-pending}
 : Figure 2 not yet reproduced by the refactored pipeline; original caption retained below.
@@ -304,33 +314,28 @@ Pipeline analogue of Figure 7: one drone site (bokspits_1) through four sensors 
 
 Figure 7. Detectability of sparse Neltuma declines sharply as sensor grain becomes coarser. Classification outputs for the same area using (A) drone multispectral imagery (7 cm), (B) WorldView- 2 (1.6 m), (C) PlanetScope (4 m), and (D) Sentinel-2 (10 m), illustrating progressive loss of spatial detail and increasing confusion among vegetation classes with coarser resolution. (E) Overall and Neltuma-specific accuracies from the best-performing algorithm, showing a disproportionately strong decline in Neltuma detection with increasing pixel size.
 
-## 3.4 Neltuma invasion is widespread and expanding across the Kalahari study landscape
+## 3.4 Sub-pixel cover mapping quantifies a widespread, low-cover Neltuma invasion
 
-Neltuma invasion was widespread across the study area, with much of the landscape falling within initial incursion or expansion phases (Figures 6 and 8; Table 1). To support management interpretation, we simplified the multi-species WorldView-2 classification (Figure 6) into maps of Neltuma prevalence (Figure 8A) and invasion phase (Figure 8B; Table 1), highlighting broad low-density distributions alongside concentrated zones of advanced invasion. Although Neltuma occurred widely at relatively low cover, both invasion density and maturity increased in and around settlements and along roads, declining with distance from these features (Figures S10 and S11). This spatial distribution is consistent with field observations implicating livestock as a key vector of Neltuma spread. 
+Modelling Neltuma as continuous sub-pixel cover, rather than as a discrete class, quantified a widespread but overwhelmingly low-cover invasion across the study area. Within its area of applicability, the WorldView-2 cover model estimated [`r values$cover_wv2_ha`]{.substituted} ha of Neltuma (95% CI [`r values$cover_wv2_lo`]{.substituted}–[`r values$cover_wv2_hi`]{.substituted} ha), below the naive sum-of-fractions of [`r values$cover_wv2_naive`]{.substituted} ha once model bias is corrected. The intermediate- and coarse-grain sensors gave concordant estimates — PlanetScope [`r values$cover_planet_ha`]{.substituted} ha ([`r values$cover_planet_lo`]{.substituted}–[`r values$cover_planet_hi`]{.substituted} ha) and Sentinel-2 [`r values$cover_s2_ha`]{.substituted} ha ([`r values$cover_s2_lo`]{.substituted}–[`r values$cover_s2_hi`]{.substituted} ha) — despite their coarser pixels and larger areas of extrapolation, indicating that the cover framing recovers a consistent invasion signal across sensor grains (Figure 8A). The dissimilarity-stratified conformal intervals held close to their nominal level out of sample for all three sensors (for example [`r values$cover_wv2_cov90`]{.substituted}% empirical coverage at the 90% nominal level for WorldView-2; Figure 8B), so these uncertainty statements are calibrated rather than assumed.
+
+The cover surface shows that the invasion is dominated by low-density fronts rather than dense stands. Partitioning the mapped WorldView-2 cover into invasion phases placed [`r values$cover_wv2_expansion_pct`]{.substituted}% of the invaded area in an active expansion phase and [`r values$cover_wv2_incursion_pct`]{.substituted}% in early incursion, with only [`r values$cover_wv2_dominance_pct`]{.substituted}% reaching dense dominance (Table 1). Although Neltuma occurred widely at relatively low cover, both invasion density and maturity increased in and around settlements and along roads, declining with distance from these features (Figures S10 and S11), consistent with field observations implicating livestock as a key vector of Neltuma spread.
 
 ```{r fig8-panels, echo=FALSE, out.width="100%"}
-knitr::include_graphics(fig_phases_path)
+knitr::include_graphics(c(fig_cover_area_path, fig_cover_coverage_path))
 ```
 
-::: {.pipeline-note}
-Pipeline analogue of Figure 8 from the raw WV2 surface; the filtered-surface variants are in the same layers (finding 7.35).
-:::
+Figure 8. Sub-pixel cover regression estimates Neltuma extent consistently across sensor grains, with calibrated uncertainty. (A) Bias-corrected Neltuma cover area per sensor (point = prediction-powered estimate; bar = 95% site-cluster-bootstrap CI; cross = naive sum-of-fractions). (B) Empirical coverage of the dissimilarity-stratified conformal intervals against the nominal level, evaluated out of sample under leave-one-site-out folds; points on the diagonal indicate calibrated intervals.
 
-
-Figure 8. Spatial patterns of Neltuma prevalence reveal widespread invasion and extensive areas vulnerable to further spread. (A) Percentage cover of Neltuma mapped in 100 m grid cells from WorldView-2 classification. (B) Invasion phases derived from percentage cover in 250 m grid cells distinguish dominance from expansion and early incursion zones, supporting management prioritisation.
-
-Table 1. Most of the study landscape is already affected by incipient or expanding Neltuma invasion.
-
-
-::: {.pipeline-note}
-(7.35): pipeline Table 1 analogue, both surfaces, 250 m hexagons at Table S8 thresholds. Which surface the original used is unrecorded [ANDY].
-:::
-
+Table 1. The mapped Neltuma invasion is overwhelmingly in expansion and early-incursion phases, with negligible dense dominance (WorldView-2 sub-pixel cover).
 
 ```{r table1, echo=FALSE}
-knitr::kable(phase_table[, c("surface", "phase", "n_cells", "area_ha", "pct_of_area")],
-             digits = c(0, 0, 0, 0, 1), col.names = c("Surface", "Invasion phase", "Cells", "Area (ha)", "% of area"))
+knitr::kable(cover_phase_tab, digits = c(0, 0, 0, 1), row.names = FALSE,
+             col.names = c("Invasion phase", "Cells", "Area (ha)", "% of area"))
 ```
+
+::: {.pipeline-note}
+D11: the landscape product is now sub-pixel cover, not the hard-class map. The original hard-class WorldView-2 prevalence map and its phase table are retained as a sensor-comparison foil in the Supplementary material (Figure S12, Table S11); the post-classification modal filter that inflated the original phase split is not applied (see Methods).
+:::
 
 # 4. Discussion
 
@@ -348,7 +353,7 @@ These findings demonstrate that drone observations as a powerful ecological obse
 
 Cross-scale calibration with drone data improved satellite classification of Neltuma, demonstrating how fine-resolution ecological observations can strengthen inference at broader spatial scales. Incorporating drone-derived training information increased both classification accuracy and robustness in WorldView-2 analyses, suggesting that the improvement was not simply a consequence of increasing the number of training observations, but also reflected better representation of the spectral and structural variability associated with invasion targets and surrounding vegetation. This is particularly important for sparse invasions, where limited field samples may underrepresent the heterogeneous and mixed-cover conditions typical of real landscapes (Slade et al. 2023). These findings contribute to a small but growing body of work integrating observations across spatial scales, with geolocated fine-scale data from UAVs used to improve classification and prediction in agricultural applications (Maimaitijiang et al. 2020; Ogungbuyi et al. 2024), strengthen aboveground biomass estimation (Cheng et al. 2024; Kolluru et al. 2026), and support invasive plant mapping (Holden, Rebelo, and New 2021; Page et al. 2022). However, comparable hierarchical calibration frameworks remain rare in sparse invasive plant detection (Singh, Surasinghe, and Frazier 2024).
 
-The benefits of cross-scale calibration should, however, be interpreted alongside uncertainty in transferring information between observation scales. The WorldView-2 classification achieved a [mean overall accuracy of 75.8%]{.contradicted} following drone-derived calibration, but comparison with independent drone classifications revealed discrepancies not captured by internal validation. The satellite classification overpredicted Neltuma extent by 24.8%, while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted}. These differences demonstrate that improved cross-validated performance does not eliminate the challenges of mapping sparse targets at coarser sensor grains, and highlight the value of independent fine-resolution observations for revealing ecologically meaningful errors not captured by conventional accuracy metrics. Future multi-scale invasion mapping should therefore move beyond assigning each coarse pixel to a single discrete class towards models that predict proportional cover of invasive species (Shiferaw et al. 2019; Frazier and Wang 2011). Such approaches could better capture uncertainty and spatial heterogeneity across observation scales, particularly where mixed pixels become increasingly prevalent and confidence in species presence varies continuously. Conformal prediction approaches offer one potential framework for quantifying predictive uncertainty around model outputs and could therefore provide a useful avenue for developing more informative uncertainty representations in future multi-scale invasion mapping (Angelopoulos and Bates 2022).
+The benefits of cross-scale calibration should, however, be interpreted alongside uncertainty in transferring information between observation scales. The WorldView-2 classification achieved a [mean overall accuracy of 75.8%]{.contradicted} following drone-derived calibration, but comparison with independent drone classifications revealed discrepancies not captured by internal validation. The satellite classification overpredicted Neltuma extent by 24.8%, while [34.6% of Neltuma plants identified in drone data were liable to be classified as V. erioloba or other woody vegetation]{.contradicted}. These differences demonstrate that improved cross-validated performance does not eliminate the challenges of mapping sparse targets at coarser sensor grains, and highlight the value of independent fine-resolution observations for revealing ecologically meaningful errors not captured by conventional accuracy metrics. Motivated by these limitations, we moved beyond assigning each coarse pixel to a single discrete class and instead modelled Neltuma as continuous sub-pixel cover (Shiferaw et al. 2019; Frazier and Wang 2011), calibrating drone-derived probabilities to fractional cover and regressing this target onto the satellite predictors. This framing better captures the uncertainty and spatial heterogeneity of mixed pixels, where confidence in species presence varies continuously, and yielded concordant landscape estimates across all three sensor grains — in contrast to the discrete classification, whose apparent extent was far more sensitive to grain. To make the resulting maps decision-ready, we paired the cover regression with distribution-free conformal prediction (Angelopoulos and Bates 2022): we delimited an area of applicability from a dissimilarity index and attached per-pixel prediction intervals whose coverage we validated empirically out of sample, and we reported aggregate invasion area with a cover-stratified, prediction-powered bias correction and an explicit confidence interval. Together these steps convert a single-class extent map into a continuous, uncertainty-aware estimate of invasion extent better suited to sparse targets, providing a template for reporting not only where invasion is mapped but how confident that mapping is. Extending this approach to multi-date and multi-sensor fusion remains a promising direction for operational monitoring.
 
 More broadly, these findings illustrate how hierarchical multi-scale workflows can bridge scale mismatches in Earth observation. Drone surveys alone are unlikely to support monitoring across landscapes of this extent, while coarser satellite systems may lack sufficient resolution to reliably detect sparse invasion fronts. A targeted UAV calibration layer can link these scales, allowing detailed observations to inform spatially extensive satellite mapping without requiring fine-resolution surveys across the entire landscape. Rather than treating UAV acquisition as a one-off calibration exercise, future recursive approaches could iteratively target surveys towards locations where additional fine-resolution observations are expected to provide the greatest reduction in model uncertainty or constraint on classification error. This could provide a practical optimisation strategy for allocating UAV effort, concentrating surveys in representative locations, areas of particular ecological interest, or regions where model uncertainty is greatest, while reducing the spatial coverage and logistical requirements of systematic drone mapping across the full monitoring area (Holden, Rebelo, and New 2021). Such targeted acquisition may offer a practical compromise between the ecological detail of fine-resolution observations and the spatial coverage required for operational monitoring.
 
@@ -501,3 +506,25 @@ Slade, Glenn, Dominic Fawcett, Andrew M. Cunliffe, Richard E. Brazier, Kamal Nya
 Smith, Geoffrey M., and Edward J. Milton. 1999. “The Use of the Empirical Line Method to Calibrate Remotely Sensed Data to Reflectance.” International Journal of Remote Sensing 20 (13): 2653–2662. https://doi.org/10.1080/014311699211994. Statistics Botswana. 2011. Kgalagadi South Sub District. Population and Housing Census Selected Indicators for Villages and Localities. Volume 11.0. Statistics Botswana.
 
 Van Rooyen, Noel, and Gretel Van Rooyen. 2019. Flowering Plants of the Southern Kalahari. Ekotrust.
+
+# Supplementary material
+
+## Figure S12. Hard-class WorldView-2 Neltuma prevalence and invasion phase (sensor-comparison foil)
+
+The original discrete-class landscape product, retained for comparison with the sub-pixel cover map now reported in the main text (Section 3.4). The multi-species WorldView-2 classification is simplified into Neltuma prevalence (A) and invasion phase (B).
+
+```{r figS12-hardclass, echo=FALSE, out.width="100%"}
+knitr::include_graphics(fig_phases_path)
+```
+
+Figure S12. Hard-class WorldView-2 Neltuma prevalence (A, percentage cover in 100 m grid cells) and invasion phase (B, from percentage cover in 250 m grid cells). This discrete-class surface over-predicts dense Neltuma relative to the drone reference (Section 3.3) and is superseded as the primary landscape product by the sub-pixel cover estimate (Figure 8; Table 1).
+
+## Table S11. Hard-class WorldView-2 invasion-phase areas (sensor-comparison foil)
+
+```{r tableS11-hardclass, echo=FALSE}
+knitr::kable(phase_table[phase_table$surface == "raw", c("phase", "n_cells", "area_ha", "pct_of_area")],
+             digits = c(0, 0, 0, 1), row.names = FALSE,
+             col.names = c("Invasion phase", "Cells", "Area (ha)", "% of area"))
+```
+
+Table S11. Invasion-phase areas from the hard-class WorldView-2 surface (raw, unfiltered), corresponding to Figure S12B. The post-classification modal filter used in the original study is not applied here: it erases the low-cover incursion floor and halves WorldView-2 Neltuma recall for no precision gain (see Methods).
