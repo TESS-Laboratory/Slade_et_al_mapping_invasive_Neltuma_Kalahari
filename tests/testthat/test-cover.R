@@ -181,3 +181,34 @@ test_that("calibrate_neltuma_prob errors when the Neltuma column is absent", {
              truth = factor(c("0", "6", "0"), levels = c("0", "6")))
   expect_error(calibrate_neltuma_prob(sv, neltuma_code = 5L), "absent")
 })
+
+test_that("cover_scene_area: stratified rectifier keeps a positive-bounded CI", {
+  skip_if_not_installed("terra")
+  # Scene: mostly sparse (~1% cover) with a small dense patch (~30%).
+  cover <- terra::rast(nrows = 100, ncols = 100, xmin = 0, xmax = 100,
+                       ymin = 0, ymax = 100, crs = "EPSG:32734")
+  cv <- rep(0.01, 10000); cv[1:500] <- 0.30
+  terra::values(cover) <- cv
+  di <- terra::deepcopy(cover); terra::values(di) <- rep(0.1, 10000)  # all in-AOA (< thr)
+  cp <- file.path(tempdir(), "cov.tif"); dp <- file.path(tempdir(), "di.tif")
+  terra::writeRaster(cover, cp, overwrite = TRUE)
+  terra::writeRaster(di, dp, overwrite = TRUE)
+  ap <- file.path(tempdir(), "aoi.fgb")
+  poly <- terra::as.polygons(terra::ext(cover)); terra::crs(poly) <- "EPSG:32734"
+  terra::writeVector(poly, ap, filetype = "FlatGeobuf", overwrite = TRUE)
+  # OOF: 3 sparse sites slightly over-predicted; 1 dense-only site under-predicted.
+  # A GLOBAL rectifier would let the dense site's -15pp bias swing the scalar and
+  # the site bootstrap could clamp the lower bound to 0; the STRATIFIED rectifier
+  # confines that bias to the few dense scene cells, so the lower bound stays > 0.
+  resp  <- c(rep(0.01, 300), rep(0.30, 100))
+  truth <- c(rep(0.005, 300), rep(0.45, 100))
+  site  <- c(rep(c("a", "b", "c"), length.out = 300), rep("d", 100))
+  oof <- list(row_ids = seq_len(400), response = resp, truth = truth)
+  tr  <- data.frame(site = site)
+  out <- cover_scene_area(cp, dp, threshold = 1, oof = oof, train_df = tr, aoi = ap,
+                          px_ha = 0.01, sensor = "t", min_stratum_n = 20L)
+  expect_true(all(c("ppi_ha", "ppi_lo_ha", "ppi_hi_ha") %in% names(out)))
+  expect_gt(out$ppi_lo_ha, 0)                       # the fix: no spurious zero
+  expect_lt(out$ppi_lo_ha, out$ppi_ha)              # lower bound below the point
+  expect_lte(out$ppi_ha, out$ppi_hi_ha)             # point at or below the upper
+})

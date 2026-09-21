@@ -548,19 +548,29 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
 #' Neltuma cover area from the scene surface: naive, within-AOA, and PPI-corrected
 #'
 #' Area = sum(cover x pixel) over the study area (naive) and over the AOA only
-#' (label-supported). The within-AOA scene-MEAN cover is PPI-corrected by the
-#' model's bias on the labelled drone cells (delta = mean OOF residual).
+#' (label-supported). The within-AOA cover is PPI-corrected by the model's bias on
+#' the labelled drone cells, but STRATIFIED BY PREDICTED COVER rather than a single
+#' global rectifier (revised 2026-09-21 [HUGH]).
 #'
-#' The interval is a SITE BLOCK-BOOTSTRAP percentile CI: with leave-site-out folds
-#' the SITE is the unit of spatial independence, so the aggregate uncertainty comes
-#' from resampling the per-site held-out mean biases (finding 2026-09-20, [HUGH]).
-#' It is ASYMMETRIC and positive-bounded by construction - correct here because the
-#' dominant site bias is under-prediction of dense invasion (struizendam_4), skewing
-#' true area UP, and because zero area is essentially impossible. Two shapes it fixes
-#' vs the earlier attempts: the naive theta(1-theta)/N_pixel term (treats millions of
-#' autocorrelated pixels as independent -> collapses to nothing) and a symmetric
-#' SE clamped at 0 (silly lower bound of 0). The per-pixel conformal bounds remain
-#' the MAP uncertainty; this is the AGGREGATE.
+#' Why stratified: the ensemble's bias is strongly regime-dependent - it under-
+#' predicts DENSE cover (e.g. WV2 approx -10 pp in the 0.1-0.25 band, driven by the
+#' one dense site struizendam_4) and slightly over-predicts SPARSE cover. A single
+#' global delta smears the dense-site bias across a mostly-sparse scene, and the
+#' site bootstrap of that scalar then drove the WV2 lower bound to a spurious ZERO
+#' (P(area=0) ~ 5.5%) - impossible given ~160M label-supported cells. Instead we bin
+#' scene and OOF cells by PREDICTED cover into `strata_edges` bands and correct each
+#' band by its own OOF bias (fallback to the global delta for bands with
+#' < `min_stratum_n` OOF cells), mirroring the DI-stratified conformal. This is a
+#' LOCAL rectifier: the dense-band correction only touches the few dense scene cells.
+#'
+#' The interval is a SITE CLUSTER BOOTSTRAP percentile CI: with leave-site-out folds
+#' the SITE is the unit of spatial independence, so we resample sites and recompute
+#' the per-stratum biases (cell-weighted, so the CI is centred on the point estimate,
+#' unlike the earlier unweighted per-site-mean bootstrap). Positive-bounded and
+#' asymmetric by construction. Earlier rejected shapes: naive theta(1-theta)/N_pixel
+#' (treats autocorrelated pixels as independent -> collapses) and a symmetric SE
+#' clamped at 0. The per-pixel conformal bounds remain the MAP uncertainty; this is
+#' the AGGREGATE.
 #'
 #' @param cover_path scene cover raster ([0,1] via scale tag)
 #' @param di_path scene DI raster
@@ -571,43 +581,60 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
 #' @param px_ha ha per pixel
 #' @param sensor label
 #' @param alpha CI level
+#' @param strata_edges interior predicted-cover breakpoints for the local rectifier
+#' @param min_stratum_n min OOF cells for a stratum's own bias (else global delta)
 #' @return one-row data.frame of areas
 cover_scene_area <- function(cover_path, di_path, threshold, oof, train_df, aoi, px_ha,
-                             sensor = NA_character_, alpha = 0.05) {
+                             sensor = NA_character_, alpha = 0.05,
+                             strata_edges = c(0.02, 0.05, 0.10, 0.25),
+                             min_stratum_n = 200L) {
   v <- terra::vect(aoi)
   cover <- terra::mask(terra::rast(cover_path), v)
   di <- terra::mask(terra::rast(di_path), v)
-  inside <- di <= threshold
-  scene_cells  <- terra::global(!is.na(cover), "sum", na.rm = TRUE)[1, 1]
-  inside_cells <- terra::global(inside, "sum", na.rm = TRUE)[1, 1]
-  naive_ha  <- terra::global(cover, "sum", na.rm = TRUE)[1, 1] * px_ha
-  aoa_ha    <- terra::global(terra::mask(cover, inside, maskvalue = FALSE), "sum", na.rm = TRUE)[1, 1] * px_ha
-  theta_in  <- aoa_ha / (inside_cells * px_ha)              # within-AOA mean cover
+  cv <- terra::values(cover)[, 1]; dv <- terra::values(di)[, 1]
+  inside <- !is.na(dv) & dv <= threshold                   # AOA (DI-supported) cells
+  ok <- inside & !is.na(cv)
+  covA <- cv[ok]                                           # predicted cover on AOA cells
+  scene_cells  <- sum(!is.na(cv))
+  inside_cells <- sum(inside)
+  naive_ha  <- sum(cv, na.rm = TRUE) * px_ha
+  aoa_ha    <- sum(covA) * px_ha
+  tot_in    <- inside_cells * px_ha
+  theta_in  <- aoa_ha / tot_in                             # within-AOA mean cover
 
+  # ---- STRATIFIED (regime-aware) bias rectifier (see header) ----
+  brks <- c(-Inf, strata_edges, Inf); nb <- length(brks) - 1L
   d <- oof$response - oof$truth
-  delta <- mean(d)
-  theta_ppi <- min(max(theta_in - delta, 0), 1)
-  tot_in <- inside_cells * px_ha
+  delta <- mean(d)                                         # global fallback + reported bias
+  ob  <- factor(cut(oof$response, brks, labels = FALSE), levels = seq_len(nb))
+  scb <- factor(cut(covA,        brks, labels = FALSE), levels = seq_len(nb))
+  cnt <- tapply(covA, scb, length); sm <- tapply(covA, scb, sum)   # scene cells / cover per stratum
+  cnt[is.na(cnt)] <- 0; sm[is.na(sm)] <- 0
+  bias_k <- tapply(d, ob, mean); n_k <- tapply(d, ob, length)
+  bk <- as.numeric(bias_k)
+  bk[is.na(bk) | is.na(n_k) | n_k < min_stratum_n] <- delta        # thin-stratum fallback
+  # corrected area = sum_k max(sum_cover_k - bias_k * n_k, 0) * px_ha
+  ppi_ha <- sum(pmax(as.numeric(sm) - bk * as.numeric(cnt), 0)) * px_ha
 
-  # ASYMMETRIC CI via a site block bootstrap of the bias correction. A symmetric
-  # SE clamped at 0 is wrong (finding 2026-09-20, [HUGH]): the dominant site bias
-  # is UNDER-prediction of dense sites (struizendam_4, -17pp), so the true area is
-  # skewed UPWARD, and zero area is essentially impossible. Resampling the per-site
-  # biases gives a positive-bounded, upward-skewed percentile interval.
-  site <- factor(train_df$site[oof$row_ids])
-  site_bias <- tapply(d, site, mean); n_sites <- length(site_bias)
+  # ---- CI: site cluster bootstrap of the per-stratum biases ----
+  site <- factor(train_df$site[oof$row_ids]); n_sites <- nlevels(site)
+  ssum <- tapply(d, list(site, ob), sum); scnt <- tapply(d, list(site, ob), length)
+  ssum[is.na(ssum)] <- 0; scnt[is.na(scnt)] <- 0
+  smv <- as.numeric(sm); cntv <- as.numeric(cnt)
   set.seed(1L); B <- 4000L
   area_b <- vapply(seq_len(B), function(b) {
-    db <- mean(site_bias[sample.int(n_sites, n_sites, replace = TRUE)])
-    min(max(theta_in - db, 0), 1) * tot_in
+    pick <- sample.int(n_sites, n_sites, replace = TRUE)
+    num <- colSums(ssum[pick, , drop = FALSE]); den <- colSums(scnt[pick, , drop = FALSE])
+    bkb <- ifelse(den >= min_stratum_n, num / den, delta)
+    sum(pmax(smv - bkb * cntv, 0)) * px_ha
   }, numeric(1))
   ci <- stats::quantile(area_b, c(alpha / 2, 1 - alpha / 2), names = FALSE)
 
   data.frame(sensor = sensor, scene_ha = scene_cells * px_ha, aoa_ha = tot_in,
              aoa_frac = inside_cells / scene_cells, naive_ha = naive_ha,
-             cover_aoa_ha = aoa_ha, ppi_ha = theta_ppi * tot_in,
+             cover_aoa_ha = aoa_ha, ppi_ha = ppi_ha,
              ppi_lo_ha = ci[1], ppi_hi_ha = ci[2],
-             bias_pp = 100 * delta, site_bias_sd_pp = 100 * stats::sd(site_bias),
+             bias_pp = 100 * delta, site_bias_sd_pp = 100 * stats::sd(tapply(d, site, mean)),
              n_sites = n_sites, n_overlap = length(d), stringsAsFactors = FALSE)
 }
 
