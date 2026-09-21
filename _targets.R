@@ -575,7 +575,10 @@ list(
                                 wv2_drone_areas = wv2_drone_areas,
                                 wv2_confusion_raw = wv2_confusion_raw_raw,
                                 wv2_phase_table = wv2_phase_table,
-                                plant_validation_summary = plant_validation_summary)),
+                                plant_validation_summary = plant_validation_summary,
+                                cover_area_index = cover_area_index,
+                                cover_coverage_index = cover_coverage_index,
+                                cover_phase_index = cover_phase_index)),
   # The render runs in a Quarto subprocess that cannot see tar_make(store =);
   # the qmd reads NELTUMA_STORE, which the run command sets (see header).
   tarchetypes::tar_quarto(paper, "paper/manuscript.qmd")

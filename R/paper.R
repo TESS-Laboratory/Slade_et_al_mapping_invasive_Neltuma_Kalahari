@@ -25,7 +25,9 @@ build_paper_values <- function(score_index, best_models, class_areas, training_i
                                class_index = NULL, wv2_scores = NULL, sat_scores = NULL,
                                sat_class_index = NULL, wv2_drone_areas = NULL,
                                wv2_confusion = NULL, wv2_confusion_raw = NULL,
-                               wv2_phase_table = NULL, plant_validation_summary = NULL) {
+                               wv2_phase_table = NULL, plant_validation_summary = NULL,
+                               cover_area_index = NULL, cover_coverage_index = NULL,
+                               cover_phase_index = NULL) {
   pct0 <- function(x) sprintf("%.0f", 100 * x)
   pct1 <- function(x) sprintf("%.1f", 100 * x)
 
@@ -52,11 +54,60 @@ build_paper_values <- function(score_index, best_models, class_areas, training_i
                                training_index$tag[1]]),
     min_class_n        = min(training_index$min_class_n)
   )
-  if (is.null(wv2_scores)) return(out)
-  c(out, satellite_paper_values(best_models, class_index, wv2_scores, sat_scores,
-                                sat_class_index, wv2_drone_areas, wv2_confusion,
-                                wv2_confusion_raw, wv2_phase_table,
-                                plant_validation_summary))
+  if (!is.null(wv2_scores))
+    out <- c(out, satellite_paper_values(best_models, class_index, wv2_scores, sat_scores,
+                                         sat_class_index, wv2_drone_areas, wv2_confusion,
+                                         wv2_confusion_raw, wv2_phase_table,
+                                         plant_validation_summary))
+  if (!is.null(cover_area_index))
+    out <- c(out, cover_paper_values(cover_area_index, cover_coverage_index, cover_phase_index))
+  out
+}
+
+
+#' Sub-pixel cover values for the manuscript (D11: cover as satellite primary)
+#'
+#' The continuous cover arm's landscape numbers, per sensor: PPI-corrected Neltuma
+#' area with its stratified-rectifier CI, naive sum-of-fractions, AOA fraction,
+#' empirical DI-stratified coverage at nominal 90%, and the cover-based invasion
+#' phase shares. WorldView-2 is the primary satellite product; S2/Planet are the
+#' sensor-grain comparison. Fields are `cover_<sensor>_<quantity>`.
+#'
+#' @param cover_area_index rbind of `cover_scene_area` rows (one per sensor)
+#' @param cover_coverage_index rbind of `cover_coverage_table` rows
+#' @param cover_phase_index rbind of `cover_phase_summary` rows
+#' @return named list of formatted strings for the qmd
+cover_paper_values <- function(cover_area_index, cover_coverage_index = NULL,
+                               cover_phase_index = NULL) {
+  ha0  <- function(x) sprintf("%.0f", x)
+  pct1 <- function(x) sprintf("%.1f", x)
+  ar <- cover_area_index
+  cov <- cover_coverage_index; ph <- cover_phase_index
+  cov90 <- function(s) {
+    if (is.null(cov)) return(NA_character_)
+    d <- cov[cov$sensor == s & abs(cov$alpha - 0.10) < 1e-9, ]
+    if (nrow(d)) pct1(100 * d$overall[1]) else NA_character_
+  }
+  phpct <- function(s, p) {
+    if (is.null(ph)) return(NA_character_)
+    d <- ph[ph$sensor == s & ph$phase == p, ]
+    if (nrow(d)) pct1(sum(d$pct_of_area)) else "0.0"
+  }
+  out <- list(cover_primary_sensor = "WorldView-2")
+  for (s in intersect(c("wv2", "planet", "s2"), ar$sensor)) {
+    r <- ar[ar$sensor == s, ][1, ]
+    out[[paste0("cover_", s, "_ha")]]      <- ha0(r$ppi_ha)
+    out[[paste0("cover_", s, "_lo")]]      <- ha0(r$ppi_lo_ha)
+    out[[paste0("cover_", s, "_hi")]]      <- ha0(r$ppi_hi_ha)
+    out[[paste0("cover_", s, "_naive")]]   <- ha0(r$naive_ha)
+    out[[paste0("cover_", s, "_within_aoa")]] <- ha0(r$cover_aoa_ha)
+    out[[paste0("cover_", s, "_aoa_pct")]] <- pct1(100 * r$aoa_frac)
+    out[[paste0("cover_", s, "_cov90")]]   <- cov90(s)
+    out[[paste0("cover_", s, "_incursion_pct")]] <- phpct(s, "Initial Incursion")
+    out[[paste0("cover_", s, "_expansion_pct")]] <- phpct(s, "Expansion")
+    out[[paste0("cover_", s, "_dominance_pct")]] <- phpct(s, "Dominance")
+  }
+  out
 }
 
 
