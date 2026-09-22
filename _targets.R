@@ -364,8 +364,13 @@ cover_targets <- c(
         rlang::call2("cover_run_oof", train_sym, COVER_IDS, folds_sym)),
       targets::tar_target_raw(paste0("cover_di_", s),
         rlang::call2("cover_di", train_sym, bands_sym, folds_sym)),
+      # coverage-driven AOA threshold (extends the trust region to where the
+      # DI-stratified intervals still keep their guarantee - see cover_aoa_threshold)
+      targets::tar_target_raw(paste0("cover_threshold_", s),
+        rlang::call2("cover_aoa_threshold", rlang::sym(paste0("cover_oof_", s)), di_sym)),
       targets::tar_target_raw(paste0("cover_coverage_", s),
-        rlang::call2("cover_coverage_table", rlang::sym(paste0("cover_oof_", s)), di_sym, quote(CONF_ALPHAS), s)),
+        rlang::call2("cover_coverage_table", rlang::sym(paste0("cover_oof_", s)), di_sym,
+                     quote(CONF_ALPHAS), s, rlang::sym(paste0("cover_threshold_", s)))),
       targets::tar_target_raw(paste0("cover_scene_", s),
         rlang::call2("predict_cover_scene", train_sym, cube_path, bands_sym, COVER_IDS,
                      file.path("data-out", "predict", paste0(s, "_scene__4_ALLVI_cover.tif")),
@@ -379,7 +384,7 @@ cover_targets <- c(
         rlang::call2("cover_scene_area",
           rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
           rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
-          rlang::call2("$", di_sym, quote(threshold)),
+          rlang::sym(paste0("cover_threshold_", s)),
           rlang::sym(paste0("cover_oof_", s)), train_sym, quote(wv2_aoi), px_ha, s)),
       # thin cover-based invasion phases (mean cover per hexagon -> band)
       targets::tar_target_raw(paste0("cover_phase_", s),

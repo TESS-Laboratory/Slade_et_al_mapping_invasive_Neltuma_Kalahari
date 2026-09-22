@@ -182,6 +182,25 @@ test_that("calibrate_neltuma_prob errors when the Neltuma column is absent", {
   expect_error(calibrate_neltuma_prob(sv, neltuma_code = 5L), "absent")
 })
 
+test_that("cover_aoa_threshold extends the AOA only while coverage holds", {
+  set.seed(1)
+  n <- 4000L
+  di_cal <- sort(c(rbeta(n * 0.9, 2, 25), runif(n * 0.1, 0.3, 3)))  # bulk low + heavy tail
+  di_obj <- list(di_cal = di_cal,
+                 threshold = as.numeric(quantile(di_cal, .75) + 1.5 * IQR(di_cal)))
+  yhat <- runif(length(di_cal), 0, 0.1)
+  # A: well-calibrated everywhere -> extend to the q99 cap
+  oofA <- list(response = yhat, truth = yhat + rnorm(length(yhat), 0, 0.004))
+  tA <- cover_aoa_threshold(oofA, di_obj, coverage_floor = 0.85)
+  # B: residuals blow up at high DI -> coverage fails earlier -> tighter threshold
+  oofB <- list(response = yhat,
+               truth = yhat + rnorm(length(yhat), 0, 0.004 + 0.2 * di_cal))
+  tB <- cover_aoa_threshold(oofB, di_obj, coverage_floor = 0.85)
+  cap <- as.numeric(quantile(di_cal, 0.99))
+  expect_true(tA > 0 && tA <= cap + 1e-9)
+  expect_lt(tB, tA)                                   # coverage degradation pulls the AOA in
+})
+
 test_that("cover_scene_area: stratified rectifier keeps a positive-bounded CI", {
   skip_if_not_installed("terra")
   # Scene: mostly sparse (~1% cover) with a small dense patch (~30%).

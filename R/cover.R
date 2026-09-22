@@ -380,14 +380,65 @@ cover_run_oof <- function(train_df, ids, folds, epsg = 32734) {
 #' @param alphas miscoverage levels
 #' @param sensor label
 #' @return data.frame(sensor, alpha, nominal, overall, n)
-cover_coverage_table <- function(oof, di_obj, alphas, sensor = NA_character_) {
+cover_coverage_table <- function(oof, di_obj, alphas, sensor = NA_character_,
+                                 threshold = di_obj$threshold) {
   resid <- oof$truth - oof$response
   do.call(rbind, lapply(alphas, function(a) {
-    b <- di_conformal_bounds(resid, di_obj$di_cal, di_obj$di_cal, oof$response, a, 5L, di_obj$threshold)
+    b <- di_conformal_bounds(resid, di_obj$di_cal, di_obj$di_cal, oof$response, a, 5L, threshold)
     cv <- di_coverage(oof$truth, b$lower, b$upper, b$bin)
     data.frame(sensor = sensor, alpha = a, nominal = 1 - a,
                overall = cv$overall, n = length(oof$truth), stringsAsFactors = FALSE)
   }))
+}
+
+
+#' Coverage-driven AOA threshold (replaces the Q3+1.5*IQR fence)
+#'
+#' The Tukey fence on the training DI (`cover_di`) is set by the sparse dune matrix
+#' that dominates the drone-overlap cells, so it excludes the DENSE-cover regime -
+#' the river/road corridors where Neltuma is actually concentrated - even though we
+#' hold thousands of dense training cells there (finding 2026-09-22 [HUGH]: ~15-39%
+#' of predicted cover, and ~48% of the >25%-cover training cells, fell BEYOND the
+#' fence, driving a large impact underestimate). Instead we tie the AOA directly to
+#' the guarantee we can keep: bin the honest OOF residuals by DI, and extend the AOA
+#' from the lowest DI bin up to the last contiguous bin whose empirical coverage
+#' still meets `coverage_floor`. Beyond that the intervals genuinely under-cover and
+#' the cell is excluded; within it the corridors are (rightly) included.
+#'
+#' @param oof ensemble OOF list(row_ids, response, truth)
+#' @param di_obj output of `cover_di()` (its `di_cal`, and `threshold` as fallback)
+#' @param alpha miscoverage level the floor is judged at (default the middle 0.10)
+#' @param coverage_floor minimum empirical coverage to keep including a DI band
+#' @param curve_bins equal-count DI bands (within the cap) for the coverage curve
+#' @param conf_bins conformal DI bins (must match the deployed `cover_coverage_table`)
+#' @param cap_quantile do not extend the AOA past this quantile of training DI - the
+#'   heavy DI tail (a few spectrally extreme training cells) is genuine outlier
+#'   territory, and quantile bands there are too sparse to judge coverage reliably
+#' @return scalar DI threshold
+cover_aoa_threshold <- function(oof, di_obj, alpha = 0.10, coverage_floor = 0.85,
+                                curve_bins = 10L, conf_bins = 5L, cap_quantile = 0.99) {
+  di_cal <- di_obj$di_cal
+  yhat <- pmin(pmax(oof$response, 0), 1)
+  # per-cell coverage under the DEPLOYED conformal (same conf_bins as the product)
+  b <- di_conformal_bounds(oof$truth - oof$response, di_cal, di_cal, yhat, alpha,
+                           n_bins = conf_bins, aoa_threshold = Inf)
+  cov_ok <- oof$truth >= b$lower & oof$truth <= b$upper
+  # coverage vs DI within the training bulk (<= cap); extend to the last contiguous band
+  cap <- as.numeric(stats::quantile(di_cal, cap_quantile, na.rm = TRUE))
+  sel <- di_cal <= cap; di_s <- di_cal[sel]; ok_s <- cov_ok[sel]
+  edges <- unique(stats::quantile(di_s, seq(0, 1, length.out = curve_bins + 1L), na.rm = TRUE))
+  edges[1] <- -Inf; nb <- length(edges) - 1L
+  band <- findInterval(di_s, edges, rightmost.closed = TRUE)
+  covband <- tapply(ok_s, band, mean)
+  last_good <- 0L
+  for (bk in seq_len(nb)) {
+    ck <- covband[[as.character(bk)]]
+    if (!is.null(ck) && !is.na(ck) && ck >= coverage_floor) last_good <- bk else break
+  }
+  if (last_good == 0L) return(as.numeric(di_obj$threshold))   # even the lowest band fails -> keep the fence
+  thr <- edges[last_good + 1L]
+  if (!is.finite(thr)) thr <- cap
+  as.numeric(min(thr, cap))
 }
 
 
