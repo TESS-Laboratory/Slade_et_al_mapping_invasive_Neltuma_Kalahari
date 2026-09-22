@@ -568,6 +568,25 @@ list(
   # ---- Cover (C2/C3) figures ----------------------------------------------
   tar_target(fig_cover_coverage, fig_cover_coverage(cover_coverage_index), format = "file"),
   tar_target(fig_cover_area, fig_cover_area(cover_area_index), format = "file"),
+  # OSM roads + settlements for the landscape figure overlays (fetched once)
+  tar_target(osm_roads, "data-in/osm/roads.fgb", format = "file"),
+  tar_target(osm_settlements, "data-in/osm/settlements.fgb", format = "file"),
+  # the 12-panel grain x applicability x uncertainty landscape figure
+  tar_target_raw("fig_cover_grain",
+    local({
+      sl <- function(fn) rlang::call2("list",
+        !!!stats::setNames(lapply(c("wv2", "planet", "s2"), fn), c("wv2", "planet", "s2")))
+      rlang::call2("fig_cover_grain",
+        cover_paths = sl(function(s) rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L)),
+        di_paths    = sl(function(s) rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L)),
+        thresholds  = sl(function(s) rlang::sym(paste0("cover_threshold_", s))),
+        oofs        = sl(function(s) rlang::sym(paste0("cover_oof_", s))),
+        di_objs     = sl(function(s) rlang::sym(paste0("cover_di_", s))),
+        aoi = quote(wv2_aoi),
+        roads_path = rlang::call2("[", quote(osm_roads), 1L),
+        setts_path = rlang::call2("[", quote(osm_settlements), 1L))
+    }),
+    packages = c("terra", "ggplot2", "patchwork", "scales", "sf"), format = "file"),
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------

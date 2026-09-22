@@ -684,3 +684,101 @@ fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.pn
                   device = grDevices::png, type = "cairo")
   out_png
 }
+
+
+#' Twelve-panel grain x applicability x uncertainty figure (the landscape headline)
+#'
+#' Rows: (A) sub-pixel cover within each sensor's coverage-driven AOA (grey beyond),
+#' (B) DI relative to the AOA threshold (applicability; >1 = beyond), (C) conformal
+#' 90% pixel interval width (the actual cover uncertainty), (D) a bivariate of cover
+#' (red) against DI-driven extrapolation uncertainty (blue) = detection confidence.
+#' Columns are the three sensor grains (WV2/Planet/S2). Roads and the three villages
+#' (OSM) are overlaid. The story: finer grain resolves individual features, so a
+#' dense-corridor pixel resembles the dense training and stays within applicability -
+#' the coarse grains push the corridors beyond the AOA (finding 2026-09-22 [HUGH]).
+#' Requires ggplot2 + patchwork (attached via the target's `packages`).
+#'
+#' @param cover_paths,di_paths named-by-sensor scene cover / DI raster paths
+#' @param thresholds,oofs,di_objs named-by-sensor AOA thresholds, OOF lists, cover_di objects
+#' @param aoi,roads_path,setts_path study-area, OSM roads, OSM settlements vector paths
+#' @param out_png output; @param target_px approx plotting width per panel
+#' @return out_png
+fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
+                            aoi, roads_path, setts_path,
+                            out_png = "data-out/figures/fig8_cover_grain.png",
+                            target_px = 430L) {
+  sensors <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+  av <- terra::vect(aoi)
+  roads <- terra::crop(terra::project(terra::vect(roads_path), av), av)
+  setts <- terra::crop(terra::project(terra::vect(setts_path), av), av)
+  rd_df <- as.data.frame(terra::geom(roads)); aoi_df <- as.data.frame(terra::geom(av))
+  st_df <- cbind(as.data.frame(terra::crds(setts)), name = setts$name)
+  st_df$hj <- ifelse(st_df$x < mean(range(aoi_df$x)), -0.08, 1.08)
+  dfs <- list()
+  for (s in names(sensors)) {
+    cov <- terra::rast(cover_paths[[s]]); di <- terra::rast(di_paths[[s]])
+    oof <- oofs[[s]]; dio <- di_objs[[s]]; thr <- thresholds[[s]]
+    f <- max(1L, round(terra::ncol(cov) / target_px))
+    cA <- terra::aggregate(cov, f, "mean", na.rm = TRUE)
+    dA <- terra::resample(terra::aggregate(di, f, "mean", na.rm = TRUE), cA, method = "near")
+    d <- terra::as.data.frame(c(cA, dA), xy = TRUE, na.rm = FALSE); names(d)[3:4] <- c("cover", "di")
+    d <- d[!is.na(d$cover), ]; d$sensor <- factor(sensors[s], levels = sensors)
+    d$aoa <- !is.na(d$di) & d$di <= thr
+    d$cover_show <- ifelse(d$aoa, pmin(pmax(d$cover, 0), 1), NA_real_)
+    d$di_ratio <- pmin(d$di / thr, 3)
+    b <- di_conformal_bounds(oof$truth - oof$response, dio$di_cal,
+                             ifelse(is.na(d$di), max(dio$di_cal), d$di),
+                             pmin(pmax(d$cover, 0), 1), alpha = 0.10, n_bins = 5L, aoa_threshold = Inf)
+    d$width <- b$upper - b$lower
+    d$halfwidth <- attr(b, "q")[b$bin]
+    dfs[[s]] <- d
+  }
+  df <- do.call(rbind, dfs)
+  lim <- stats::quantile(df$cover_show, 0.995, na.rm = TRUE)
+  df$cbin <- cut(pmin(pmax(df$cover, 0), 1), c(-Inf, 0.02, 0.05, Inf), labels = FALSE)
+  wq <- stats::quantile(df$halfwidth, c(1/3, 2/3), na.rm = TRUE)
+  df$wbin <- cut(df$halfwidth, c(-Inf, wq, Inf), labels = FALSE)
+  df$biv <- (df$cbin - 1L) * 3L + df$wbin
+  biv_cols <- c("#e8e8e8","#c3cde0","#8fa8d0","#e3b0b0","#bf9db8","#8f88bf","#d11f1f","#b23a7e","#7d3ba0")
+  names(biv_cols) <- as.character(1:9)
+  tight <- theme(axis.title = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(),
+                 panel.grid = element_blank(), strip.text = element_text(face = "bold"),
+                 panel.spacing = unit(3, "pt"), plot.margin = margin(2, 2, 2, 2),
+                 legend.box.spacing = unit(3, "pt"), legend.margin = margin(0, 0, 0, 0),
+                 legend.key.height = unit(11, "pt"), legend.key.width = unit(9, "pt"),
+                 legend.title = element_text(size = 9), plot.title = element_text(size = 11, margin = margin(b = 2)))
+  base_layers <- list(
+    geom_polygon(data = aoi_df, aes(x, y, group = part), fill = NA, colour = "grey25", linewidth = 0.28),
+    geom_path(data = rd_df, aes(x, y, group = interaction(geom, part)), colour = "grey15", linewidth = 0.15, alpha = 0.5),
+    geom_point(data = st_df, aes(x, y), shape = 24, fill = "white", colour = "black", size = 1.5, stroke = 0.3),
+    geom_text(data = st_df, aes(x, y, label = name, hjust = hj), size = 2.5, fontface = "bold"),
+    coord_equal(expand = FALSE, clip = "off"), theme_minimal(base_size = 10), tight)
+  pA <- ggplot(df, aes(x, y)) + geom_raster(data = subset(df, !aoa), fill = "grey90") +
+    geom_raster(aes(fill = pmin(cover_show, lim))) +
+    scale_fill_viridis_c(option = "inferno", direction = -1, na.value = "grey90",
+                         name = "cover", labels = scales::percent_format(1)) +
+    facet_wrap(~ sensor, nrow = 1) + base_layers + labs(title = "A  Sub-pixel Neltuma cover (within AOA; grey = beyond)")
+  pB <- ggplot(df, aes(x, y)) + geom_raster(aes(fill = di_ratio)) +
+    scale_fill_gradient2(low = "#1b7837", mid = "grey95", high = "#762a83", midpoint = 1,
+                         name = "DI / AOA", breaks = c(0, 1, 2, 3), labels = c("0", "1", "2", "≥3")) +
+    facet_wrap(~ sensor, nrow = 1) + base_layers + labs(title = "B  Applicability: DI relative to AOA threshold (>1 beyond)")
+  wlim <- stats::quantile(df$width, 0.99, na.rm = TRUE)
+  pC <- ggplot(df, aes(x, y)) + geom_raster(aes(fill = pmin(width, wlim))) +
+    scale_fill_viridis_c(option = "magma", direction = -1, name = "interval\nwidth", labels = scales::percent_format(1)) +
+    facet_wrap(~ sensor, nrow = 1) + base_layers + labs(title = "C  Conformal pixel uncertainty (90% interval width)")
+  pD <- ggplot(df, aes(x, y)) + geom_raster(aes(fill = factor(biv))) +
+    scale_fill_manual(values = biv_cols, guide = "none") +
+    facet_wrap(~ sensor, nrow = 1) + base_layers + labs(title = "D  Detection confidence: cover (red) x pixel uncertainty (blue)")
+  leg <- expand.grid(unc = 1:3, cover = 1:3); leg$biv <- (leg$cover - 1L) * 3L + leg$unc
+  pleg <- ggplot(leg, aes(unc, cover, fill = factor(biv))) + geom_tile() +
+    scale_fill_manual(values = biv_cols, guide = "none") +
+    scale_x_continuous(breaks = 1:3, labels = c("lo", "md", "hi")) +
+    scale_y_continuous(breaks = 1:3, labels = c("sparse", "mod", "high")) +
+    labs(x = "uncertainty →", y = "cover →") + coord_equal() +
+    theme_minimal(base_size = 7.5) + theme(panel.grid = element_blank(), plot.margin = margin(0, 0, 0, 0))
+  pD <- pD + patchwork::inset_element(pleg, left = 0.84, bottom = 0.37, right = 0.99, top = 0.63, align_to = "full")
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, patchwork::wrap_plots(list(pA, pB, pC, pD), ncol = 1),
+                  width = 9.4, height = 18.5, dpi = 130, bg = "white", limitsize = FALSE)
+  out_png
+}
