@@ -76,9 +76,12 @@ Numbers from the current store; scratch reproductions in the session scratchpad
    before the q99 cap (WV2 0.123, Planet 0.164); with honest coverage and the
    old contiguity rule, WV2's lowest band (0.842 < 0.85) discarded the whole
    procedure. New rule: last DI band whose *honest* coverage ≥ 0.85, capped at
-   q99, no contiguity. Expected: WV2 and S2 unchanged; Planet's threshold drops to
-   ~0.063 (AOA 93% → ~82%; share of scene cover inside 78% → 57%). Planet's area
-   will move on the rerun and the "Planet highest" note in the handoff lapses.
+   q99, no contiguity. Measured after the reporting rebuild: WV2 (rule = cap,
+   0.123) and S2 (0.111) unchanged; Planet's threshold 0.063 (AOA 93.3% → 81.5%),
+   area 1540 → 1155 ha [334, 2838]. Pooled honest coverage at 90%: 88.8 / 88.8 /
+   89.6% (WV2 / Planet / S2); per-site minima 64.8 / 61.2 / 52.1% (Struizendam 4
+   under-predicted by 15.9 / 18.4 / 16.8 pp). The "Planet highest" note in the
+   handoff lapses.
 3. **Rectifier sign rests on one site (flagged, DECISION 1).** Per-stratum LOSO
    biases in the dense strata come from predicting Struizendam 4 (true cover 21%)
    with models that never saw dense cover (−16 to −18 pp); every other site is
@@ -154,6 +157,19 @@ phases, gradient table, rectifier sensitivity columns), `R/paper.R` (rewritten),
 (materialised boolean raster; dead conformal-phase code removed), `_targets.R`
 (profile guard, new targets, pruning, `supplement` target), `inst/config/resampling.yml`
 (two fast sites), tests. Manuscript: full rewrite; Supplement; change log; README.
+
+### 5b. State at the end of the pass
+
+Fast gate green (872 targets, two sites, both documents render). Full-store
+reporting rebuild done with `shortcut = TRUE` (61 targets, 24 min): the three
+overwritten rasters regenerated from the stored 7-site training tables, all
+figures, `paper_values`, `paper/manuscript.html|docx`, `paper/supplement.html|docx`.
+Headline values now in the render: WV2 cover 1110 ha [323, 2166] (uncorrected
+within-AOA 1051), Planet 1155 [334, 2838] (962), S2 1264 [447, 2497] (981);
+WV2 phases 13.2% incursion / 86.2% expansion / 0.1% dominance (upper bound 18.1%
+dominance; lower bound 72.3% indistinguishable from pre-incursion; 21.3% below the
+1.7% detection floor); pixel-level Neltuma recall/precision vs the drone maps
+61/56% (WV2), 59/28% (Planet), 85/15% (S2), extent ratios 1.1 / 2.2 / 5.7.
 
 ## 6. What the final full rerun must do (and what it will change)
 

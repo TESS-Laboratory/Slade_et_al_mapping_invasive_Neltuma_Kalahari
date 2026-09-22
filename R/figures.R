@@ -55,7 +55,7 @@ class_plot_labels <- function(codes, path = CLASSES_JSON) {
 #' @param target_px approximate panel width in source pixels after aggregation
 #' @return a ggplot
 map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400,
-                      scale_m = 100) {
+                      scale_m = 100, title_case = TRUE) {
   r <- terra::rast(class_tif)
   fact <- max(1L, floor(terra::ncol(r) / target_px))
   if (fact > 1L) r <- terra::aggregate(r, fact = fact, fun = "modal", na.rm = TRUE)
@@ -77,7 +77,7 @@ map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400,
     ggplot2::annotate("text", x = bar_x + scale_m / 2, y = bar_y,
                       label = if (scale_m >= 1000) paste0(scale_m / 1000, " km") else paste0(scale_m, " m"), vjust = -0.8, size = 2.6, colour = "grey15") +
     ggplot2::coord_equal(expand = FALSE) +
-    ggplot2::labs(title = gsub("_", " ", tools::toTitleCase(site)),
+    ggplot2::labs(title = if (title_case) gsub("_", " ", tools::toTitleCase(site)) else site,
                   subtitle = subtitle) +
     ggplot2::theme_void(base_size = 9) +
     ggplot2::theme(
@@ -380,7 +380,7 @@ fig_sensor_comparison <- function(site, aoi_path, surfaces, scores,
     r <- terra::mask(terra::crop(r, aoi), aoi)
     p <- file.path(tmp, paste0(site, "_", s, ".tif")); terra::writeRaster(r, p, overwrite = TRUE)
     map_panel(p, paste(panel_letters[[s]], labels[[s]]), "averaged classification", palette,
-              target_px = 900, scale_m = 100)
+              target_px = 900, scale_m = 100, title_case = FALSE)
   })
   sc <- scores[scores$sensor %in% names(labels), ]
   long <- rbind(data.frame(sensor = sc$sensor, measure = "Neltuma recall vs drone", value = sc$recall),

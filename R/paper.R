@@ -230,7 +230,7 @@ satellite_paper_values <- function(sc, sat_class_index, honest, learner_area_ind
     if (!is.null(sensors_cfg)) {
       out[[paste0("hc_", s, "_nclasses")]] <- length(sensors_cfg[[s]]$classes)
       out[[paste0("hc_", s, "_class_size")]] <- sensors_cfg[[s]]$sources$purity_raw$class_size
-      out[[paste0("hc_", s, "_purity_pct")]] <- pct0(sensors_cfg[[s]]$sources$purity_raw$purity)
+      out[[paste0("hc_", s, "_purity_threshold_pct")]] <- pct0(sensors_cfg[[s]]$sources$purity_raw$purity)
     }
     if (!is.null(learner_area_index)) {
       la <- learner_area_index[learner_area_index$site == paste0(s, "_scene") & learner_area_index$Type == 1, ]
