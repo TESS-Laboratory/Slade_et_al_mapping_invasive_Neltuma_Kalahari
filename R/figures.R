@@ -634,7 +634,7 @@ fig_area_bounds <- function(bounds, ppi, alpha = 0.10,
 #' @param cov cover_coverage_index (sensor, alpha, nominal, overall, n)
 #' @param out_png output path
 #' @return `out_png`
-fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover_coverage.png") {
+make_fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover_coverage.png") {
   d <- cov
   d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
                      labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
@@ -663,7 +663,7 @@ fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover_cove
 #' @param area cover_area_index (one row per sensor)
 #' @param out_png output path
 #' @return `out_png`
-fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.png") {
+make_fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.png") {
   d <- area
   d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
                      labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
@@ -703,7 +703,7 @@ fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.pn
 #' @param aoi,roads_path,setts_path study-area, OSM roads, OSM settlements vector paths
 #' @param out_png output; @param target_px approx plotting width per panel
 #' @return out_png
-fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
+make_fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
                             aoi, roads_path, setts_path,
                             out_png = "data-out/figures/fig8_cover_grain.png",
                             target_px = 430L) {
@@ -796,7 +796,7 @@ fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
 #' @param aoi,roads_path,setts_path study-area / OSM overlays
 #' @param out_png output; @param target_px approx plotting width per panel
 #' @return out_png
-fig_cover_full <- function(cover_paths, aoi, roads_path, setts_path,
+make_fig_cover_full <- function(cover_paths, aoi, roads_path, setts_path,
                            out_png = "data-out/figures/figS13_cover_full.png",
                            target_px = 460L) {
   sensors <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")

@@ -102,6 +102,7 @@ cover_paper_values <- function(cover_area_index, cover_coverage_index = NULL,
     out[[paste0("cover_", s, "_naive")]]   <- ha0(r$naive_ha)
     out[[paste0("cover_", s, "_within_aoa")]] <- ha0(r$cover_aoa_ha)
     out[[paste0("cover_", s, "_aoa_pct")]] <- pct1(100 * r$aoa_frac)
+    out[[paste0("cover_", s, "_ntrain")]]  <- format(r$n_overlap, big.mark = ",", trim = TRUE)
     out[[paste0("cover_", s, "_cov90")]]   <- cov90(s)
     out[[paste0("cover_", s, "_incursion_pct")]] <- phpct(s, "Initial Incursion")
     out[[paste0("cover_", s, "_expansion_pct")]] <- phpct(s, "Expansion")
