@@ -782,3 +782,54 @@ fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
                   width = 9.4, height = 18.5, dpi = 130, bg = "white", limitsize = FALSE)
   out_png
 }
+
+
+#' SI companion: sub-pixel cover shown EVERYWHERE (no AOA mask)
+#'
+#' The un-greyed version of `fig_cover_grain` panel A, signposted from the main
+#' figure caption (finding 2026-09-22 [HUGH]): the predicted cover is drawn across
+#' the whole study area so the corridor signal is visible for every sensor, at the
+#' cost of hiding which pixels are label-supported (that is what the main figure's
+#' greying and the AOA panel convey).
+#'
+#' @param cover_paths named-by-sensor scene cover raster paths
+#' @param aoi,roads_path,setts_path study-area / OSM overlays
+#' @param out_png output; @param target_px approx plotting width per panel
+#' @return out_png
+fig_cover_full <- function(cover_paths, aoi, roads_path, setts_path,
+                           out_png = "data-out/figures/figS13_cover_full.png",
+                           target_px = 460L) {
+  sensors <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+  av <- terra::vect(aoi)
+  roads <- terra::crop(terra::project(terra::vect(roads_path), av), av)
+  setts <- terra::crop(terra::project(terra::vect(setts_path), av), av)
+  rd_df <- as.data.frame(terra::geom(roads)); aoi_df <- as.data.frame(terra::geom(av))
+  st_df <- cbind(as.data.frame(terra::crds(setts)), name = setts$name)
+  st_df$hj <- ifelse(st_df$x < mean(range(aoi_df$x)), -0.08, 1.08)
+  dfs <- lapply(names(sensors), function(s) {
+    cov <- terra::rast(cover_paths[[s]])
+    f <- max(1L, round(terra::ncol(cov) / target_px))
+    cA <- terra::aggregate(cov, f, "mean", na.rm = TRUE)
+    d <- terra::as.data.frame(cA, xy = TRUE, na.rm = TRUE); names(d)[3] <- "cover"
+    d$sensor <- factor(sensors[s], levels = sensors); d
+  })
+  df <- do.call(rbind, dfs); df$cover <- pmin(pmax(df$cover, 0), 1)
+  lim <- stats::quantile(df$cover, 0.995, na.rm = TRUE)
+  p <- ggplot(df, aes(x, y)) + geom_raster(aes(fill = pmin(cover, lim))) +
+    geom_polygon(data = aoi_df, aes(x, y, group = part), fill = NA, colour = "grey25", linewidth = 0.28) +
+    geom_path(data = rd_df, aes(x, y, group = interaction(geom, part)), colour = "grey15", linewidth = 0.15, alpha = 0.5) +
+    geom_point(data = st_df, aes(x, y), shape = 24, fill = "white", colour = "black", size = 1.6, stroke = 0.3) +
+    geom_text(data = st_df, aes(x, y, label = name, hjust = hj), size = 2.6, fontface = "bold") +
+    scale_fill_viridis_c(option = "inferno", direction = -1, name = "cover", labels = scales::percent_format(1)) +
+    facet_wrap(~ sensor, nrow = 1) + coord_equal(expand = FALSE, clip = "off") +
+    labs(title = "Sub-pixel Neltuma cover across the full study area (no AOA mask)",
+         subtitle = "Predicted cover shown for every pixel; label-supported extent is delimited in the main figure (AOA)") +
+    theme_minimal(base_size = 11) +
+    theme(axis.title = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(),
+          panel.grid = element_blank(), strip.text = element_text(face = "bold"),
+          panel.spacing = unit(3, "pt"), plot.margin = margin(2, 2, 2, 2),
+          legend.box.spacing = unit(3, "pt"))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, p, width = 9.4, height = 5.2, dpi = 150, bg = "white", limitsize = FALSE)
+  out_png
+}

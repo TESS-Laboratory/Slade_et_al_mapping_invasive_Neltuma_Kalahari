@@ -587,6 +587,17 @@ list(
         setts_path = rlang::call2("[", quote(osm_settlements), 1L))
     }),
     packages = c("terra", "ggplot2", "patchwork", "scales", "sf"), format = "file"),
+  # SI companion: cover everywhere (un-greyed), signposted from the main figure
+  tar_target_raw("fig_cover_full",
+    rlang::call2("fig_cover_full",
+      cover_paths = rlang::call2("list",
+        wv2 = rlang::call2("[", quote(cover_scene_wv2), 1L),
+        planet = rlang::call2("[", quote(cover_scene_planet), 1L),
+        s2 = rlang::call2("[", quote(cover_scene_s2), 1L)),
+      aoi = quote(wv2_aoi),
+      roads_path = rlang::call2("[", quote(osm_roads), 1L),
+      setts_path = rlang::call2("[", quote(osm_settlements), 1L)),
+    packages = c("terra", "ggplot2", "scales", "sf"), format = "file"),
 
   # ---- the paper ----------------------------------------------------------
   # ---- invariants (refactor-3.0 4.4) --------------------------------------
