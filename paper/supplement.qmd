@@ -1,0 +1,245 @@
+---
+title: "Supplementary Information: Detecting sparse biological invasions through multi-scale remote sensing"
+author: "Slade et al. (anonymised) — refactor-3.0 draft"
+date: today
+format:
+  html:
+    embed-resources: true
+    css: pipeline.css
+    toc: true
+  docx:
+    toc: false
+execute:
+  echo: false
+  warning: false
+---
+
+<!--
+PIPELINE PRODUCT (the `supplement` target). Items carried over unchanged from
+the submitted Supplementary Information (sensor tables, class definitions,
+site tables, PCA/boxplot figures, the regional presence map) are listed with a
+note and are NOT regenerated here; every table and figure below that the
+pipeline produces is read from the targets store.
+-->
+
+```{r setup}
+#| include: false
+# Resolve everything from the project root so the document renders identically
+# under tar_make (cwd = root) and by hand from paper/ (cwd = paper).
+options(knitr.kable.NA = "–")
+root  <- if (file.exists("_targets.R")) normalizePath(".") else normalizePath("..")
+store <- file.path(root, basename(Sys.getenv("NELTUMA_STORE", "_targets")))
+# Literal tar_read() calls so tar_quarto registers the dependencies.
+values <- targets::tar_read(paper_values, store = store)
+tabs <- list(
+  training_class_counts = targets::tar_read(training_class_counts, store = store),
+  plant_validation = targets::tar_read(plant_validation, store = store),
+  classes = targets::tar_read(classes, store = store),
+  confusion_raw_raw_wv2 = targets::tar_read(confusion_raw_raw_wv2, store = store),
+  confusion_raw_raw_planet = targets::tar_read(confusion_raw_raw_planet, store = store),
+  confusion_raw_raw_s2 = targets::tar_read(confusion_raw_raw_s2, store = store),
+  score_index_all = targets::tar_read(score_index_all, store = store),
+  class_index_all = targets::tar_read(class_index_all, store = store),
+  cv_index = targets::tar_read(cv_index, store = store),
+  cover_error_index = targets::tar_read(cover_error_index, store = store),
+  cover_site_coverage_index = targets::tar_read(cover_site_coverage_index, store = store),
+  learner_area_index = targets::tar_read(learner_area_index, store = store))
+figs <- list(
+  fig_cover_gradient = targets::tar_read(fig_cover_gradient, store = store),
+  fig_conformal = targets::tar_read(fig_conformal, store = store),
+  fig_coverage = targets::tar_read(fig_coverage, store = store),
+  fig_wv2_map = targets::tar_read(fig_wv2_map, store = store),
+  fig_phases = targets::tar_read(fig_phases, store = store),
+  fig_cover_full = targets::tar_read(fig_cover_full, store = store),
+  fig_wv2_bench = targets::tar_read(fig_wv2_bench, store = store))
+rd <- function(name) tabs[[name]]
+fig <- function(name) normalizePath(file.path(root, figs[[name]]))
+sensor_label <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+class_names <- function(codes) {
+  cl <- tabs$classes; nm <- cl$Class[match(as.integer(codes), cl$Type)]
+  ifelse(is.na(nm), as.character(codes), nm)
+}
+```
+
+::: {.pipeline-legend}
+**Draft for co-author review.** [Green]{.substituted} marks a value written by the analysis pipeline. Grey boxes are notes to the co-authors.
+:::
+
+# Tables
+
+## Tables S1–S8
+
+::: {.pipeline-note}
+Tables S1 (drone sensor bands), S2 (drone surveys), S3 (class definitions), S5 (satellite data), S6 (vegetation-index formulae) and S8 (invasion-phase thresholds) are carried over unchanged from the submitted Supplementary Information. Table S4 (training observations by class and survey area) is regenerated below from the field layers; Table S7 (purity thresholds and class sizes for the discrete satellite training) is corrected: the thresholds (95%, 85%, 65%) are as submitted, the effective class sizes are [`r values$hc_wv2_class_size`]{.substituted}, [`r values$hc_planet_class_size`]{.substituted} and [`r values$hc_s2_class_size`]{.substituted} per class for WorldView-2, PlanetScope and Sentinel-2 (recovered from the archived training extractions).
+:::
+
+Table S4. Number of field training observations by land-cover class and drone survey area (the tables used to train the drone classifications).
+
+```{r tableS4}
+cc <- rd("training_class_counts")
+wide <- reshape(cc[, c("site", "class", "n")], idvar = "class", timevar = "site", direction = "wide")
+names(wide) <- sub("^n\\.", "", names(wide)); wide[is.na(wide)] <- 0
+wide$Total <- rowSums(wide[, -1])
+wide <- rbind(wide, c(class = "Total", as.list(colSums(wide[, -1]))))
+knitr::kable(wide, row.names = FALSE, col.names = c("Land-cover class", gsub("_", " ", tools::toTitleCase(names(wide)[-1]))))
+```
+
+## Table S9. Plant-scale check of the drone classifications
+
+::: {.pipeline-note}
+The submitted Table S9 was an independent plant-scale validation (n = 184 *Neltuma* plants in two 100 × 200 m plots; 84.7% detection). That survey layer is not among the archived inputs. The point layer that is archived is the field training/validation polygons themselves, so the table below is a resubstitution check of the averaged drone surfaces against the polygons that trained them, not an independent validation; it is reported for completeness and the independent survey should be restored to the inputs.
+:::
+
+```{r tableS9}
+pv <- rd("plant_validation")
+pv <- pv[!is.na(pv$pred_raw), ]
+tab <- table(Predicted = class_names(pv$pred_raw), Observed = class_names(pv$Type))
+m <- as.data.frame.matrix(tab); m$Total <- rowSums(m)
+m <- rbind(m, Total = colSums(m))
+knitr::kable(m, caption = "Majority class of the averaged drone classification within each field polygon (rows) against the field label (columns).")
+cls <- union(rownames(tab), colnames(tab))
+hit <- function(cl) if (cl %in% rownames(tab) && cl %in% colnames(tab)) tab[cl, cl] else 0
+ua <- sapply(cls, function(cl) if (cl %in% rownames(tab)) hit(cl) / sum(tab[cl, ]) else NA_real_)
+pa <- sapply(cls, function(cl) if (cl %in% colnames(tab)) hit(cl) / sum(tab[, cl]) else NA_real_)
+knitr::kable(data.frame(Class = cls, `User's accuracy (%)` = round(100 * ua, 1), `Producer's accuracy (%)` = round(100 * pa, 1), check.names = FALSE), row.names = FALSE)
+```
+
+## Table S10. Discrete satellite classifications against the drone classifications
+
+Confusion matrices of each sensor's averaged discrete classification (rows) against the majority drone class per satellite pixel (columns), over every satellite pixel within the seven drone survey areas. Recall and precision of the *Neltuma* class, the ratio of satellite to drone *Neltuma* extent, and the share of drone-mapped *Neltuma* pixels labelled as *V. erioloba* or other woody vegetation are summarised in Table 2 and Section 3.3 of the main text.
+
+```{r tableS10, results="asis"}
+for (s in c("wv2", "planet", "s2")) {
+  m <- rd(paste0("confusion_raw_raw_", s))
+  tab <- xtabs(n_pixels ~ wv2_class + drone_class, m)
+  dimnames(tab) <- list(Satellite = class_names(rownames(tab)), Drone = class_names(colnames(tab)))
+  df <- as.data.frame.matrix(tab); df$Total <- rowSums(df); df <- rbind(df, Total = colSums(df))
+  cat("\n\n**", sensor_label[[s]], "**\n\n", sep = "")
+  print(knitr::kable(df))
+}
+```
+
+## Table S11. Discrete satellite classification accuracy by sensor, training source and learner
+
+Overall accuracy (mean, standard deviation, minimum and maximum over the [`r values$n_outer_iterations_sat`]{.substituted} iterations of prediction-domain-matched spatial cross-validation) and *Neltuma* recall, for every satellite task. Training sources: field = field observations aligned to the sensor; purity = drone-derived labels from our classifications at the sensor's purity threshold (the primary source); archived = the purity extraction archived with the original analysis (reproduction check). The soft-vote row ("average") is the equal-weight probability average that is mapped.
+
+```{r tableS11}
+sc <- rd("score_index_all"); ci <- rd("class_index_all")
+sc <- sc[sc$sensor != "drone", ]
+d <- merge(sc[, c("sensor", "source", "learner", "classif.acc", "acc_sd", "acc_min", "acc_max")],
+           ci[ci$sensor != "drone", c("sensor", "source", "learner", "recall", "precision")],
+           by = c("sensor", "source", "learner"), all.x = TRUE)
+d$sensor <- sensor_label[d$sensor]
+d$source <- c(field = "field", purity_raw = "purity", archived = "archived")[d$source]
+d <- d[order(d$sensor, d$source, -d$classif.acc), ]
+d[, 4:9] <- round(100 * d[, 4:9], 1)
+knitr::kable(d, row.names = FALSE,
+             col.names = c("Sensor", "Training source", "Learner", "Accuracy (%)", "SD", "Min", "Max", "Neltuma recall (%)", "Neltuma precision (%)"))
+```
+
+::: {.pipeline-note}
+Fold-geometry sensitivity (Section 3.2): on the archived WorldView-2 task with an untuned random forest, coordinate-clustered spatial cross-validation returned mean accuracies of 0.49, 0.63, 0.68 and 0.71 at 5, 10, 20 and 40 folds (three repeats each), and random 10-fold cross-validation of a tuned LightGBM returned 0.754 (finding 7.34 of the analysis log; `data-out/results/wv2_fold_geometry.rds`). These diagnostics were run outside the pipeline and are quoted, not regenerated.
+:::
+
+## Table S12. Spatial cross-validation design per task
+
+Prediction-domain-matched (kNNDM) folds: number of observations, outer fold count, repeats, and the Wasserstein distance *W* (mean, minimum and maximum over repeats) between the held-out-to-training and prediction-domain-to-training nearest-neighbour distance distributions. Drone tasks are evaluated against their own site (near-random folds, *W* of a few metres); satellite tasks against the 445 km² study area (whole survey areas held out, *W* of several kilometres).
+
+```{r tableS12}
+cv <- rd("cv_index")
+cv$W <- ifelse(cv$sensor == "drone", sprintf("%.1f m (%.1f–%.1f)", cv$W_mean, cv$W_min, cv$W_max),
+               sprintf("%.2f km (%.2f–%.2f)", cv$W_mean / 1000, cv$W_min / 1000, cv$W_max / 1000))
+cv$sensor <- c(drone = "Drone", sensor_label)[cv$sensor]
+cv$source <- c(field = "field", purity_raw = "purity", archived = "archived")[cv$source]
+knitr::kable(cv[, c("sensor", "unit", "tag", "source", "n", "k_outer", "repeats", "iterations", "W")], row.names = FALSE,
+             col.names = c("Sensor", "Unit", "Stack", "Source", "n", "Folds", "Repeats", "Iterations", "W (mean, range)"))
+```
+
+## Table S13. Sub-pixel cover model: held-out error and interval coverage per survey area
+
+Leave-one-site-out performance of the cover ensemble at each survey area: number of labelled cells, mean drone-derived cover, mean predicted cover, RMSE and bias of predicted cover (percentage points), and the empirical coverage of the 90% DI-stratified conformal intervals when the intervals are calibrated on the other six areas and applied to this one. The densely invaded area (Struizendam 4) is under-predicted by every sensor and under-covered by its intervals; the pooled rows are what Section 3.4 reports.
+
+```{r tableS13}
+e <- rd("cover_error_index"); cv90 <- rd("cover_site_coverage_index")
+cv90 <- cv90[abs(cv90$alpha - 0.10) < 1e-9, c("sensor", "site", "coverage", "frac_inside", "width")]
+d <- merge(e, cv90, by = c("sensor", "site"), all.x = TRUE)
+d <- d[order(match(d$sensor, c("wv2", "planet", "s2")), d$site != "pooled", d$site), ]
+d$sensor <- sensor_label[d$sensor]
+d$site <- gsub("_", " ", tools::toTitleCase(d$site))
+knitr::kable(d[, c("sensor", "site", "n", "mean_truth_pct", "mean_pred_pct", "rmse_pp", "bias_pp", "coverage", "width", "frac_inside")],
+             row.names = FALSE, digits = c(0, 0, 0, 1, 1, 1, 1, 3, 3, 2),
+             col.names = c("Sensor", "Survey area", "Cells", "Drone cover (%)", "Predicted (%)", "RMSE (pp)", "Bias (pp)",
+                           "Coverage @90%", "Interval width", "Within AOA"))
+```
+
+## Table S14. Sensitivity of discrete-classification landscape areas to the learner
+
+*Neltuma* area (ha) of each satellite scene's discrete classification under each tuned learner and under the equal-weight probability average that is mapped. The spread between equally accurate learners is the reason single-model areas are not reported.
+
+```{r tableS14}
+la <- rd("learner_area_index"); la <- la[la$Type == 1 & grepl("_scene$", la$site), ]
+la$sensor <- sensor_label[sub("_scene$", "", la$site)]
+w <- reshape(la[, c("sensor", "learner", "area_ha")], idvar = "sensor", timevar = "learner", direction = "wide")
+names(w) <- sub("^area_ha\\.", "", names(w))
+knitr::kable(w, row.names = FALSE, digits = 0)
+```
+
+# Figures
+
+## Figures S1–S7. Drone classification maps
+
+::: {.pipeline-note}
+The seven per-site averaged classification surfaces are shown together in main-text Figure 4A. Individual full-resolution maps are available as GeoTIFFs in the data archive.
+:::
+
+## Figures S8–S9. Spectral separability
+
+::: {.pipeline-note}
+Principal component analysis and band-level boxplots are carried over from the submitted Supplementary Information (not regenerated).
+:::
+
+## Figures S10–S11. Sub-pixel *Neltuma* cover in relation to roads and settlements
+
+```{r figS10}
+knitr::include_graphics(fig("fig_cover_gradient"))
+```
+
+Figure S10–S11. Mean predicted *Neltuma* cover of 250 m hexagons within each sensor's area of applicability, by distance from the nearest road (top) and the nearest village (bottom; OpenStreetMap). Descriptive summaries, not tested relationships: roads, settlements and livestock infrastructure are concentrated along the dry riverbeds and are strongly collinear.
+
+## Figure S12. Regional presence of *Neltuma*
+
+::: {.pipeline-note}
+Carried over from the submitted Supplementary Information (author observations of *Neltuma* presence in villages across the western Kalahari; not regenerated).
+:::
+
+## Figure S13. Conformal prediction sets for the discrete classifications
+
+```{r figS13}
+knitr::include_graphics(c(fig("fig_conformal"), fig("fig_coverage")))
+```
+
+Figure S13. Class-conditional conformal prediction sets at 90% nominal coverage. Top: prediction-set size per pixel for the WorldView-2 discrete classification (left) and the pixels at which *Neltuma* cannot be ruled out (right); at this grain and coverage *Neltuma* is in the set almost everywhere, which is the discrete classification's statement of its own uncertainty. Bottom: empirical held-out coverage against the nominal level (left) and mean set size (right) for every drone and satellite task; coverage holds along the diagonal, and the price of coverage rises from about one class per pixel for the drone to [`r values$hc_wv2_setsize90`]{.substituted} of six classes for WorldView-2.
+
+## Figure S14. Discrete WorldView-2 landscape classification and invasion phases (comparison)
+
+```{r figS14}
+knitr::include_graphics(c(fig("fig_wv2_map"), fig("fig_phases")))
+```
+
+Figure S14. The discrete-class landscape product retained for comparison with the sub-pixel cover map (main-text Figure 7). Top: averaged WorldView-2 classification of the study area. Bottom: *Neltuma* invasion phase per 250 m hexagon from the fraction of pixels classified as *Neltuma*, with the Table S8 thresholds. Compared with the cover-based phases (Table 3), the discrete surface places [`r values$hc_wv2_preincursion_pct`]{.substituted}% of the landscape in pre-incursion because sub-pixel *Neltuma* never dominates a 1.6 m pixel.
+
+## Figure S15. Sub-pixel cover across the full study area
+
+```{r figS15}
+knitr::include_graphics(fig("fig_cover_full"))
+```
+
+Figure S15. Predicted sub-pixel *Neltuma* cover for every pixel of the study area, without the area-of-applicability mask of main-text Figure 7A. Beyond the area of applicability the values are extrapolations whose intervals were not validated.
+
+## Figure S16. WorldView-2 learner benchmark and training sources
+
+```{r figS16}
+knitr::include_graphics(fig("fig_wv2_bench"))
+```
+
+Figure S16. (A) Overall accuracy of each learner on the archived WorldView-2 training extraction (mean and range over the [`r values$n_outer_iterations_sat`]{.substituted} spatial cross-validation iterations). (B) Best learner per training source: field observations only, the archived purity extraction, and purity labels from our own drone classifications.

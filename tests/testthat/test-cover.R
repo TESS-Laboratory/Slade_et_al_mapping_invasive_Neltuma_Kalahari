@@ -231,3 +231,90 @@ test_that("cover_scene_area: stratified rectifier keeps a positive-bounded CI", 
   expect_lt(out$ppi_lo_ha, out$ppi_ha)              # lower bound below the point
   expect_lte(out$ppi_ha, out$ppi_hi_ha)             # point at or below the upper
 })
+
+test_that("nested coverage is honest: a shifted site lowers honest but not apparent coverage", {
+  set.seed(3)
+  n <- 6000L
+  site <- rep(c("a", "b", "c", "d", "e", "f"), each = n / 6)
+  di_cal <- rbeta(n, 2, 25)
+  yhat <- runif(n, 0.2, 0.5)                             # away from the [0, 1] clamps
+  truth <- yhat + rnorm(n, 0, 0.01)
+  truth[site == "f"] <- truth[site == "f"] + 0.15        # one site the model has never seen
+  oof <- list(row_ids = seq_len(n), response = yhat, truth = truth)
+  tr <- data.frame(site = site)
+  di_obj <- list(di_cal = di_cal, threshold = Inf)
+  tab <- cover_coverage_table(oof, di_obj, alphas = 0.10, sensor = "t", threshold = Inf, train_df = tr)
+  expect_true(all(c("apparent", "honest", "mean_width") %in% names(tab)))
+  expect_gt(tab$apparent, 0.88)                         # apparent lands on nominal by construction
+  expect_lt(tab$honest, tab$apparent - 0.05)             # the shifted site is not covered
+  sc <- cover_site_coverage(oof, di_obj, alphas = 0.10, sensor = "t", threshold = Inf, train_df = tr)
+  expect_equal(nrow(sc), 6L)
+  expect_lt(sc$coverage[sc$site == "f"], 0.5)
+  expect_true(all(sc$coverage[sc$site != "f"] > 0.8))
+})
+
+test_that("cover_aoa_threshold with sites: last band meeting the floor, no contiguity walk", {
+  set.seed(4)
+  n <- 6000L
+  site <- rep(c("a", "b", "c", "d", "e", "f"), length.out = n)
+  di_cal <- sort(c(rbeta(n * 0.9, 2, 25), runif(n * 0.1, 0.3, 3)))
+  yhat <- runif(n, 0, 0.1)
+  # residuals blow up at high DI only
+  truth <- yhat + rnorm(n, 0, 0.004 + 0.2 * di_cal)
+  oof <- list(row_ids = seq_len(n), response = yhat, truth = truth)
+  tr <- data.frame(site = site)
+  di_obj <- list(di_cal = di_cal, threshold = as.numeric(quantile(di_cal, .75) + 1.5 * IQR(di_cal)))
+  thr <- cover_aoa_threshold(oof, di_obj, train_df = tr, coverage_floor = 0.85)
+  expect_true(attr(thr, "rule") %in% c("coverage", "cap", "fence"))
+  expect_true(is.data.frame(attr(thr, "curve")))
+  expect_lt(as.numeric(thr), as.numeric(quantile(di_cal, 0.99)))   # the tail is cut off
+  # a single noisy low band must not discard the procedure
+  truth2 <- truth; truth2[di_cal <= quantile(di_cal, 0.1)] <- yhat[di_cal <= quantile(di_cal, 0.1)] + 0.5
+  thr2 <- cover_aoa_threshold(list(row_ids = seq_len(n), response = yhat, truth = truth2), di_obj,
+                              train_df = tr, coverage_floor = 0.85)
+  expect_gt(as.numeric(thr2), as.numeric(quantile(di_cal, 0.5)))
+})
+
+test_that("cover_error_table reports a pooled row, per-site rows and the detection floor", {
+  set.seed(5)
+  n <- 900L
+  site <- rep(c("a", "b", "c"), each = 300)
+  truth <- c(runif(300, 0, 0.002), runif(300, 0, 0.05), runif(300, 0.1, 0.3))
+  yhat <- pmin(pmax(truth + rnorm(n, 0.01, 0.02), 0), 1)
+  et <- cover_error_table(list(row_ids = seq_len(n), response = yhat, truth = truth),
+                          data.frame(site = site), sensor = "t")
+  expect_equal(et$site, c("pooled", "a", "b", "c"))
+  expect_equal(et$n[1], n)
+  expect_true(is.finite(et$noise_floor_pct[1]))
+  expect_gt(et$noise_floor_pct[1], 0)
+  expect_true(is.na(et$noise_floor_pct[et$site == "c"]))      # no near-zero cells there
+})
+
+test_that("cover_phase_layer/summary: phases carry an interval range and a beyond-AOA row", {
+  skip_if_not_installed("terra"); skip_if_not_installed("exactextractr")
+  cover <- terra::rast(nrows = 40, ncols = 40, xmin = 0, xmax = 2000, ymin = 0, ymax = 2000, crs = "EPSG:32734")
+  terra::values(cover) <- c(rep(0.02, 800), rep(0.20, 800))
+  di <- terra::deepcopy(cover); terra::values(di) <- c(rep(0.05, 1200), rep(5, 400))   # bottom quarter beyond
+  cp <- file.path(tempdir(), "pcov.tif"); dp <- file.path(tempdir(), "pdi.tif")
+  terra::writeRaster(cover, cp, overwrite = TRUE); terra::writeRaster(di, dp, overwrite = TRUE)
+  poly <- terra::as.polygons(terra::ext(cover)); terra::crs(poly) <- "EPSG:32734"
+  ap <- file.path(tempdir(), "paoi.fgb"); terra::writeVector(poly, ap, filetype = "FlatGeobuf", overwrite = TRUE)
+  gp <- make_analysis_grid(ap, 250, file.path(tempdir(), "pgrid.fgb"), square = FALSE)
+  n <- 500L
+  oof <- list(row_ids = seq_len(n), response = runif(n, 0, 0.3), truth = NA)
+  oof$truth <- oof$response + rnorm(n, 0, 0.03)
+  di_obj <- list(di_cal = runif(n, 0, 0.1), threshold = 1)
+  out <- cover_phase_layer(cp, dp, threshold = 1, oof, di_obj, gp, ap,
+                           phases = list(incursion = 0.1, expansion = 1.5, dominance = 15),
+                           out_path = file.path(tempdir(), "pphase.fgb"))
+  g <- sf::st_read(out, quiet = TRUE)
+  expect_true(all(c("cover_pct", "aoa_frac", "cover_aoa_pct", "lower_pct", "upper_pct",
+                    "phase", "phase_lower", "phase_upper") %in% names(g)))
+  expect_true(any(is.na(g$phase)))                                   # beyond-AOA hexagons unassessed
+  expect_true(all(g$lower_pct[!is.na(g$phase)] <= g$cover_aoa_pct[!is.na(g$phase)] + 1e-9))
+  s <- cover_phase_summary(out, "t", floor_pct = 3)
+  expect_true(all(c("Beyond applicability", "Below detection floor") %in% s$phase))
+  ph <- s[s$phase %in% PHASE_LABELS, ]
+  expect_equal(sum(ph$pct_of_area) + s$pct_of_area[s$phase == "Beyond applicability"], 100, tolerance = 1e-6)
+  expect_true(all(ph$pct_lower >= 0 & ph$pct_upper >= 0))
+})

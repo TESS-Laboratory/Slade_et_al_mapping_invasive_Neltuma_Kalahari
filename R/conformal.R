@@ -258,7 +258,7 @@ inclusion_thresholds <- function(cal, classes) {
 #' @param out_dir output directory
 #' @return path to the 3-band conformal raster
 conformal_surface <- function(prob_path, cal, alpha, neltuma_code, site, tag,
-                              out_dir = "data-out/conformal") {
+                              out_dir = out_path("conformal")) {
   p <- read_prob(prob_path[grepl("_prob\\.tif$", prob_path)][1])
   classes <- as.integer(sub("^prob_", "", names(p)))
   th <- inclusion_thresholds(cal[cal$alpha == alpha, , drop = FALSE], classes)

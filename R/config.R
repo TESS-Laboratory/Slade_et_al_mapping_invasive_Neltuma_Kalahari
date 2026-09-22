@@ -14,6 +14,15 @@
 
 CONFIG_DIR <- "inst/config"
 
+# Output root, by profile (2026-09-22). The fast and full profiles used to write the
+# cover/DI rasters, the training layers and the phase grids to the SAME paths, so a
+# fast smoke run silently overwrote full-resolution products on disk (the hard-class
+# arm alone suffixed its fast outputs). Each profile now owns a root; override with
+# NELTUMA_OUT. Every output path in the pipeline goes through out_path().
+DATA_OUT <- Sys.getenv("NELTUMA_OUT",
+                       if (identical(Sys.getenv("NELTUMA_PROFILE", "fast"), "fast")) "data-out-fast" else "data-out")
+out_path <- function(...) file.path(DATA_OUT, ...)
+
 
 #' Fail with a consistent message when a config file is missing
 #'

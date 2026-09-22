@@ -4,10 +4,12 @@
 #' classification gives a per-pixel Neltuma probability; CALIBRATED and
 #' area-averaged onto a coarser satellite grid it becomes the expected areal
 #' Neltuma cover of each satellite cell - the regression target. No majority
-#' vote, no purity threshold. Uncertainty is CV+ on the kNNDM folds, DI-stratified
-#' (3.9); the aggregate area comes from PPI on top of the regression. This file
-#' holds the drone-side calibration; the warp target, regression twins and the
-#' DI/AOA machinery follow.
+#' vote, no purity threshold. Uncertainty is DI-stratified split conformal on the
+#' leave-one-site-out residuals (3.9), with coverage EARNED by a nested
+#' leave-site-out check (cover_site_coverage); the aggregate area comes from a
+#' cover-stratified PPI rectifier on top of the regression. This file holds the
+#' drone-side calibration, the warp target, the regression twins and the DI/AOA
+#' machinery.
 
 #' Calibrate the drone Neltuma probability so its mean equals areal cover
 #'
@@ -229,6 +231,7 @@ di_conformal_bounds <- function(resid, di_cal, di_new, yhat_new, alpha,
   out <- data.frame(yhat = yhat_new, lower = lo, upper = hi,
                     di = di_new, bin = bin_new, inside_aoa = inside)
   attr(out, "q") <- q
+  attr(out, "edges") <- edges
   out
 }
 
@@ -302,50 +305,153 @@ cover_learner <- function(id) {
 
 PHASE_LABELS <- c("Pre-Incursion", "Initial Incursion", "Expansion", "Dominance")
 
-#' Invasion phase per grid cell from the continuous cover surface (thin, no smoothing)
+#' Per-DI-bin conformal half-widths as a raster reclassification table
+#'
+#' @param oof ensemble OOF; @param di_obj `cover_di()` output; @param alpha level
+#' @return matrix(from, to, q) for `terra::classify()` on a DI raster
+cover_halfwidth_rcl <- function(oof, di_obj, alpha = 0.10, n_bins = 5L) {
+  yhat <- pmin(pmax(oof$response, 0), 1)
+  b <- di_conformal_bounds(oof$truth - oof$response, di_obj$di_cal, di_obj$di_cal, yhat,
+                           alpha, n_bins = n_bins, aoa_threshold = Inf)
+  e <- attr(b, "edges"); q <- attr(b, "q")
+  q[!is.finite(q)] <- 1
+  cbind(from = e[-length(e)], to = e[-1], q = q)
+}
+
+
+#' Invasion phase per grid cell from the continuous cover surface, with its interval
 #'
 #' The cover-based replacement for `build_phase_layer()`: mean of the CONTINUOUS
 #' cover surface per hexagon (no hard-class majority, no modal filter), assigned to
-#' a phase by the sensors.yml thresholds. Restricted to cells that intersect the
-#' study-area AOI. Uncertainty (the conformal cover band per cell) is a later add.
+#' a phase by the sensors.yml thresholds. Revised 2026-09-22 (D7, R1 L272): the
+#' hexagon mean is also taken over the LOWER and UPPER 90% conformal bounds of its
+#' pixels (half-width by DI stratum, `cover_halfwidth_rcl`), and each is assigned a
+#' phase too, so Table 1 carries a range. Only pixels within the AOA contribute to
+#' the assessed cover; a hexagon with less than half its pixels inside the AOA gets
+#' no phase and is reported as "beyond applicability". `cover_pct` (all pixels) is
+#' kept for the un-masked map.
+#'
+#' NOTE on semantics (finding 2026-09-22): the Table S8 thresholds were defined for
+#' the share of a cell classified as Neltuma; here they cut MEAN SUB-PIXEL COVER.
+#' A regression never predicts exactly zero, so the 0.1% pre-incursion floor is
+#' unattainable for a hexagon mean and the model's own detection floor
+#' (`cover_error_table`, ~2%) sits at the incursion/expansion boundary. The point
+#' phase is therefore reported together with its interval range and the below-floor
+#' share (`cover_phase_summary`), never alone.
 #'
 #' @param cover_path scene cover raster ([0,1] via scale tag)
+#' @param di_path scene DI raster ([DI] via scale tag)
+#' @param threshold AOA DI threshold
+#' @param oof,di_obj ensemble OOF and `cover_di()` output (for the half-widths)
 #' @param grid_path the analysis grid (250 m hexagons)
 #' @param aoi study-area vector path
 #' @param phases sensors.yml phases block (incursion/expansion/dominance, in %)
 #' @param out_path output layer path (.fgb)
+#' @param alpha interval level for the range
 #' @return `out_path`
-cover_phase_layer <- function(cover_path, grid_path, aoi, phases, out_path) {
-  cover <- terra::rast(cover_path)
+cover_phase_layer <- function(cover_path, di_path, threshold, oof, di_obj, grid_path, aoi,
+                              phases, out_path, alpha = 0.10) {
+  cover <- terra::rast(cover_path); di <- terra::rast(di_path)
   grid  <- sf::st_read(grid_path, quiet = TRUE)
   av    <- sf::st_union(sf::st_read(aoi, quiet = TRUE))
   grid  <- grid[lengths(sf::st_intersects(grid, av)) > 0, ]
-  pct <- 100 * exactextractr::exact_extract(cover, grid, "mean", progress = FALSE)
-  grid$cover_pct <- pct
-  grid$phase <- as.character(cut(pct,
-    breaks = c(-Inf, phases$incursion, phases$expansion, phases$dominance, Inf),
-    labels = PHASE_LABELS, right = FALSE))
+  inside <- di <= threshold
+  q <- terra::classify(di, cover_halfwidth_rcl(oof, di_obj, alpha), include.lowest = TRUE, right = TRUE)
+  cov_in <- terra::mask(cover, inside, maskvalues = c(0, NA))
+  lower <- terra::clamp(cov_in - q, 0, 1); upper <- terra::clamp(cov_in + q, 0, 1)
+  stack <- c(cover, inside, cov_in, lower, upper)
+  names(stack) <- c("cover_pct", "aoa_frac", "cover_aoa_pct", "lower_pct", "upper_pct")
+  ex <- exactextractr::exact_extract(stack, grid, "mean", progress = FALSE)
+  names(ex) <- sub("^mean\\.", "", names(ex))
+  for (v in c("cover_pct", "cover_aoa_pct", "lower_pct", "upper_pct")) grid[[v]] <- 100 * ex[[v]]
+  grid$aoa_frac <- ex$aoa_frac
+  assessed <- !is.na(grid$aoa_frac) & grid$aoa_frac >= 0.5
+  phase_of <- function(p) as.character(cut(p, breaks = c(-Inf, phases$incursion, phases$expansion, phases$dominance, Inf),
+                                           labels = PHASE_LABELS, right = FALSE))
+  grid$phase <- ifelse(assessed, phase_of(grid$cover_aoa_pct), NA_character_)
+  grid$phase_lower <- ifelse(assessed, phase_of(grid$lower_pct), NA_character_)
+  grid$phase_upper <- ifelse(assessed, phase_of(grid$upper_pct), NA_character_)
   write_fgb(grid, out_path)
   out_path
 }
 
 
-#' Area per invasion phase from a cover phase layer
+#' Area per invasion phase from a cover phase layer, with the interval range
 #'
 #' @param layer_path output of `cover_phase_layer()`
 #' @param sensor label
-#' @return data.frame(sensor, phase, area_ha, pct_of_area, n_cells) over fixed
-#'   phase levels (0 for absent phases)
-cover_phase_summary <- function(layer_path, sensor = NA_character_) {
+#' @param floor_pct the model's detection floor (% cover); NA to skip
+#' @return data.frame(sensor, phase, area_ha, pct_of_area, pct_lower, pct_upper,
+#'   n_cells) over the fixed phase levels, plus a "Beyond applicability" row and,
+#'   when `floor_pct` is given, a "Below detection floor" row (assessed hexagons
+#'   whose cover is under the floor; overlaps the phase rows). Percentages are of
+#'   the total hexagon area.
+cover_phase_summary <- function(layer_path, sensor = NA_character_, floor_pct = NA_real_) {
   g <- sf::st_read(layer_path, quiet = TRUE)
   a <- as.numeric(sf::st_area(g)) / 1e4
-  tot <- sum(a[!is.na(g$phase)])
-  do.call(rbind, lapply(PHASE_LABELS, function(p) {
-    idx <- !is.na(g$phase) & g$phase == p
-    data.frame(sensor = sensor, phase = p, area_ha = sum(a[idx]),
-               pct_of_area = if (tot > 0) 100 * sum(a[idx]) / tot else 0,
+  tot <- sum(a)
+  share <- function(idx) if (tot > 0) 100 * sum(a[idx]) / tot else 0
+  assessed <- !is.na(g$phase)
+  rows <- lapply(PHASE_LABELS, function(p) {
+    idx <- assessed & g$phase == p
+    data.frame(sensor = sensor, phase = p, area_ha = sum(a[idx]), pct_of_area = share(idx),
+               pct_lower = share(assessed & g$phase_lower == p),
+               pct_upper = share(assessed & g$phase_upper == p),
                n_cells = sum(idx), stringsAsFactors = FALSE)
-  }))
+  })
+  rows[[length(rows) + 1L]] <- data.frame(sensor = sensor, phase = "Beyond applicability",
+    area_ha = sum(a[!assessed]), pct_of_area = share(!assessed), pct_lower = share(!assessed),
+    pct_upper = share(!assessed), n_cells = sum(!assessed), stringsAsFactors = FALSE)
+  if (is.finite(floor_pct)) {
+    idx <- assessed & g$cover_aoa_pct < floor_pct
+    rows[[length(rows) + 1L]] <- data.frame(sensor = sensor, phase = "Below detection floor",
+      area_ha = sum(a[idx]), pct_of_area = share(idx),
+      pct_lower = share(assessed & g$lower_pct < floor_pct), pct_upper = share(assessed & g$upper_pct < floor_pct),
+      n_cells = sum(idx), stringsAsFactors = FALSE)
+  }
+  do.call(rbind, rows)
+}
+
+
+#' Mean hexagon cover by distance from roads and settlements (descriptive, R1 L278)
+#'
+#' Replaces the lost Figures S10-S11 with a pipeline product: mean predicted cover
+#' of the AOA-supported hexagons (`cover_phase_layer`) in distance bands from the
+#' nearest OSM road and the nearest village. Descriptive only - no inference -
+#' consistent with the authors' response to Reviewer 1.
+#'
+#' @param layer_path output of `cover_phase_layer()`
+#' @param roads_path,setts_path OSM vectors (.fgb)
+#' @param sensor label
+#' @param road_breaks,sett_breaks band edges in metres
+#' @return long data.frame(sensor, feature, band, n, mean_cover_pct, median_cover_pct)
+cover_gradient_table <- function(layer_path, roads_path, setts_path, sensor = NA_character_,
+                                 road_breaks = c(0, 250, 1000, 3000, Inf),
+                                 sett_breaks = c(0, 1000, 3000, 6000, Inf)) {
+  g <- sf::st_read(layer_path, quiet = TRUE)
+  g <- g[!is.na(g$phase), ]
+  cen <- sf::st_centroid(sf::st_geometry(g))
+  dist_to <- function(path) {
+    v <- sf::st_transform(sf::st_read(path, quiet = TRUE), sf::st_crs(g))
+    as.numeric(sf::st_distance(cen, sf::st_union(sf::st_geometry(v))))[seq_along(cen)]
+  }
+  lab <- function(br) {
+    lo <- br[-length(br)]; hi <- br[-1]
+    ifelse(is.infinite(hi), paste0(">", lo / 1000, " km"),
+           ifelse(hi < 1000, paste0(lo, "-", hi, " m"), paste0(lo / 1000, "-", hi / 1000, " km")))
+  }
+  one <- function(d, br, feature) {
+    band <- cut(d, br, labels = lab(br), right = FALSE, include.lowest = TRUE)
+    do.call(rbind, lapply(levels(band), function(b) {
+      i <- !is.na(band) & band == b
+      data.frame(sensor = sensor, feature = feature, band = b, n = sum(i),
+                 mean_cover_pct = if (any(i)) mean(g$cover_aoa_pct[i]) else NA_real_,
+                 median_cover_pct = if (any(i)) stats::median(g$cover_aoa_pct[i]) else NA_real_,
+                 stringsAsFactors = FALSE)
+    }))
+  }
+  rbind(one(dist_to(roads_path), road_breaks, "road"),
+        one(dist_to(setts_path), sett_breaks, "settlement"))
 }
 
 
@@ -371,23 +477,89 @@ cover_run_oof <- function(train_df, ids, folds, epsg = 32734) {
 }
 
 
+#' Per-cell honest (nested leave-site-out) conformal coverage
+#'
+#' The apparent coverage of split conformal - quantiles fit on the OOF residuals
+#' and evaluated on the same residuals - lands on the nominal level by
+#' construction (finding 2026-09-22: 0.900/0.901/0.908 at 90% for WV2/Planet/S2,
+#' exactly ceil((n+1)(1-a))/n). It is not evidence that the intervals transfer to
+#' an unseen site. This nests the calibration: for each site in turn the per-bin
+#' quantiles are fit on the OTHER sites' residuals (their own DI bins) and applied
+#' to the held-out site, so every cell's interval was calibrated without it. The
+#' point predictions are already leave-site-out (`cover_run_oof`), so the result
+#' is the coverage a new survey area would see.
+#'
+#' @param oof ensemble OOF `list(row_ids, response, truth)`
+#' @param di_cal DI of each OOF cell (own site excluded, from `cover_di()`)
+#' @param site site of each OOF cell (aligned to `oof$row_ids`)
+#' @param alpha miscoverage level
+#' @param n_bins conformal DI strata (must match the deployed product)
+#' @return list(covered = logical per cell, width = numeric per cell)
+cover_nested_coverage <- function(oof, di_cal, site, alpha, n_bins = 5L) {
+  resid <- oof$truth - oof$response
+  yhat <- pmin(pmax(oof$response, 0), 1)
+  covered <- logical(length(resid)); width <- numeric(length(resid))
+  for (k in unique(site)) {
+    cal <- site != k; te <- site == k
+    b <- di_conformal_bounds(resid[cal], di_cal[cal], di_cal[te], yhat[te], alpha,
+                             n_bins = n_bins, aoa_threshold = Inf)
+    covered[te] <- oof$truth[te] >= b$lower & oof$truth[te] <= b$upper
+    width[te] <- b$upper - b$lower
+  }
+  list(covered = covered, width = width)
+}
+
+
 #' DI-stratified conformal coverage of the ensemble OOF across alphas
 #'
-#' The earned-empirically honesty check (per plan 3.9), reported per nominal level.
+#' Reports BOTH the apparent coverage (quantiles fit and evaluated on the same
+#' residuals; equals the nominal rate by construction and is shown only as the
+#' reference) and the honest nested leave-site-out coverage of
+#' `cover_nested_coverage()`, within the deployed AOA threshold. The honest column
+#' is the number the paper reports.
 #'
 #' @param oof ensemble OOF
 #' @param di_obj `cover_di()` output
 #' @param alphas miscoverage levels
 #' @param sensor label
-#' @return data.frame(sensor, alpha, nominal, overall, n)
+#' @param threshold AOA DI threshold (cells beyond it carry no interval)
+#' @param train_df cover table (its `site` column, aligned to `oof$row_ids`)
+#' @return data.frame(sensor, alpha, nominal, apparent, honest, mean_width, n, n_inside)
 cover_coverage_table <- function(oof, di_obj, alphas, sensor = NA_character_,
-                                 threshold = di_obj$threshold) {
+                                 threshold = di_obj$threshold, train_df = NULL) {
   resid <- oof$truth - oof$response
+  inside <- di_obj$di_cal <= threshold
+  site <- if (is.null(train_df)) rep("all", length(resid)) else as.character(train_df$site[oof$row_ids])
   do.call(rbind, lapply(alphas, function(a) {
     b <- di_conformal_bounds(resid, di_obj$di_cal, di_obj$di_cal, oof$response, a, 5L, threshold)
-    cv <- di_coverage(oof$truth, b$lower, b$upper, b$bin)
+    app <- di_coverage(oof$truth, b$lower, b$upper, b$bin)$overall
+    hon <- if (length(unique(site)) > 1L) cover_nested_coverage(oof, di_obj$di_cal, site, a) else
+      list(covered = oof$truth >= b$lower & oof$truth <= b$upper, width = b$upper - b$lower)
     data.frame(sensor = sensor, alpha = a, nominal = 1 - a,
-               overall = cv$overall, n = length(oof$truth), stringsAsFactors = FALSE)
+               apparent = app, honest = mean(hon$covered[inside]),
+               mean_width = mean(hon$width[inside]),
+               n = length(oof$truth), n_inside = sum(inside), stringsAsFactors = FALSE)
+  }))
+}
+
+
+#' Honest coverage per survey area (the site table the paper reports)
+#'
+#' @inheritParams cover_coverage_table
+#' @return data.frame(sensor, site, alpha, n, n_inside, frac_inside, coverage, width)
+cover_site_coverage <- function(oof, di_obj, alphas, sensor = NA_character_,
+                                threshold = di_obj$threshold, train_df) {
+  site <- as.character(train_df$site[oof$row_ids])
+  inside <- di_obj$di_cal <= threshold
+  do.call(rbind, lapply(alphas, function(a) {
+    hon <- cover_nested_coverage(oof, di_obj$di_cal, site, a)
+    do.call(rbind, lapply(sort(unique(site)), function(k) {
+      i <- site == k; j <- i & inside
+      data.frame(sensor = sensor, site = k, alpha = a, n = sum(i), n_inside = sum(j),
+                 frac_inside = sum(j) / sum(i),
+                 coverage = if (any(j)) mean(hon$covered[j]) else NA_real_,
+                 width = if (any(j)) mean(hon$width[j]) else NA_real_, stringsAsFactors = FALSE)
+    }))
   }))
 }
 
@@ -400,45 +572,99 @@ cover_coverage_table <- function(oof, di_obj, alphas, sensor = NA_character_,
 #' hold thousands of dense training cells there (finding 2026-09-22 [HUGH]: ~15-39%
 #' of predicted cover, and ~48% of the >25%-cover training cells, fell BEYOND the
 #' fence, driving a large impact underestimate). Instead we tie the AOA directly to
-#' the guarantee we can keep: bin the honest OOF residuals by DI, and extend the AOA
-#' from the lowest DI bin up to the last contiguous bin whose empirical coverage
-#' still meets `coverage_floor`. Beyond that the intervals genuinely under-cover and
-#' the cell is excluded; within it the corridors are (rightly) included.
+#' the guarantee we can keep: bin the HONEST (nested leave-site-out) per-cell
+#' coverage by DI, and extend the AOA up to the last DI band whose coverage still
+#' meets `coverage_floor`. Beyond that the intervals genuinely under-cover and the
+#' cell is excluded; within it the corridors are (rightly) included.
+#'
+#' Revised 2026-09-22 after the statistical review: (i) the coverage used to be the
+#' APPARENT coverage, which sits on the nominal level in every band by construction
+#' and so never stopped the walk before the cap; (ii) the walk required contiguous
+#' passing bands from the lowest DI up, so one noisy low-DI band (honest coverage
+#' 0.842 vs a 0.85 floor for WV2) discarded the whole procedure. Honest coverage is
+#' flat at ~0.87-0.92 across the training bulk for every sensor and collapses only
+#' in the top band, which is dominated by the single dense site, so the rule is now
+#' "the last band whose honest coverage meets the floor", capped at `cap_quantile`
+#' of the training DI. The floor is a stated tolerance below nominal (0.85 at
+#' alpha = 0.10), not a guarantee.
 #'
 #' @param oof ensemble OOF list(row_ids, response, truth)
 #' @param di_obj output of `cover_di()` (its `di_cal`, and `threshold` as fallback)
+#' @param train_df cover table (its `site` column); NULL falls back to apparent
+#'   coverage (single-site smoke runs only)
 #' @param alpha miscoverage level the floor is judged at (default the middle 0.10)
-#' @param coverage_floor minimum empirical coverage to keep including a DI band
+#' @param coverage_floor minimum honest coverage to keep including a DI band
 #' @param curve_bins equal-count DI bands (within the cap) for the coverage curve
 #' @param conf_bins conformal DI bins (must match the deployed `cover_coverage_table`)
 #' @param cap_quantile do not extend the AOA past this quantile of training DI - the
 #'   heavy DI tail (a few spectrally extreme training cells) is genuine outlier
 #'   territory, and quantile bands there are too sparse to judge coverage reliably
-#' @return scalar DI threshold
-cover_aoa_threshold <- function(oof, di_obj, alpha = 0.10, coverage_floor = 0.85,
-                                curve_bins = 10L, conf_bins = 5L, cap_quantile = 0.99) {
+#' @return scalar DI threshold, with attributes "rule" ("coverage", "cap" or
+#'   "fence"), "last_good" (band index) and "curve" (band coverage table)
+cover_aoa_threshold <- function(oof, di_obj, train_df = NULL, alpha = 0.10,
+                                coverage_floor = 0.85, curve_bins = 10L, conf_bins = 5L,
+                                cap_quantile = 0.99) {
   di_cal <- di_obj$di_cal
-  yhat <- pmin(pmax(oof$response, 0), 1)
-  # per-cell coverage under the DEPLOYED conformal (same conf_bins as the product)
-  b <- di_conformal_bounds(oof$truth - oof$response, di_cal, di_cal, yhat, alpha,
-                           n_bins = conf_bins, aoa_threshold = Inf)
-  cov_ok <- oof$truth >= b$lower & oof$truth <= b$upper
-  # coverage vs DI within the training bulk (<= cap); extend to the last contiguous band
+  site <- if (is.null(train_df)) NULL else as.character(train_df$site[oof$row_ids])
+  cov_ok <- if (!is.null(site) && length(unique(site)) > 1L) {
+    cover_nested_coverage(oof, di_cal, site, alpha, n_bins = conf_bins)$covered
+  } else {
+    yhat <- pmin(pmax(oof$response, 0), 1)
+    b <- di_conformal_bounds(oof$truth - oof$response, di_cal, di_cal, yhat, alpha,
+                             n_bins = conf_bins, aoa_threshold = Inf)
+    oof$truth >= b$lower & oof$truth <= b$upper
+  }
   cap <- as.numeric(stats::quantile(di_cal, cap_quantile, na.rm = TRUE))
   sel <- di_cal <= cap; di_s <- di_cal[sel]; ok_s <- cov_ok[sel]
   edges <- unique(stats::quantile(di_s, seq(0, 1, length.out = curve_bins + 1L), na.rm = TRUE))
   edges[1] <- -Inf; nb <- length(edges) - 1L
   band <- findInterval(di_s, edges, rightmost.closed = TRUE)
-  covband <- tapply(ok_s, band, mean)
-  last_good <- 0L
-  for (bk in seq_len(nb)) {
-    ck <- covband[[as.character(bk)]]
-    if (!is.null(ck) && !is.na(ck) && ck >= coverage_floor) last_good <- bk else break
+  curve <- data.frame(band = seq_len(nb), di_hi = edges[-1],
+                      n = as.numeric(table(factor(band, seq_len(nb)))),
+                      coverage = as.numeric(tapply(ok_s, factor(band, seq_len(nb)), mean)))
+  good <- which(!is.na(curve$coverage) & curve$coverage >= coverage_floor)
+  if (!length(good)) {
+    thr <- as.numeric(di_obj$threshold); rule <- "fence"; last_good <- 0L
+  } else {
+    last_good <- max(good)
+    thr <- edges[last_good + 1L]
+    rule <- if (last_good == nb) "cap" else "coverage"
+    if (!is.finite(thr)) thr <- cap
+    thr <- as.numeric(min(thr, cap))
   }
-  if (last_good == 0L) return(as.numeric(di_obj$threshold))   # even the lowest band fails -> keep the fence
-  thr <- edges[last_good + 1L]
-  if (!is.finite(thr)) thr <- cap
-  as.numeric(min(thr, cap))
+  attr(thr, "rule") <- rule; attr(thr, "last_good") <- last_good; attr(thr, "curve") <- curve
+  thr
+}
+
+
+#' Held-out error of the cover ensemble per survey area
+#'
+#' Leave-site-out RMSE, bias, R^2 and mean cover per site plus a pooled row, and
+#' the model's detection floor: the mean OOF prediction over cells whose drone
+#' cover is below `floor_truth` (0.1%, the Table S8 incursion threshold). The floor
+#' is the predicted cover a Neltuma-free cell receives, and it bounds what the
+#' phase thresholds can resolve (finding 2026-09-22: 1.7 / 2.8 / 2.1% for
+#' WV2/Planet/S2, above the 1.5% expansion threshold for two sensors).
+#'
+#' @param oof ensemble OOF; @param train_df cover table; @param sensor label
+#' @param floor_truth truth cover below which a cell counts as Neltuma-free
+#' @return data.frame(sensor, site, n, mean_truth_pct, mean_pred_pct, rmse_pp,
+#'   bias_pp, r2, noise_floor_pct, n_floor)
+cover_error_table <- function(oof, train_df, sensor = NA_character_, floor_truth = 0.001) {
+  site <- as.character(train_df$site[oof$row_ids])
+  yhat <- pmin(pmax(oof$response, 0), 1); truth <- oof$truth
+  one <- function(i, label) {
+    z <- i & truth < floor_truth
+    data.frame(sensor = sensor, site = label, n = sum(i),
+               mean_truth_pct = 100 * mean(truth[i]), mean_pred_pct = 100 * mean(yhat[i]),
+               rmse_pp = 100 * sqrt(mean((yhat[i] - truth[i])^2)),
+               bias_pp = 100 * mean(yhat[i] - truth[i]),
+               r2 = if (sum(i) > 2) stats::cor(yhat[i], truth[i])^2 else NA_real_,
+               noise_floor_pct = if (any(z)) 100 * mean(yhat[z]) else NA_real_,
+               n_floor = sum(z), stringsAsFactors = FALSE)
+  }
+  rbind(one(rep(TRUE, length(truth)), "pooled"),
+        do.call(rbind, lapply(sort(unique(site)), function(k) one(site == k, k))))
 }
 
 
@@ -458,123 +684,108 @@ leave_site_out_folds <- function(train_df) {
 }
 
 
-#' Parallel scene prediction over mirai daemons, one tile per daemon (2026-09-20 [HUGH])
+#' Tiled, resumable scene prediction (threaded single-copy engine, or mirai daemons)
 #'
-#' terra::predict's own cluster, nested inside a crew mirai daemon, re-serialised
-#' the heavy models per block and stalled (~50% idle for hours). Instead: split
-#' the AOI cube into row-tiles (terra::makeTiles), start mirai daemons on a SEPARATE
-#' compute profile, load the predictor ONCE per daemon (`everywhere`, so the tile
-#' function references it as a daemon global - no per-tile re-serialisation), map
-#' tiles to daemons, each writing its OWN output tile (no concurrent-write
-#' contention), then mosaic. `mori` (shared memory across daemons) would avoid the
-#' N model copies but is not essential here (754 GB) - a future memory optimisation.
+#' History: terra::predict's own cluster, nested inside a crew daemon, re-serialised
+#' the heavy models per block and stalled (2026-09-20 [HUGH]); mirai daemons fixed
+#' that but copied the ~28 GB WV2 cover forest to every daemon and OOM-killed the
+#' box (2026-09-21); the single-copy THREADED engine keeps one model in-process and
+#' parallelises each tile across rows (ranger via the compiled traversal in
+#' R/forest.R, lightgbm/xgboost via their own thread pools). Generalised 2026-09-22
+#' (prediction-arm review): the engine now takes a `tile_fn` so the hard-class
+#' 5-learner average, the cover ensemble and the DI raster share one code path,
+#' one crop-to-AOI, one resumable atomic tiling and one write path.
 #'
-#' @param cube SpatRaster of predictor bands (already band-subset)
-#' @param aoi study-area vector to crop/mask to, or NULL
-#' @param out_path final INT2S x `scale` raster
-#' @param scale integer store scale
-#' @param setup object sent once to each daemon (models list, or cover_di output)
-#' @param kind "cover" (ensemble mean) or "di" (dissimilarity index)
-#' @param bands band names, in cube order
-#' @param n number of daemons
+#' Tiles are row strips of ~`tile_cells` cells (`makeTiles` is deterministic, so a
+#' restart maps to the same in_N/out_N files); tiling is skipped when the expected
+#' input tiles already exist; each output tile is written atomically (temp +
+#' rename) so a kill can never leave a truncated tile a later resume would trust.
+#'
+#' @param cube SpatRaster of predictor bands (already band-subset, names set)
+#' @param aoi study-area vector path to crop/mask to, or NULL
+#' @param out_path final raster path (see `writer`)
+#' @param tile_fn function(v) -> numeric matrix (nrow(v) x nlyr) of INTEGER-valued
+#'   outputs for the complete-case rows `v` (a matrix with band-name columns);
+#'   the caller applies its own scale (e.g. x 10000) inside `tile_fn`
+#' @param nlyr number of output layers `tile_fn` returns
+#' @param n number of daemons (daemon engine) / threads hint (threaded engine)
+#' @param tile_cells cells per tile
+#' @param engine "threaded" (one model copy in-process; default) or "daemon"
+#'   (`tile_fn` and its environment are sent to `n` mirai daemons on the
+#'   "coverpred" profile - only for small closures such as the DI KD-tree)
+#' @param writer function(vrt SpatRaster) writing the final product(s); default
+#'   writes a single INT2S mosaic to `out_path`
+#' @param packages packages the daemon engine attaches
 #' @return `out_path`
-raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, bands,
-                                     n = as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8")),
-                                     tile_cells = as.numeric(Sys.getenv("NELTUMA_TILE_CELLS", "2e6")),
-                                     engine = c("daemon", "threaded")) {
+raster_predict_parallel <- function(cube, aoi, out_path, tile_fn, nlyr = 1L,
+                                    n = as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8")),
+                                    tile_cells = as.numeric(Sys.getenv("NELTUMA_TILE_CELLS", "2e6")),
+                                    engine = c("threaded", "daemon"),
+                                    writer = NULL,
+                                    packages = c("terra", "FNN")) {
   engine <- match.arg(engine)
   if (!is.null(aoi)) { v <- terra::vect(aoi); cube <- terra::mask(terra::crop(cube, v), v) }
+  bands <- names(cube)
   tdir <- paste0(out_path, ".tiles")
-  dir.create(tdir, recursive = TRUE, showWarnings = FALSE)
-  # Tile to a fixed MEMORY-SAFE cell budget (NOT one giant tile per daemon):
-  # ranger's predict on ~17.5M-row tiles ballooned to ~50 GB/daemon and OOM'd the
-  # WV2 run (2026-09-20). ~2M-cell tiles keep each daemon's predict to a few GB;
-  # mirai_map streams the many tiles across the n daemons in rounds.
-  #
-  # RESUMABLE (2026-09-20): session teardowns keep killing long scene predicts, and
-  # re-tiling + re-predicting the whole scene each restart is wasteful. We do NOT
-  # wipe `tdir` at the start. makeTiles is deterministic (same cube extent + tile
-  # size -> same in_1.tif, in_2.tif, ...), so re-running it is safe even if a prior
-  # tiling was cut off mid-way (it overwrites the partial set and completes it), and
-  # each in_N.tif maps to a stable out_N.tif. We then predict ONLY the tiles whose
-  # output is missing, writing each output atomically (temp + rename) so a kill
-  # mid-write can never leave a truncated out-tile that a later resume would trust.
   nrpt <- max(1L, as.integer(ceiling(tile_cells / terra::ncol(cube))))
-  intiles <- terra::makeTiles(cube, c(nrpt, terra::ncol(cube)),
-                              file.path(tdir, "in_.tif"), na.rm = FALSE, overwrite = TRUE)
+  # Resume only against tiles of THIS geometry: a tile directory left by a run of a
+  # different cube (another profile's aggregation, a different band set or nlyr) is
+  # wiped, not reused (2026-09-22: a killed run's full-resolution tiles were mosaicked
+  # into an aggregated product).
+  key <- paste(paste(dim(cube), collapse = "x"), paste(signif(as.vector(terra::ext(cube)), 12), collapse = ","),
+               paste(signif(terra::res(cube), 12), collapse = ","), nlyr, nrpt, paste(bands, collapse = "|"))
+  keyfile <- file.path(tdir, "geometry.key")
+  if (dir.exists(tdir) && !(file.exists(keyfile) && identical(readLines(keyfile, warn = FALSE), key))) {
+    unlink(tdir, recursive = TRUE)
+  }
+  dir.create(tdir, recursive = TRUE, showWarnings = FALSE)
+  writeLines(key, keyfile)
+  n_tiles <- as.integer(ceiling(terra::nrow(cube) / nrpt))
+  expected <- file.path(tdir, sprintf("in_%d.tif", seq_len(n_tiles)))
+  intiles <- if (all(file.exists(expected))) expected else
+    terra::makeTiles(cube, c(nrpt, terra::ncol(cube)), file.path(tdir, "in_.tif"),
+                     na.rm = FALSE, overwrite = TRUE)
   outtiles <- sub("in_", "out_", intiles, fixed = TRUE)
   todo <- intiles[!file.exists(outtiles)]                     # resume: skip completed tiles
 
+  one_tile <- function(tp, fn, bands, nlyr) {
+    r <- terra::rast(tp); names(r) <- bands                   # makeTiles may drop names
+    v <- terra::values(r, mat = TRUE)
+    out <- matrix(NA_real_, nrow = nrow(v), ncol = nlyr)
+    ok <- stats::complete.cases(v)
+    if (any(ok)) out[ok, ] <- fn(v[ok, , drop = FALSE])
+    o <- terra::rast(r, nlyrs = nlyr)
+    terra::values(o) <- as.integer(round(out))
+    op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
+    terra::writeRaster(o, tmp, filetype = "GTiff", overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                       gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
+    file.rename(tmp, op)                                      # atomic publish
+    op
+  }
+
   if (length(todo) && identical(engine, "threaded")) {
-    # SINGLE-COPY, THREADED engine (2026-09-21): the daemon engine copies `setup`
-    # to every daemon, which is fatal for a big model - the WV2 cover ensemble's
-    # ranger model is ~28 GB, so 10 daemons held ~290 GB + a ~219 GB dispatcher
-    # serialisation buffer and the OOM killer fired (3x). mori can't help (mlr3
-    # learners are R6 environments, which share() returns unchanged, and ranger's
-    # C++ predict copies the forest per call anyway). Here we keep ONE model copy
-    # in-process and let the learners' own num.threads parallelise each predict
-    # across rows - parallelism on the row axis, not by duplicating the model.
-    # Peak memory is bounded to ~one model + one tile. Tiling/resume/atomic-write
-    # are shared with the daemon path, so a teardown still resumes from out-tiles.
-    for (tp in todo) {
-      r <- terra::rast(tp); names(r) <- bands
-      v <- terra::values(r, mat = TRUE)
-      out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
-      if (any(ok)) {
-        if (identical(kind, "cover")) {
-          dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
-          for (m in setup) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
-          out[ok] <- acc / length(setup)
-        } else {
-          out[ok] <- setup$di_of(v[ok, , drop = FALSE])
-        }
-      }
-      o <- terra::rast(r, nlyrs = 1L)
-      terra::values(o) <- as.integer(round(out * scale))
-      op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
-      terra::writeRaster(o, tmp, filetype = "GTiff", overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
-                         gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
-      file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
-    }
+    for (tp in todo) one_tile(tp, tile_fn, bands, nlyr)
   } else if (length(todo)) {
     mirai::daemons(n, .compute = "coverpred")
     on.exit(mirai::daemons(0, .compute = "coverpred"), add = TRUE)
     mirai::everywhere({
-      suppressMessages({library(terra); library(mlr3); library(mlr3learners)
-        library(mlr3extralearners); library(FNN)})
-      # assign to the daemon global env so the mirai_map function resolves them
-      assign("PRED", setup, envir = globalenv()); assign("KIND", kind, envir = globalenv())
-      assign("BANDS", bands, envir = globalenv()); assign("SCALE", scale, envir = globalenv())
-    }, setup = setup, kind = kind, bands = bands, scale = scale, .compute = "coverpred")
-
-    res <- mirai::mirai_map(todo, function(tp) {
-      r <- terra::rast(tp); names(r) <- BANDS    # makeTiles may drop names; restore band order
-      v <- terra::values(r, mat = TRUE)
-      out <- rep(NA_real_, nrow(v)); ok <- stats::complete.cases(v)
-      if (any(ok)) {
-        if (identical(KIND, "cover")) {
-          dat <- as.data.frame(v[ok, , drop = FALSE]); acc <- numeric(sum(ok))
-          for (m in PRED) acc <- acc + pmin(pmax(m$predict_newdata(dat)$response, 0), 1)
-          out[ok] <- acc / length(PRED)
-        } else {
-          out[ok] <- PRED$di_of(v[ok, , drop = FALSE])
-        }
-      }
-      o <- terra::rast(r, nlyrs = 1L)
-      terra::values(o) <- as.integer(round(out * SCALE))
-      op <- sub("in_", "out_", tp, fixed = TRUE); tmp <- paste0(op, ".part")
-      terra::writeRaster(o, tmp, filetype = "GTiff", overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
-                         gdal = c("COMPRESS=DEFLATE", "TILED=YES"))
-      file.rename(tmp, op)                        # atomic publish: no truncated out-tile on kill
-      op
-    }, .compute = "coverpred")
+      for (p in PKGS) suppressMessages(library(p, character.only = TRUE))
+      assign("TILE_FN", tile_fn, envir = globalenv()); assign("BANDS", bands, envir = globalenv())
+      assign("NLYR", nlyr, envir = globalenv()); assign("ONE_TILE", one_tile, envir = globalenv())
+    }, tile_fn = tile_fn, bands = bands, nlyr = nlyr, one_tile = one_tile, PKGS = packages,
+    .compute = "coverpred")
+    res <- mirai::mirai_map(todo, function(tp) ONE_TILE(tp, TILE_FN, BANDS, NLYR), .compute = "coverpred")
     invisible(res[])                                          # blocks until all tiles done
   }
 
   dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
-  terra::writeRaster(terra::vrt(outtiles), out_path, overwrite = TRUE,
-                     datatype = "INT2S", NAflag = -1L,
-                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  vrt <- terra::vrt(outtiles)
+  if (is.null(writer)) {
+    terra::writeRaster(vrt, out_path, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                       gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"))
+  } else {
+    writer(vrt)
+  }
   unlink(tdir, recursive = TRUE)
   out_path
 }
@@ -582,13 +793,19 @@ raster_predict_parallel <- function(cube, aoi, out_path, scale, setup, kind, ban
 
 #' Scene dissimilarity-index raster (parallel over mirai daemons)
 #'
+#' DI is stored as INT2S x 1000: values above 32.767 would overflow to NA and read
+#' as "no data" rather than "beyond the AOA" (review 2026-09-22; current maxima are
+#' 14-21), so the DI is clamped at 32.767 before the write.
+#'
 #' @param cube_path satellite cube; @param bands predictor bands
 #' @param di_obj output of `cover_di()`; @param out_path output; @param aoi crop/mask
 #' @return `out_path`
-predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
+predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL, aggregate = 1L) {
   cube <- terra::rast(cube_path)[[bands]]
-  raster_predict_parallel(cube, aoi, out_path, scale = 1000, setup = di_obj,
-                          kind = "di", bands = bands)
+  if (aggregate > 1L) cube <- terra::aggregate(cube, fact = aggregate, fun = "mean", na.rm = FALSE)
+  di_of <- di_obj$di_of
+  tile_fn <- function(v) matrix(pmin(round(di_of(v) * 1000), 32767), ncol = 1L)
+  raster_predict_parallel(cube, aoi, out_path, tile_fn, nlyr = 1L, engine = "daemon")
   ok <- system2("gdal_edit.py", c("-scale", "0.001", "-offset", "0", shQuote(out_path)),
                 stdout = FALSE, stderr = FALSE)
   if (!identical(ok, 0L)) warning("gdal_edit.py did not tag the DI scale on ", out_path, call. = FALSE)
@@ -629,7 +846,7 @@ predict_di_raster <- function(cube_path, bands, di_obj, out_path, aoi = NULL) {
 #' @param oof ensemble OOF `list(row_ids, response, truth)` on the drone cells
 #' @param train_df cover table (its `site` column, aligned to `oof$row_ids`)
 #' @param aoi study-area vector path
-#' @param px_ha ha per pixel
+#' @param px_ha ignored (kept for the call signature); the pixel area is read from the raster
 #' @param sensor label
 #' @param alpha CI level
 #' @param strata_edges interior predicted-cover breakpoints for the local rectifier
@@ -642,6 +859,7 @@ cover_scene_area <- function(cover_path, di_path, threshold, oof, train_df, aoi,
   v <- terra::vect(aoi)
   cover <- terra::mask(terra::rast(cover_path), v)
   di <- terra::mask(terra::rast(di_path), v)
+  px_ha <- prod(terra::res(cover)) / 1e4          # from the raster (aggregated in the fast profile)
   cv <- terra::values(cover)[, 1]; dv <- terra::values(di)[, 1]
   inside <- !is.na(dv) & dv <= threshold                   # AOA (DI-supported) cells
   ok <- inside & !is.na(cv)
@@ -676,16 +894,24 @@ cover_scene_area <- function(cover_path, di_path, threshold, oof, train_df, aoi,
   area_b <- vapply(seq_len(B), function(b) {
     pick <- sample.int(n_sites, n_sites, replace = TRUE)
     num <- colSums(ssum[pick, , drop = FALSE]); den <- colSums(scnt[pick, , drop = FALSE])
-    bkb <- ifelse(den >= min_stratum_n, num / den, delta)
+    delta_b <- sum(num) / sum(den)                     # global fallback from THIS draw
+    bkb <- ifelse(den >= min_stratum_n, num / den, delta_b)
     sum(pmax(smv - bkb * cntv, 0)) * px_ha
   }, numeric(1))
   ci <- stats::quantile(area_b, c(alpha / 2, 1 - alpha / 2), names = FALSE)
 
+  # Sensitivity flagged by the 2026-09-22 statistical review: the dense-stratum
+  # biases are measured with the one dense site held out, so the correction's
+  # sign rests on that site. Report how much of the bootstrap falls below the
+  # UNCORRECTED within-AOA sum, and the threshold's provenance.
+  rule <- attr(threshold, "rule"); if (is.null(rule)) rule <- NA_character_
   data.frame(sensor = sensor, scene_ha = scene_cells * px_ha, aoa_ha = tot_in,
              aoa_frac = inside_cells / scene_cells, naive_ha = naive_ha,
              cover_aoa_ha = aoa_ha, ppi_ha = ppi_ha,
              ppi_lo_ha = ci[1], ppi_hi_ha = ci[2],
+             p_below_aoa_sum = mean(area_b < aoa_ha),
              bias_pp = 100 * delta, site_bias_sd_pp = 100 * stats::sd(tapply(d, site, mean)),
+             threshold = as.numeric(threshold), threshold_rule = rule,
              n_sites = n_sites, n_overlap = length(d), stringsAsFactors = FALSE)
 }
 
@@ -797,8 +1023,9 @@ drone_calibrator <- function(sv_list, neltuma_code, method = "platt") {
 #' Fit the cover ensemble on full data and predict the scene cover surface
 #'
 #' The regression analogue of `predict_unit_average()`: fit each regr twin on the
-#' full cover table, predict the satellite cube, average the per-learner responses
-#' (equal weight, clamped to [0, 1]) and write the cover raster.
+#' full cover table, predict the satellite cube tile by tile (threaded single-copy
+#' engine; ranger through the compiled traversal), average the per-learner
+#' responses (equal weight, clamped to [0, 1]) and write the cover raster.
 #'
 #' @param train_df cover table from `cover_training_table()`
 #' @param cube_path satellite predictor cube
@@ -806,35 +1033,48 @@ drone_calibrator <- function(sv_list, neltuma_code, method = "platt") {
 #' @param learner_ids regr twin ids
 #' @param out_path output cover raster path
 #' @param epsg CRS code for the task
+#' @param aoi study-area vector path (predict the study area only)
 #' @return `out_path`
 predict_cover_scene <- function(train_df, cube_path, bands, learner_ids, out_path,
-                                epsg = 32734, aoi = NULL) {
+                                epsg = 32734, aoi = NULL, aggregate = 1L) {
   data.table::setDTthreads(1L)
   models <- fit_cover_models(train_df, bands, learner_ids)
-  # SINGLE-COPY threaded predict (see raster_predict_parallel): keep the models
-  # multi-threaded so ranger/lightgbm parallelise each tile's predict across rows
-  # with ONE resident model copy, instead of the daemon engine duplicating the
-  # ~28 GB model per worker (which OOM'd the box). num.threads was set at fit; make
-  # sure it is the predict-core budget for the single in-process predictor.
   nthr <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  for (m in models) {
-    ids <- m$param_set$ids()
-    if ("num.threads" %in% ids) m$param_set$set_values(num.threads = nthr)
-    if ("num_threads" %in% ids) m$param_set$set_values(num_threads = nthr)
-  }
-
+  set_predict_threads(models, nthr)
+  preds <- lapply(models, fast_predictor, nthreads = nthr)
   cube <- terra::rast(cube_path)
   if (!all(bands %in% names(cube))) {
     stop("Cube lacks band(s): ", paste(setdiff(bands, names(cube)), collapse = ", "),
          call. = FALSE)
   }
-  # Predict over the study-area AOI only (matches the DI raster extent, ~6x less
-  # than the full S2 tile), in parallel over mirai daemons with the models resident.
-  raster_predict_parallel(cube[[bands]], aoi, out_path, scale = PROB_SCALE,
-                          setup = models, kind = "cover", bands = bands,
-                          engine = "threaded")
+  tile_fn <- function(v) {
+    dat <- as.data.frame(v); acc <- numeric(nrow(v))
+    for (f in preds) acc <- acc + pmin(pmax(f(dat), 0), 1)
+    matrix(round(acc / length(preds) * PROB_SCALE), ncol = 1L)
+  }
+  cube <- cube[[bands]]
+  # fast profile: predict on an aggregated cube, as the hard-class arm does
+  if (aggregate > 1L) cube <- terra::aggregate(cube, fact = aggregate, fun = "mean", na.rm = FALSE)
+  raster_predict_parallel(cube, aoi, out_path, tile_fn, nlyr = 1L, engine = "threaded")
   tag_prob_scale(out_path)
   out_path
+}
+
+
+#' Set the per-model predict thread count where the learner exposes one
+#'
+#' ranger is predicted through the compiled traversal (threads passed directly);
+#' lightgbm (`num_threads`) and xgboost (`nthread`) use their own pools; svm and
+#' glmnet are single-threaded (9% / 5% of prediction CPU, measured).
+#' @param models list of trained mlr3 learners (modified in place)
+#' @param nthr threads
+set_predict_threads <- function(models, nthr) {
+  for (m in models) {
+    ids <- m$param_set$ids()
+    if ("num_threads" %in% ids) m$param_set$set_values(num_threads = nthr)
+    if ("nthread" %in% ids) m$param_set$set_values(nthread = nthr)
+  }
+  invisible(models)
 }
 
 

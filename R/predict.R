@@ -1,8 +1,9 @@
 #' Landscape prediction
 #'
-#' One classified surface per site: the winning learner for the configured
-#' stack (best_models), retrained on all of that site's training data with its
-#' tuned configuration, then predicted over the full cube.
+#' One classified surface per unit: the equal-weight average of the tuned
+#' learners' class probabilities (D16), each refitted on all of the unit's
+#' training data with its tuned configuration, predicted over the cube through
+#' the tiled single-copy engine in R/cover.R.
 #'
 #' Two constraints inherited from the data, both enforced here:
 #'   - The VI bands carry data OUTSIDE the AOI mask, where the reflectance and
@@ -14,98 +15,6 @@
 #' Outputs per site: <site>__<tag>_class.tif (integer Type codes) and
 #' <site>__<tag>_prob.tif (one layer per class, named by code). Probabilities
 #' are the foundation for the conformal treatment deferred to the next refactor.
-
-#' Predict one site's landscape surface
-#'
-#' @param cube_path VRT of the configured stack
-#' @param aoi_path site AOI shapefile (first element of the tracked file set)
-#' @param training the site's training table for this stack
-#' @param best one row of best_models for this site and stack
-#' @param resampling the resolved config (for the winner's spec and settings)
-#' @param tuned_configs named list: learner id -> tuned config for this task
-#' @param site,tag ids
-#' @param aggregate integer >= 1; >1 predicts on an aggregated cube (fast profile)
-#' @param out_dir output directory
-#' @return character vector of written paths
-predict_site <- function(cube_path, aoi_path, training, spec, shared, config,
-                         site, tag, aggregate = 1L,
-                         out_dir = "data-out/predict") {
-  data.table::setDTthreads(1L)
-  # The caller passes the WINNER's spec and configuration only (refactor-3.0
-  # 4.1): a change to any other learner's tuning cannot invalidate this
-  # surface. 7.37 records seven re-predictions from one svm change.
-  learner <- bare_learner(spec, shared)
-  if (!is.null(config)) {
-    keep <- config[names(config) %in% learner$param_set$ids()]
-    learner$param_set$set_values(.values = keep)
-  }
-
-  # A plain TaskClassif, not TaskClassifST: the spatial wrapper exists for
-  # resampling, which does not happen here, and it demands coordinate columns
-  # in every predict_newdata() call - which raster pixels do not have.
-  feats <- setdiff(names(training), c("Type", "site", "tag", "x", "y"))
-  task <- mlr3::as_task_classif(training[, c("Type", feats)], target = "Type",
-                                id = paste0(site, "__", tag, "__final"))
-  set.seed(shared$seed)
-  learner$train(task)
-
-  cube <- terra::rast(cube_path)
-  if (aggregate > 1L) {
-    cube <- terra::aggregate(cube, fact = aggregate, fun = "mean", na.rm = FALSE)
-  }
-  if (!all(feats %in% names(cube))) {
-    stop("Cube ", basename(cube_path), " lacks feature band(s): ",
-         paste(setdiff(feats, names(cube)), collapse = ", "), call. = FALSE)
-  }
-  cube <- cube[[feats]]
-
-  lvls <- task$class_names
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-  # Row-wise prediction wrapper for terra::predict. Incomplete rows (VI data
-  # outside the reflectance footprint, 7.20) come back as NA, never predicted.
-  wrap <- function(model, dat, ...) {
-    out <- matrix(NA_real_, nrow = nrow(dat), ncol = 1L + length(lvls))
-    ok <- stats::complete.cases(dat)
-    if (any(ok)) {
-      pr <- model$predict_newdata(dat[ok, , drop = FALSE])
-      out[ok, 1L] <- as.integer(as.character(pr$response))
-      out[ok, -1L] <- pr$prob[, lvls, drop = FALSE]
-    }
-    out
-  }
-
-  # Prediction is the "few heavy targets" case: one 75-224M pixel surface per
-  # site on an otherwise idle machine, so per-target parallelism pays here where
-  # it did not for the fits (7.24). terra tiles the raster across forked
-  # workers; svm predict cost is O(support vectors x pixels) and struizendam_2
-  # took ~2h single-threaded.
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  pred <- terra::predict(cube, learner, fun = wrap, na.rm = FALSE,
-                         cores = if (aggregate > 1L) 1L else n_cores)
-  names(pred) <- c("class", paste0("prob_", lvls))
-
-  aoi <- terra::vect(aoi_path)
-  pred <- terra::mask(pred, aoi)
-
-  suffix <- if (aggregate > 1L) paste0("_agg", aggregate) else ""
-  class_path <- file.path(out_dir, paste0(site, "__", tag, suffix, "_class.tif"))
-  prob_path  <- file.path(out_dir, paste0(site, "__", tag, suffix, "_prob.tif"))
-
-  terra::writeRaster(pred[["class"]], class_path, overwrite = TRUE,
-                     datatype = "INT1U", gdal = c("COMPRESS=LZW", "TILED=YES"),
-                     NAflag = 255)
-  # Probabilities as scaled 16-bit integers (x PROB_SCALE): a quarter of the
-  # Float32 footprint (v2.0 held 16 GB of these), no precision anyone can use
-  # is lost, and DEFLATE with PREDICTOR=2 compresses integers far better.
-  terra::writeRaster(terra::round(pred[[-1L]] * PROB_SCALE), prob_path,
-                     overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
-                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
-                              "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
-  tag_prob_scale(prob_path)
-  c(class_path, prob_path)
-}
-
 
 #' Probability rasters are stored as Int16 x PROB_SCALE, with a GDAL Scale tag
 #' (1/PROB_SCALE) written into every band by `tag_prob_scale()`. terra and any
@@ -165,46 +74,6 @@ summarise_prediction <- function(paths, site, tag) {
 }
 
 
-#' Modal-smooth a predicted class surface
-#'
-#' The explicit version of what the original did implicitly: a w x w modal
-#' focal filter over the hard classification (legacy Majority_filter.R used
-#' w = 25 for drone surfaces). The manuscript describes a sieve filter that was
-
-
-#' Class areas for any class raster
-#'
-#' @param class_tif path to a class raster
-#' @param site,tag ids
-#' @param surface label distinguishing raw from smoothed rows
-#' @return data.frame, one row per class present
-class_area_table <- function(class_tif, site, tag, surface) {
-  cl <- terra::rast(class_tif)
-  px_ha <- prod(terra::res(cl)) / 1e4
-  f <- terra::freq(cl)
-  data.frame(site = site, tag = tag, surface = surface,
-             Type = as.integer(f$value), n_pixels = f$count,
-             area_ha = round(f$count * px_ha, 3),
-             stringsAsFactors = FALSE)
-}
-
-
-#' Raw vs smoothed area accounting
-#'
-#' The number that decides whether the smoothing debate matters: how much does
-compare_areas <- function(raw, smoothed) {
-  m <- merge(raw[, c("site", "Type", "area_ha")],
-             smoothed[, c("site", "Type", "area_ha")],
-             by = c("site", "Type"), all = TRUE, suffixes = c("_raw", "_smooth"))
-  m$area_ha_raw[is.na(m$area_ha_raw)] <- 0
-  m$area_ha_smooth[is.na(m$area_ha_smooth)] <- 0
-  m$delta_ha <- round(m$area_ha_smooth - m$area_ha_raw, 3)
-  m$delta_pct <- ifelse(m$area_ha_raw > 0,
-                        round(100 * m$delta_ha / m$area_ha_raw, 1), NA)
-  m[order(m$site, m$Type), ]
-}
-
-
 #' Landscape prediction as an equal-weight average over the tuned learners
 #'
 #' Decision D16 (2026-09-17 [HUGH]; rationale in docs/refactor-3.0-plan.md
@@ -235,7 +104,7 @@ compare_areas <- function(raw, smoothed) {
 #' @return c(class_path, prob_path, learners_path)
 predict_unit_average <- function(cube_path, aoi_path, training, specs, shared, configs,
                                  site, tag, aggregate = 1L,
-                                 out_dir = "data-out/predict") {
+                                 out_dir = out_path("predict")) {
   data.table::setDTthreads(1L)
   stopifnot(length(specs) >= 1L, identical(sort(names(specs)), sort(names(configs))))
 
@@ -265,29 +134,31 @@ predict_unit_average <- function(cube_path, aoi_path, training, specs, shared, c
   }
   cube <- cube[[feats]]
 
-  n_l <- length(models); n_c <- length(lvls)
-  wrap <- function(model, dat, ...) {
-    out <- matrix(NA_real_, nrow = nrow(dat), ncol = 1L + n_c + n_l)
-    ok <- stats::complete.cases(dat)
-    if (any(ok)) {
-      acc <- matrix(0, nrow = sum(ok), ncol = n_c)
-      for (i in seq_len(n_l)) {
-        pr <- model[[i]]$predict_newdata(dat[ok, , drop = FALSE])$prob[, lvls, drop = FALSE]
-        acc <- acc + pr
-        out[ok, 1L + n_c + i] <- as.integer(lvls[max.col(pr, ties.method = "first")])
-      }
-      acc <- acc / n_l
-      out[ok, 1L] <- as.integer(lvls[max.col(acc, ties.method = "first")])
-      out[ok, 1L + seq_len(n_c)] <- acc
+  # Tiled single-copy engine (R/cover.R), replacing terra::predict(cores = 8):
+  # that path built a PSOCK cluster with five model copies per worker, no
+  # resumability over a 4-8 h target, and ranger's per-call forest marshalling;
+  # here one model copy predicts each row strip with ranger through the compiled
+  # traversal (R/forest.R) and lightgbm/xgboost on their own thread pools, the
+  # cube is cropped to the AOI first (S2 6x, Planet 1.4x fewer pixels) and
+  # completed tiles survive a kill. Measured 2026-09-22.
+  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
+  set_predict_threads(models, n_cores)
+  preds <- lapply(models, fast_predictor, lvls = lvls, nthreads = n_cores)
+  n_l <- length(models); n_c <- length(lvls); code <- as.integer(lvls)
+  tile_fn <- function(v) {
+    dat <- as.data.frame(v)
+    acc <- matrix(0, nrow = nrow(v), ncol = n_c)
+    out <- matrix(NA_real_, nrow = nrow(v), ncol = 1L + n_c + n_l)
+    for (i in seq_len(n_l)) {
+      pr <- preds[[i]](dat)
+      acc <- acc + pr
+      out[, 1L + n_c + i] <- code[max.col(pr, ties.method = "first")]
     }
+    acc <- acc / n_l
+    out[, 1L] <- code[max.col(acc, ties.method = "first")]
+    out[, 1L + seq_len(n_c)] <- round(acc * PROB_SCALE)
     out
   }
-
-  n_cores <- as.integer(Sys.getenv("NELTUMA_PREDICT_CORES", "8"))
-  pred <- terra::predict(cube, models, fun = wrap, na.rm = FALSE,
-                         cores = if (aggregate > 1L) 1L else n_cores)
-  names(pred) <- c("class", paste0("prob_", lvls), paste0("class_", names(models)))
-  pred <- terra::mask(pred, terra::vect(aoi_path))
 
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   suffix <- if (aggregate > 1L) paste0("_agg", aggregate) else ""
@@ -296,15 +167,19 @@ predict_unit_average <- function(cube_path, aoi_path, training, specs, shared, c
   prob_path     <- paste0(stem, "_prob.tif")
   learners_path <- paste0(stem, "_learners.tif")
   int_opts <- c("COMPRESS=LZW", "TILED=YES")
-  terra::writeRaster(pred[["class"]], class_path, overwrite = TRUE, datatype = "INT1U",
-                     gdal = int_opts, NAflag = 255)
-  terra::writeRaster(terra::round(pred[[1L + seq_len(n_c)]] * PROB_SCALE), prob_path,
-                     overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
-                     gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
-                              "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
+  writer <- function(vrt) {
+    cl <- vrt[[1L]]; names(cl) <- "class"
+    terra::writeRaster(cl, class_path, overwrite = TRUE, datatype = "INT1U", gdal = int_opts, NAflag = 255)
+    pr <- vrt[[1L + seq_len(n_c)]]; names(pr) <- paste0("prob_", lvls)
+    terra::writeRaster(pr, prob_path, overwrite = TRUE, datatype = "INT2S", NAflag = -1L,
+                       gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES",
+                                "BLOCKXSIZE=512", "BLOCKYSIZE=512"))
+    lr <- vrt[[1L + n_c + seq_len(n_l)]]; names(lr) <- paste0("class_", names(models))
+    terra::writeRaster(lr, learners_path, overwrite = TRUE, datatype = "INT1U", gdal = int_opts, NAflag = 255)
+  }
+  raster_predict_parallel(cube, aoi_path, class_path, tile_fn, nlyr = 1L + n_c + n_l,
+                          engine = "threaded", writer = writer)
   tag_prob_scale(prob_path)
-  terra::writeRaster(pred[[1L + n_c + seq_len(n_l)]], learners_path, overwrite = TRUE,
-                     datatype = "INT1U", gdal = int_opts, NAflag = 255)
   c(class_path, prob_path, learners_path)
 }
 

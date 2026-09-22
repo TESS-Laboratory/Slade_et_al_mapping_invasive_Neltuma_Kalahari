@@ -4,6 +4,18 @@
 the analysis, the manuscript, what changed from the original study, the decisions
 behind those changes, how to reproduce everything, and what remains open.*
 
+
+> **Superseded in part on 2026-09-22 by the review pass recorded in
+> `docs/review-3.0.md`.** Read that first. In short: the manuscript is now a clean
+> rewrite (`paper/manuscript.qmd` + `paper/supplement.qmd`; change log in
+> `paper/changes-from-submitted.md`); the cover intervals' coverage and the AOA
+> threshold are now *nested leave-site-out* (the numbers in §2 below were apparent
+> coverage; honest pooled coverage is ~88–90% at 90%, per-site 52–99%); PlanetScope's
+> AOA will shrink on the rerun; the full store was contaminated by a fast-profile
+> run on 21 Sep and `_targets.R` now refuses that; the prediction arms run on a
+> compiled forest traversal and one resumable tile engine. §6 (reproduce) still
+> holds, with the fast profile now on two sites.
+
 ---
 
 ## 1. What this is

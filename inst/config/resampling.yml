@@ -149,7 +149,9 @@ profile:
     tuning_folds: 3
     final_folds: 3
     final_repeats: 1
-    sites: [bokspits_1]
+    # Two sites, not one: the cover arm's leave-one-site-out folds, its nested
+    # coverage check and the site bootstrap all need >= 2 sites (2026-09-22).
+    sites: [bokspits_1, struizendam_3]
   full:
     term_evals: 50
     tuning_folds: 5

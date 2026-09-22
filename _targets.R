@@ -70,6 +70,16 @@ tar_source()
 # BUILD-TIME CONSTANTS. Static branching needs the grids when the graph is
 # constructed; the profile comes from NELTUMA_PROFILE.
 PROFILE     <- active_profile()
+# A fast-profile run against the full store rewrites resampling/eval settings and
+# one site's fits with smoke-test values, silently contaminating every downstream
+# result (it happened on 2026-09-21: NELTUMA_PROFILE was unset, so the default
+# 'fast' ran into _targets). Refuse the combination outright.
+STORE_NAME  <- basename(Sys.getenv("NELTUMA_STORE", targets::tar_config_get("store")))
+if (PROFILE == "fast" && STORE_NAME == "_targets") {
+  stop("NELTUMA_PROFILE=fast must not run against the full store '_targets'.\n",
+       "  Use: NELTUMA_PROFILE=fast NELTUMA_STORE=_targets_fast R -e 'targets::tar_make(store = \"_targets_fast\")'\n",
+       "  or set NELTUMA_PROFILE=full for the real run.", call. = FALSE)
+}
 SITES       <- site_ids(PROFILE)
 TAGS        <- read_stacks()$tag
 LEARNER_IDS <- vapply(read_resampling()$learners, function(x) x$id, character(1))
@@ -147,7 +157,7 @@ field_layers <- lapply(seq_len(nrow(fld)), function(i) {
                               rlang::call2("list", !!!rlang::syms(paste0("field_paths_", SITES))), SITES),
                  fld$buffer_m[i],
                  rlang::call2("[[", rlang::call2("[[", quote(sensors_cfg), s), "classes"),
-                 file.path("data-out", s, "train_field.fgb")),
+                 out_path(s, "train_field.fgb")),
     format = "file")
 })
 
@@ -181,7 +191,7 @@ purity_layers <- lapply(seq_len(nrow(pur)), function(i) {
     rlang::call2("build_purity_layer", rlang::sym(paste0("ext_all_", s, "_", sf)),
                  pur$purity[i],
                  rlang::call2("[[", rlang::call2("[[", quote(sensors_cfg), s), "classes"),
-                 file.path("data-out", s, paste0("train_purity_", sf, ".fgb"))),
+                 out_path(s, paste0("train_purity_", sf, ".fgb"))),
     format = "file")
 })
 
@@ -283,19 +293,20 @@ preds <- tar_map(
                site = pred_id, tag = tag, aggregate = PRED_AGG),
              format = "file", resources = predict_resources),
   tar_target(pred_summary, summarise_prediction(pred, pred_id, tag)),
-  tar_target(pred_learner_areas, learner_area_table(pred, pred_id, tag)),
-  # Conformal uncertainty surfaces + Neltuma area bounds (Phase C, R1 L253/L272).
-  # The unit's calibration is its MAPPED task (site_label at PRED/native tag).
-  # [[ ]] not $: tar_map substitutes value symbols even inside `$` accessors,
-  # so conformal_cal$tag would become conformal_cal$"<tag>" -> NULL (the
-  # documented stacks$tag trap).
-  tar_target(pred_conf_cal, conformal_cal[conformal_cal[["site"]] == site_label &
-                                          conformal_cal[["tag"]] == tag, , drop = FALSE]),
-  tar_target(pred_conformal,
-             conformal_surface(pred, pred_conf_cal, CONF_ALPHA_MAP, neltuma_code, pred_id, tag),
-             format = "file", resources = predict_resources),
-  tar_target(pred_conf_bounds,
-             conformal_area_bounds(pred, pred_conf_cal, CONF_ALPHAS, neltuma_code, pred_id, tag))
+  tar_target(pred_learner_areas, learner_area_table(pred, pred_id, tag))
+)
+# Conformal set-size surface for the WV2 scene only (Figure S13). The per-unit
+# surfaces and the hard-class Neltuma area bounds were pruned 2026-09-22: at 90%
+# coverage Neltuma is in every WV2 pixel's set, so the bounds were vacuous
+# (lower 0, upper = the study area) and nothing in the paper read them.
+# [[ ]] not $: tar_map substitutes value symbols even inside `$` accessors.
+wv2_conformal <- list(
+  tar_target(pred_conf_cal_wv2, conformal_cal[conformal_cal[["site"]] == "wv2_dr_raw" &
+                                              conformal_cal[["tag"]] == "4_ALLVI", , drop = FALSE]),
+  tar_target(pred_conformal_wv2_scene,
+             conformal_surface(pred_wv2_scene, pred_conf_cal_wv2, CONF_ALPHA_MAP, neltuma_code,
+                               "wv2_scene", "4_ALLVI"),
+             format = "file", resources = predict_resources)
 )
 
 # ---------------------------------------------------------------------------
@@ -366,19 +377,26 @@ cover_targets <- c(
         rlang::call2("cover_di", train_sym, bands_sym, folds_sym)),
       # coverage-driven AOA threshold (extends the trust region to where the
       # DI-stratified intervals still keep their guarantee - see cover_aoa_threshold)
+      # threshold and coverage are NESTED leave-site-out (honest), 2026-09-22
       targets::tar_target_raw(paste0("cover_threshold_", s),
-        rlang::call2("cover_aoa_threshold", rlang::sym(paste0("cover_oof_", s)), di_sym)),
+        rlang::call2("cover_aoa_threshold", rlang::sym(paste0("cover_oof_", s)), di_sym, train_sym)),
       targets::tar_target_raw(paste0("cover_coverage_", s),
         rlang::call2("cover_coverage_table", rlang::sym(paste0("cover_oof_", s)), di_sym,
-                     quote(CONF_ALPHAS), s, rlang::sym(paste0("cover_threshold_", s)))),
+                     quote(CONF_ALPHAS), s, rlang::sym(paste0("cover_threshold_", s)), train_sym)),
+      targets::tar_target_raw(paste0("cover_site_coverage_", s),
+        rlang::call2("cover_site_coverage", rlang::sym(paste0("cover_oof_", s)), di_sym,
+                     quote(CONF_ALPHAS), s, rlang::sym(paste0("cover_threshold_", s)), train_sym)),
+      targets::tar_target_raw(paste0("cover_error_", s),
+        rlang::call2("cover_error_table", rlang::sym(paste0("cover_oof_", s)), train_sym, s)),
       targets::tar_target_raw(paste0("cover_scene_", s),
         rlang::call2("predict_cover_scene", train_sym, cube_path, bands_sym, COVER_IDS,
-                     file.path("data-out", "predict", paste0(s, "_scene__4_ALLVI_cover.tif")),
-                     aoi = quote(wv2_aoi)),
+                     out_path("predict", paste0(s, "_scene__4_ALLVI_cover.tif")),
+                     aoi = quote(wv2_aoi), aggregate = PRED_AGG),
         format = "file"),
       targets::tar_target_raw(paste0("cover_di_raster_", s),
         rlang::call2("predict_di_raster", cube_path, bands_sym, di_sym,
-                     file.path("data-out", "predict", paste0(s, "_scene__4_ALLVI_di.tif")), quote(wv2_aoi)),
+                     out_path("predict", paste0(s, "_scene__4_ALLVI_di.tif")), quote(wv2_aoi),
+                     aggregate = PRED_AGG),
         format = "file"),
       targets::tar_target_raw(paste0("cover_area_", s),
         rlang::call2("cover_scene_area",
@@ -386,14 +404,20 @@ cover_targets <- c(
           rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
           rlang::sym(paste0("cover_threshold_", s)),
           rlang::sym(paste0("cover_oof_", s)), train_sym, quote(wv2_aoi), px_ha, s)),
-      # thin cover-based invasion phases (mean cover per hexagon -> band)
+      # cover-based invasion phases per hexagon, with the conformal envelope (D7)
       targets::tar_target_raw(paste0("cover_phase_", s),
         rlang::call2("cover_phase_layer", rlang::call2("[", rlang::sym(paste0("cover_scene_", s)), 1L),
+          rlang::call2("[", rlang::sym(paste0("cover_di_raster_", s)), 1L),
+          rlang::sym(paste0("cover_threshold_", s)), rlang::sym(paste0("cover_oof_", s)), di_sym,
           rlang::call2("[", quote(wv2_grid_phase), 1L), quote(wv2_aoi),
-          quote(sensors_cfg$wv2$phases), file.path("data-out", s, "cover_phases.fgb")),
+          quote(sensors_cfg$wv2$phases), out_path(s, "cover_phases.fgb")),
         format = "file"),
       targets::tar_target_raw(paste0("cover_phase_summary_", s),
-        rlang::call2("cover_phase_summary", rlang::call2("[", rlang::sym(paste0("cover_phase_", s)), 1L), s))))
+        rlang::call2("cover_phase_summary", rlang::call2("[", rlang::sym(paste0("cover_phase_", s)), 1L), s,
+          rlang::call2("[[", rlang::call2("$", rlang::sym(paste0("cover_error_", s)), quote(noise_floor_pct)), 1L))),
+      targets::tar_target_raw(paste0("cover_gradient_", s),
+        rlang::call2("cover_gradient_table", rlang::call2("[", rlang::sym(paste0("cover_phase_", s)), 1L),
+          rlang::call2("[", quote(osm_roads), 1L), rlang::call2("[", quote(osm_settlements), 1L), s))))
   }), recursive = FALSE),
   # result indexes across cover sensors
   list(
@@ -401,6 +425,12 @@ cover_targets <- c(
       rlang::call2("rbind", !!!rlang::syms(paste0("cover_area_", COVER_SENSORS)))),
     targets::tar_target_raw("cover_coverage_index",
       rlang::call2("rbind", !!!rlang::syms(paste0("cover_coverage_", COVER_SENSORS)))),
+    targets::tar_target_raw("cover_site_coverage_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_site_coverage_", COVER_SENSORS)))),
+    targets::tar_target_raw("cover_error_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_error_", COVER_SENSORS)))),
+    targets::tar_target_raw("cover_gradient_index",
+      rlang::call2("rbind", !!!rlang::syms(paste0("cover_gradient_", COVER_SENSORS)))),
     targets::tar_target_raw("cover_phase_index",
       rlang::call2("rbind", !!!rlang::syms(paste0("cover_phase_summary_", COVER_SENSORS))))))
 
@@ -493,10 +523,10 @@ list(
 
   # ---- predictions and their accounting -----------------------------------
   preds,
+  wv2_conformal,
   tar_combine(pred_index, preds[["pred_summary"]], command = rbind(!!!.x)),
   # Sensitivity of every class area to the learner, beside the average (7.39).
   tar_combine(learner_area_index, preds[["pred_learner_areas"]], command = rbind(!!!.x)),
-  tar_combine(conformal_bounds, preds[["pred_conf_bounds"]], command = rbind(!!!.x)),
   tar_target(class_areas, pred_index[grepl("^drone_", pred_index$site), ]),
   tar_target(wv2_pred_summary, pred_index[pred_index$site == "wv2_scene", ]),
   tar_target(sat_pred_index, pred_index[pred_index$site %in% c("planet_scene", "s2_scene"), ]),
@@ -508,6 +538,13 @@ list(
   tar_target(sat_drone_areas, drone_areas_all),
   confusions,
   tar_target(wv2_confusion_raw_raw, confusion_raw_raw_wv2),
+  # Field counts per site x class (Table S4) and the Fig 5 shares
+  targets::tar_target_raw("training_class_counts",
+    rlang::call2("training_class_count_table",
+                 rlang::call2("setNames", rlang::call2("list", !!!rlang::syms(paste0("train_drone_", SITES, "_5_field"))), SITES),
+                 quote(classes))),
+  tar_target(subpixel_stats, subpixel_stats_table(list(wv2 = ext_all_wv2_raw, planet = ext_all_planet_raw,
+                                                       s2 = ext_all_s2_raw), sensors_cfg)),
   cover_targets,
   plant_scale,
   tar_combine(plant_validation, plant_scale[["plant_rows"]], command = rbind(!!!.x)),
@@ -516,24 +553,13 @@ list(
   # ---- invasion extent and phase (WV2; section 2.7) -----------------------
   tar_target(wv2_grid_phase,
              make_analysis_grid(wv2_aoi, sensors_cfg$wv2$phases$cell_m,
-                                "data-out/wv2/hex_phase.fgb", square = FALSE), format = "file"),
-  tar_target(wv2_grid_prevalence,
-             make_analysis_grid(wv2_aoi, sensors_cfg$wv2$phases$prevalence_cell_m,
-                                "data-out/wv2/grid_prevalence.fgb", square = TRUE), format = "file"),
+                                out_path("wv2/hex_phase.fgb"), square = FALSE), format = "file"),
+  # Hard-class phases kept as the Figure S14 comparison; the 100 m prevalence
+  # layer and the vacuous conformal phase envelope were retired 2026-09-22.
   tar_target(wv2_phase_layer,
              build_phase_layer(pred_wv2_scene, wv2_grid_phase, neltuma_code,
-                               sensors_cfg$wv2$phases, "data-out/wv2/phases.fgb"), format = "file"),
-  tar_target(wv2_prevalence_layer,
-             build_phase_layer(pred_wv2_scene, wv2_grid_prevalence, neltuma_code,
-                               sensors_cfg$wv2$phases, "data-out/wv2/prevalence.fgb"), format = "file"),
+                               sensors_cfg$wv2$phases, out_path("wv2/phases.fgb")), format = "file"),
   tar_target(wv2_phase_table, phase_summary(wv2_phase_layer)),
-  # Probabilistic phases (D7): the hard map, plus the conformal lower/upper
-  # cover envelope, per 250 m hexagon -> Table 1 with ranges (R1 L272).
-  tar_target(wv2_phase_conformal_layer,
-             phase_conformal_layer(pred_wv2_scene, pred_conformal_wv2_scene, wv2_grid_phase,
-                                   neltuma_code, sensors_cfg$wv2$phases, "data-out/wv2/phases_conformal.fgb"),
-             format = "file"),
-  tar_target(wv2_phase_table_conformal, phase_summary_conformal(wv2_phase_conformal_layer)),
 
   # ---- figures ------------------------------------------------------------
   targets::tar_target_raw("fig_maps",
@@ -544,10 +570,18 @@ list(
   tar_target(fig_cover, fig_subpixel_cover(list(wv2 = ext_all_wv2_raw, planet = ext_all_planet_raw,
                                                 s2 = ext_all_s2_raw), sensor_table), format = "file"),
   tar_target(fig_wv2_map, fig_satellite_map(list(raw = pred_wv2_scene),
-                                            "WorldView-2 (1.6 m)", "data-out/figures/fig6c_wv2_landscape.png"),
+                                            "WorldView-2 (1.6 m)", out_path("figures/fig6c_wv2_landscape.png")),
              format = "file"),
-  tar_target(fig7_scores, sensor_accuracy_summary(SITES[1], PRED_TAG, best_models, class_index,
-                                                  wv2_scores, sat_scores, wv2_class_index, sat_class_index)),
+  # Figure 6E/F: pixel-level Neltuma recall/precision vs the drone maps + set size
+  tar_target(fig7_scores, sensor_pixel_summary(
+    list(wv2 = confusion_raw_raw_wv2, planet = confusion_raw_raw_planet, s2 = confusion_raw_raw_s2),
+    conformal_coverage_honest,
+    drone_row = { r <- softvote_classes[softvote_classes$site == SITES[1] & softvote_classes$tag == PRED_TAG, ]
+                  h <- conformal_coverage_honest[conformal_coverage_honest$site == SITES[1] &
+                                                 conformal_coverage_honest$tag == PRED_TAG &
+                                                 abs(conformal_coverage_honest$alpha - 0.10) < 1e-9, ]
+                  data.frame(sensor = "drone", recall = r$recall[1], precision = r$precision[1],
+                             set_size = h$mean_set_size[1]) })),
   targets::tar_target_raw("fig_sensors",
     rlang::call2("fig_sensor_comparison", SITES[1],
                  rlang::call2("[", rlang::sym(paste0("aoi_paths_", SITES[1])), 1L),
@@ -559,15 +593,16 @@ list(
                  rlang::call2("setNames", rlang::call2("list", !!!rlang::syms(paste0("aoi_paths_", SITES))), SITES)),
     format = "file"),
   tar_target(fig_wv2_bench, fig_wv2_benchmark(wv2_scores), format = "file"),
-  tar_target(fig_phases, fig_phase_maps(wv2_prevalence_layer, wv2_phase_layer), format = "file"),
+  tar_target(fig_phases, fig_phase_maps(wv2_phase_layer), format = "file"),
   # ---- Phase C figures ----------------------------------------------------
   tar_target(fig_conformal,
              fig_conformal_map(pred_conformal_wv2_scene, "WorldView-2 (1.6 m), 90% coverage",
-                               "data-out/figures/figC1_conformal_wv2.png"), format = "file"),
+                               out_path("figures/figC1_conformal_wv2.png")), format = "file"),
   tar_target(fig_coverage, fig_coverage_curve(conformal_coverage_honest), format = "file"),
   # ---- Cover (C2/C3) figures ----------------------------------------------
-  tar_target(fig_cover_coverage, make_fig_cover_coverage(cover_coverage_index), format = "file"),
+  tar_target(fig_cover_coverage, make_fig_cover_coverage(cover_coverage_index, cover_site_coverage_index), format = "file"),
   tar_target(fig_cover_area, make_fig_cover_area(cover_area_index), format = "file"),
+  tar_target(fig_cover_gradient, make_fig_cover_gradient(cover_gradient_index), format = "file"),
   # OSM roads + settlements for the landscape figure overlays (fetched once)
   tar_target(osm_roads, "data-in/osm/roads.fgb", format = "file"),
   tar_target(osm_settlements, "data-in/osm/settlements.fgb", format = "file"),
@@ -608,18 +643,28 @@ list(
   # ---- invariants (refactor-3.0 4.4) --------------------------------------
   tar_target(checks, run_checks(score_index_all, training_attrition, cube_index, resampling, sensors_cfg, cv_index)),
 
+  tar_target(sensor_summary,
+             sensor_results_table(sensors_cfg, cv_index,
+                                  list(wv2 = confusion_raw_raw_wv2, planet = confusion_raw_raw_planet, s2 = confusion_raw_raw_s2),
+                                  conformal_coverage_honest, cover_area_index, cover_coverage_index, cover_error_index)),
   tar_target(paper_values,
-             build_paper_values(score_index, best_models, class_areas, training_index,
-                                class_index = class_index, wv2_scores = wv2_scores, sat_scores = sat_scores,
+             build_paper_values(score_index, best_models, class_index, training_index,
+                                training_class_counts = training_class_counts, cv_index = cv_index,
+                                wv2_scores = wv2_scores, sat_scores = sat_scores,
                                 sat_class_index = rbind(wv2_class_index, sat_class_index),
-                                wv2_drone_areas = wv2_drone_areas,
-                                wv2_confusion_raw = wv2_confusion_raw_raw,
-                                wv2_phase_table = wv2_phase_table,
-                                plant_validation_summary = plant_validation_summary,
-                                cover_area_index = cover_area_index,
-                                cover_coverage_index = cover_coverage_index,
-                                cover_phase_index = cover_phase_index)),
+                                softvote_scores = softvote_scores, softvote_classes = softvote_classes,
+                                confusions = list(wv2 = confusion_raw_raw_wv2, planet = confusion_raw_raw_planet,
+                                                  s2 = confusion_raw_raw_s2),
+                                conformal_coverage_honest = conformal_coverage_honest,
+                                learner_area_index = learner_area_index, subpixel_stats = subpixel_stats,
+                                cover_area_index = cover_area_index, cover_coverage_index = cover_coverage_index,
+                                cover_site_coverage_index = cover_site_coverage_index,
+                                cover_error_index = cover_error_index, cover_phase_index = cover_phase_index,
+                                cover_gradient_index = cover_gradient_index, cover_calibrator = cover_calibrator,
+                                resampling = resampling, sensors_cfg = sensors_cfg,
+                                wv2_phase_table = wv2_phase_table, pred_tag = PRED_TAG)),
   # The render runs in a Quarto subprocess that cannot see tar_make(store =);
-  # the qmd reads NELTUMA_STORE, which the run command sets (see header).
-  tarchetypes::tar_quarto(paper, "paper/manuscript.qmd")
+  # the qmds read NELTUMA_STORE, which the run command sets (see header).
+  tarchetypes::tar_quarto(paper, "paper/manuscript.qmd"),
+  tarchetypes::tar_quarto(supplement, "paper/supplement.qmd")
 )

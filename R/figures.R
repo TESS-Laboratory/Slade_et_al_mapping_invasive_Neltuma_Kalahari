@@ -99,7 +99,7 @@ map_panel <- function(class_tif, site, subtitle, palette, target_px = 1400,
 #' @param out_png output path
 #' @return the output path
 fig_landscape_maps <- function(pred_paths, best_models, tag,
-                               out_png = "data-out/figures/fig_maps.png") {
+                               out_png = out_path("figures/fig_maps.png")) {
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   pal <- class_palette()
 
@@ -133,7 +133,7 @@ fig_landscape_maps <- function(pred_paths, best_models, tag,
   fig <- patchwork::wrap_plots(c(panels, list(legend_grob)), ncol = 4) +
     patchwork::plot_annotation(
       title = "Drone-derived vegetation classification, winning learner per site",
-      subtitle = sprintf("stack %s · 10×10 repeated spatial CV · %s",
+      subtitle = sprintf("stack %s · equal-weight average of the tuned learners · %s",
                          tag, "colours CVD-validated"),
       theme = ggplot2::theme(
         plot.title = ggplot2::element_text(face = "bold", size = 12),
@@ -180,7 +180,8 @@ cowplot_get_legend <- function(p) {
 #' @param out_png output path
 #' @return the output path
 fig_accuracy <- function(best_models, score_index,
-                         out_png = "data-out/figures/fig_accuracy.png") {
+                         out_png = out_path("figures/fig_accuracy.png")) {
+  n_iter <- max(score_index$n_iters, na.rm = TRUE)
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   accent <- "#B5179E"   # the Neltuma magenta doubles as the house accent
   ink <- "grey25"
@@ -195,6 +196,7 @@ fig_accuracy <- function(best_models, score_index,
       plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40")
     )
 
+  cv_label <- sprintf("overall accuracy, %d iterations of kNNDM spatial CV", n_iter)
   # -- A: by stack, per-site winners ----------------------------------------
   a <- best_models
   a_mean <- stats::aggregate(classif.acc ~ tag, a, mean)
@@ -209,12 +211,12 @@ fig_accuracy <- function(best_models, score_index,
     ggplot2::geom_text(data = a_mean,
                        ggplot2::aes(label = sprintf("%.3f", classif.acc)),
                        vjust = -1.1, size = 2.9, colour = ink) +
-    ggplot2::annotate("text", x = 0.9, y = 0.6, label = "manuscript “~90%”",
+    ggplot2::annotate("text", x = 0.9, y = 0.6, label = "submitted “~90%”",
                       hjust = -0.05, size = 2.6, colour = "grey55") +
     ggplot2::scale_x_continuous(limits = c(NA, 1)) +
     ggplot2::labs(title = "A · Accuracy by predictor stack",
                   subtitle = "winning learner per site (grey) and stack mean (magenta)",
-                  x = "overall accuracy, 10×10 repeated spatial CV") +
+                  x = cv_label) +
     base_theme
 
   # -- B: by learner, all tasks ---------------------------------------------
@@ -231,8 +233,9 @@ fig_accuracy <- function(best_models, score_index,
                        ggplot2::aes(label = sprintf("%.3f", classif.acc)),
                        vjust = -1.1, size = 2.9, colour = ink) +
     ggplot2::labs(title = "B · Accuracy by learner",
-                  subtitle = "all 28 site × stack tasks (grey) and learner mean (magenta)",
-                  x = "overall accuracy, 10×10 repeated spatial CV") +
+                  subtitle = sprintf("all %d site × stack tasks (grey) and learner mean (magenta); 'average' = the mapped soft vote",
+                                     length(unique(paste(b$site, b$tag)))),
+                  x = cv_label) +
     base_theme
 
   # explicit namespacing: patchwork is installed but not attached in workers,
@@ -260,7 +263,7 @@ fig_accuracy <- function(best_models, score_index,
 #' @param sensors the sensors table (pixel_m, purity_threshold)
 #' @param out_png output path
 #' @return `out_png`
-fig_subpixel_cover <- function(exts, sensors, out_png = "data-out/figures/fig5_subpixel_cover.png") {
+fig_subpixel_cover <- function(exts, sensors, out_png = out_path("figures/fig5_subpixel_cover.png")) {
   accent <- "#B5179E"
   labels <- c(wv2 = "WorldView-2", planet = "PlanetScope", s2 = "Sentinel-2")
   rows <- lapply(names(exts), function(s) {
@@ -349,46 +352,59 @@ fig_satellite_map <- function(surfaces, sensor_label, out_png) {
 }
 
 
-#' Figure 7 analogue: one drone site seen by four sensors, plus accuracies
+#' Figure 6: one drone site seen by four sensors, plus the grain summary
 #'
-#' Panels A-D: the same site classified from drone, WV2, Planet and S2 (raw
-#' surfaces - the pipeline's stance, stated in the subtitle). Panel E: overall
-#' accuracy and Neltuma recall per sensor from the archived-arm benchmarks
-#' (drone = the site's own winner). Rough by design (decision 2026-09-16
-#' [HUGH]): the reproduction draft, not the refactored paper.
+#' Panels A-D: the same site classified from drone, WV2, Planet and S2 (the
+#' averaged discrete surfaces). Panel E (redesigned 2026-09-22, plan 3.6): per
+#' sensor, pixel-level Neltuma recall and precision against the drone maps inside
+#' the survey areas (`sensor_pixel_summary`) and the mean conformal set size at
+#' 90% coverage - the grain story that survives honest evaluation, instead of a
+#' cross-validated overall accuracy whose class roster changes with the sensor.
 #'
 #' @param site the drone site to show
 #' @param aoi_path its boundary
 #' @param surfaces named list sensor -> class raster path (drone first)
-#' @param scores named list sensor -> c(overall, neltuma_recall)
+#' @param scores data.frame(sensor, recall, precision, set_size) from `sensor_pixel_summary`
 #' @param out_png output path
 #' @return `out_png`
 fig_sensor_comparison <- function(site, aoi_path, surfaces, scores,
-                                  out_png = "data-out/figures/fig7_sensor_comparison.png") {
+                                  out_png = out_path("figures/fig7_sensor_comparison.png")) {
   palette <- class_palette(); accent <- "#B5179E"
   aoi <- terra::vect(aoi_path)
-  tmp <- file.path(dirname(out_png), "tmp_fig7"); dir.create(tmp, recursive = TRUE, showWarnings = FALSE)
+  tmp <- file.path(tempdir(), "fig7_tiles"); dir.create(tmp, recursive = TRUE, showWarnings = FALSE)
   labels <- c(drone = "Drone (7 cm)", wv2 = "WorldView-2 (1.6 m)",
               planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+  panel_letters <- c(drone = "A", wv2 = "B", planet = "C", s2 = "D")
   panels <- lapply(names(surfaces), function(s) {
     r <- terra::rast(surfaces[[s]][1])[[1]]
     r <- terra::mask(terra::crop(r, aoi), aoi)
     p <- file.path(tmp, paste0(site, "_", s, ".tif")); terra::writeRaster(r, p, overwrite = TRUE)
-    map_panel(p, labels[[s]], "raw surface", palette, target_px = 900, scale_m = 100)
+    map_panel(p, paste(panel_letters[[s]], labels[[s]]), "averaged classification", palette,
+              target_px = 900, scale_m = 100)
   })
-  sc <- data.frame(sensor = rep(names(scores), each = 2),
-                   measure = rep(c("Overall accuracy", "Neltuma recall"), length(scores)),
-                   value = unlist(scores, use.names = FALSE))
-  sc$sensor <- factor(sc$sensor, levels = names(scores), labels = labels[names(scores)])
-  panel_e <- ggplot2::ggplot(sc, ggplot2::aes(x = sensor, y = value, colour = measure, group = measure)) +
+  sc <- scores[scores$sensor %in% names(labels), ]
+  long <- rbind(data.frame(sensor = sc$sensor, measure = "Neltuma recall vs drone", value = sc$recall),
+                data.frame(sensor = sc$sensor, measure = "Neltuma precision vs drone", value = sc$precision))
+  long$sensor <- factor(long$sensor, levels = names(labels), labels = labels[names(labels)])
+  sz <- sc[!is.na(sc$set_size), ]; sz$sensor <- factor(sz$sensor, levels = names(labels), labels = labels[names(labels)])
+  panel_e <- ggplot2::ggplot(long, ggplot2::aes(x = sensor, y = value, colour = measure, group = measure)) +
     ggplot2::geom_line(linewidth = 0.6) + ggplot2::geom_point(size = 2.6) +
     ggplot2::geom_text(ggplot2::aes(label = sprintf("%.0f%%", 100 * value)), vjust = -1, size = 2.6, show.legend = FALSE) +
-    ggplot2::scale_colour_manual(values = c("Overall accuracy" = "#3B6EA8", "Neltuma recall" = accent), name = NULL) +
-    ggplot2::scale_y_continuous(NULL, labels = scales::percent, limits = c(0, 1)) +
-    ggplot2::labs(x = NULL, title = "E  Accuracy by sensor", subtitle = "10 x 10 spatial CV, archived training arms") +
+    ggplot2::scale_colour_manual(values = c("Neltuma recall vs drone" = accent, "Neltuma precision vs drone" = "#3B6EA8"), name = NULL) +
+    ggplot2::scale_y_continuous(NULL, labels = scales::percent, limits = c(0, 1.08)) +
+    ggplot2::labs(x = NULL, title = "E  Neltuma detection against the drone maps, by sensor grain",
+                  subtitle = "pixel-level recall and precision inside the survey areas") +
     ggplot2::theme_minimal(base_size = 9) +
     ggplot2::theme(legend.position = "bottom", panel.grid.minor = ggplot2::element_blank(),
                    panel.grid.major.x = ggplot2::element_blank(),
+                   plot.title = ggplot2::element_text(face = "bold", size = 9))
+  panel_f <- ggplot2::ggplot(sz, ggplot2::aes(x = sensor, y = set_size)) +
+    ggplot2::geom_col(fill = "grey70", width = 0.55) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f", set_size)), vjust = -0.4, size = 2.6) +
+    ggplot2::scale_y_continuous("classes per pixel", limits = c(0, max(sz$set_size) * 1.25)) +
+    ggplot2::labs(x = NULL, title = "F  Conformal set size at 90% coverage") +
+    ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), panel.grid.major.x = ggplot2::element_blank(),
                    plot.title = ggplot2::element_text(face = "bold", size = 9))
   codes <- sort(unique(unlist(lapply(surfaces, function(p) terra::freq(terra::rast(p[1])[[1]])$value))))
   legend_p <- ggplot2::ggplot(data.frame(code = factor(codes)), ggplot2::aes(x = 1, y = code, fill = code)) +
@@ -396,44 +412,38 @@ fig_sensor_comparison <- function(site, aoi_path, surfaces, scores,
     ggplot2::theme_void(base_size = 9) + ggplot2::theme(legend.position = "right", legend.key.size = ggplot2::unit(9, "pt"))
   legend <- cowplot_get_legend(legend_p)
   top <- patchwork::wrap_plots(c(panels, list(legend)), nrow = 1, widths = c(1, 1, 1, 1, 0.45))
-  fig <- patchwork::wrap_plots(top, panel_e, ncol = 1, heights = c(1.4, 1))
+  bottom <- patchwork::wrap_plots(panel_e, panel_f, nrow = 1, widths = c(1.6, 1))
+  fig <- patchwork::wrap_plots(top, bottom, ncol = 1, heights = c(1.4, 1))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   ggplot2::ggsave(out_png, fig, width = 12, height = 8.5, dpi = 200, bg = "white",
                   device = grDevices::png, type = "cairo")
+  unlink(tmp, recursive = TRUE)
   out_png
 }
 
 
-#' Figure 8 analogue: Neltuma prevalence (100 m) and invasion phase (250 m)
+#' Figure S14 (bottom): invasion phase per 250 m hexagon from the discrete WV2 surface
 #'
-#' Both from the RAW WV2 surface (7.35: the phase floor is exactly what the
-#' filter erases; the smoothed variants are in the same layers). Prevalence
-#' is one hue light-to-dark; phases are the same hue as an ordered 4-step
-#' ramp with a neutral floor. Rough draft by design.
+#' The hard-class comparison kept beside the cover-based phases (Table 3). The
+#' 100 m prevalence panel was retired 2026-09-22 (a >1.5 h exact_extract over 175M
+#' pixels for a panel the cover map supersedes).
 #'
-#' @param prevalence_path,phase_path the .fgb layers from build_phase_layer()
+#' @param phase_path the .fgb layer from build_phase_layer()
 #' @param out_png output path
 #' @return `out_png`
-fig_phase_maps <- function(prevalence_path, phase_path,
-                           out_png = "data-out/figures/fig8_phase_maps.png") {
-  prev <- sf::st_read(prevalence_path, quiet = TRUE)
+fig_phase_maps <- function(phase_path, out_png = out_path("figures/figS14_phase_maps.png")) {
   phs  <- sf::st_read(phase_path, quiet = TRUE)
   phase_cols <- c("Pre-Incursion" = "#EFE9E4", "Initial Incursion" = "#E9A9D8",
                   "Expansion" = "#B5179E", "Dominance" = "#5A0B4E")
-  base <- ggplot2::theme_void(base_size = 9) +
-    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 9),
-                   legend.key.size = ggplot2::unit(9, "pt"), legend.text = ggplot2::element_text(size = 8))
-  pa <- ggplot2::ggplot(prev) +
-    ggplot2::geom_sf(ggplot2::aes(fill = pmin(cover_raw, 30)), colour = NA) +
-    ggplot2::scale_fill_gradient(low = "#F6E3F1", high = "#5A0B4E", name = "Neltuma cover (%)\n100 m cells, capped at 30",
-                                 breaks = c(0, 10, 20, 30), labels = c("0", "10", "20", "30+")) +
-    ggplot2::labs(title = "A  Neltuma prevalence (raw WV2 surface)") + base
-  pb <- ggplot2::ggplot(phs) +
+  fig <- ggplot2::ggplot(phs) +
     ggplot2::geom_sf(ggplot2::aes(fill = phase_raw), colour = NA) +
     ggplot2::scale_fill_manual(values = phase_cols, name = "Invasion phase\n250 m hexagons, Table S8", drop = FALSE) +
-    ggplot2::labs(title = "B  Invasion phase (raw WV2 surface)") + base
-  fig <- patchwork::wrap_plots(pa, pb, nrow = 1)
+    ggplot2::labs(title = "Invasion phase from the discrete WV2 classification (share of Neltuma pixels)") +
+    ggplot2::theme_void(base_size = 9) +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold", size = 9),
+                   legend.key.size = ggplot2::unit(9, "pt"), legend.text = ggplot2::element_text(size = 8))
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
-  ggplot2::ggsave(out_png, fig, width = 11, height = 8, dpi = 200, bg = "white",
+  ggplot2::ggsave(out_png, fig, width = 6.5, height = 8, dpi = 200, bg = "white",
                   device = grDevices::png, type = "cairo")
   out_png
 }
@@ -449,7 +459,7 @@ fig_phase_maps <- function(prevalence_path, phase_path,
 #' @param site_aois named list site -> aoi shapefile path
 #' @param out_png output path
 #' @return `out_png`
-fig_study_area <- function(aoi_path, site_aois, out_png = "data-out/figures/fig1_study_area.png") {
+fig_study_area <- function(aoi_path, site_aois, out_png = out_path("figures/fig1_study_area.png")) {
   accent <- "#B5179E"
   aoi <- sf::st_read(aoi_path, quiet = TRUE)
   sites <- do.call(rbind, lapply(names(site_aois), function(s) {
@@ -485,27 +495,28 @@ fig_study_area <- function(aoi_path, site_aois, out_png = "data-out/figures/fig1
 #' @param wv2_scores all WV2 arm scores
 #' @param out_png output path
 #' @return `out_png`
-fig_wv2_benchmark <- function(wv2_scores, out_png = "data-out/figures/fig6ab_wv2_benchmark.png") {
+fig_wv2_benchmark <- function(wv2_scores, out_png = out_path("figures/fig6ab_wv2_benchmark.png")) {
   accent <- "#B5179E"
+  wv2_scores <- wv2_scores[wv2_scores$learner != "average", ]
   a <- wv2_scores[wv2_scores$site == "wv2_archived", ]; a <- a[order(a$classif.acc), ]
   a$learner <- factor(a$learner, levels = a$learner)
   pa <- ggplot2::ggplot(a, ggplot2::aes(x = classif.acc, y = learner)) +
     ggplot2::geom_segment(ggplot2::aes(x = acc_min, xend = acc_max, yend = learner), colour = "grey75", linewidth = 0.6) +
     ggplot2::geom_point(colour = accent, size = 2.8) +
     ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%", 100 * classif.acc)), vjust = -1, size = 2.5, colour = "grey20") +
-    ggplot2::scale_x_continuous("Overall accuracy (mean; bar = min-max over 100 iterations)", labels = scales::percent, limits = c(0, 1)) +
+    ggplot2::scale_x_continuous(sprintf("Overall accuracy (mean; bar = min-max over %d kNNDM iterations)", max(a$n_iters, na.rm = TRUE)), labels = scales::percent, limits = c(0, 1)) +
     ggplot2::labs(title = "A  WV2 learners, archived training arm", y = NULL) +
     ggplot2::theme_minimal(base_size = 9) + ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
                                                             plot.title = ggplot2::element_text(face = "bold", size = 9))
   best <- do.call(rbind, lapply(split(wv2_scores, wv2_scores$site), function(d) d[which.max(d$classif.acc), ]))
-  best$arm <- factor(sub("^wv2_", "", best$site), levels = c("field", "archived", "dr_raw", "dr_smooth"),
+  best$arm <- factor(sub("^wv2_", "", best$site), levels = c("field", "archived", "dr_raw"),
                      labels = c("Field points only\n(0.8 m buffers)", "Drone purity\n(archived extraction)",
-                                "Drone purity\n(our raw surfaces)", "Drone purity\n(our filtered surfaces)"))
+                                "Drone purity\n(our classifications)"))
   pb <- ggplot2::ggplot(best, ggplot2::aes(x = arm, y = classif.acc)) +
     ggplot2::geom_col(fill = accent, width = 0.55) +
     ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%\n%s", 100 * classif.acc, learner)), vjust = -0.3, size = 2.5, colour = "grey20") +
     ggplot2::scale_y_continuous("Overall accuracy, best learner", labels = scales::percent, limits = c(0, 1)) +
-    ggplot2::labs(title = "B  Training arm comparison (the +6.1% test)", x = NULL) +
+    ggplot2::labs(title = "B  Training source comparison, best learner", x = NULL) +
     ggplot2::theme_minimal(base_size = 9) + ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
                                                             panel.grid.major.x = ggplot2::element_blank(),
                                                             plot.title = ggplot2::element_text(face = "bold", size = 9))
@@ -565,7 +576,7 @@ fig_conformal_map <- function(conformal_path, sensor_label, out_png) {
 #' @param honest the conformal_coverage_honest table
 #' @param out_png output path
 #' @return `out_png`
-fig_coverage_curve <- function(honest, out_png = "data-out/figures/figC2_coverage.png") {
+fig_coverage_curve <- function(honest, out_png = out_path("figures/figC2_coverage.png")) {
   d <- honest; d$nominal <- 1 - d$alpha
   d$task <- paste(d$site)
   base <- ggplot2::theme_minimal(base_size = 9) +
@@ -589,66 +600,40 @@ fig_coverage_curve <- function(honest, out_png = "data-out/figures/figC2_coverag
 }
 
 
-#' Figure C3: Neltuma area with conformal and PPI intervals, per sensor
+#' Figure 8B: honest DI-stratified cover-interval coverage vs nominal, per sensor and site
 #'
-#' The hard-map point, the conformal [lower, upper] band at the headline alpha,
-#' and the PPI point estimate with its CI - three honest statements of "how much
-#' Neltuma" side by side, against the single number the manuscript reports.
+#' Lines = pooled nested leave-site-out coverage per sensor (each site's intervals
+#' calibrated on the other six); points = per-site coverage. The submitted-draft
+#' version drew the apparent coverage, which lands on the diagonal by construction
+#' (finding 2026-09-22); this one shows where the guarantee actually holds and
+#' where (the dense site) it does not.
 #'
-#' @param bounds conformal_bounds (scene rows), @param ppi ppi_area
-#' @param alpha the headline alpha to show
+#' @param cov cover_coverage_index (sensor, alpha, nominal, apparent, honest, ...)
+#' @param site_cov cover_site_coverage_index (sensor, site, alpha, coverage, ...)
 #' @param out_png output path
 #' @return `out_png`
-fig_area_bounds <- function(bounds, ppi, alpha = 0.10,
-                            out_png = "data-out/figures/figC3_area.png") {
-  b <- bounds[bounds$alpha == alpha & grepl("_scene$", bounds$site), ]
-  b$sensor <- sub("_scene$", "", b$site)
-  m <- merge(b, ppi, by = "sensor")
-  m$sensor <- factor(m$sensor, levels = c("wv2", "planet", "s2"),
-                     labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
-  fig <- ggplot2::ggplot(m, ggplot2::aes(y = sensor)) +
-    ggplot2::geom_linerange(ggplot2::aes(xmin = neltuma_lower_ha, xmax = neltuma_upper_ha),
-                            colour = "#B5179E", linewidth = 3, alpha = 0.35) +
-    ggplot2::geom_point(ggplot2::aes(x = point_ha), colour = "grey20", size = 2.6) +
-    ggplot2::geom_errorbarh(ggplot2::aes(xmin = ppi_lo_ha, xmax = ppi_hi_ha), height = 0.18, colour = "#3B6EA8") +
-    ggplot2::geom_point(ggplot2::aes(x = ppi_ha), colour = "#3B6EA8", size = 2.2, shape = 17) +
-    ggplot2::scale_x_continuous("Neltuma area (ha)") +
-    ggplot2::labs(y = NULL,
-                  title = "Neltuma area: hard map, conformal band, and PPI-corrected estimate",
-                  subtitle = sprintf("magenta = conformal [lower, upper] at %.0f%% coverage; grey = hard-map point; blue triangle = PPI +/- 95%% CI", 100 * (1 - alpha))) +
-    ggplot2::theme_minimal(base_size = 10) +
-    ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
-                   plot.subtitle = ggplot2::element_text(size = 7.5, colour = "grey35"))
-  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
-  ggplot2::ggsave(out_png, fig, width = 9, height = 4, dpi = 200, bg = "white",
-                  device = grDevices::png, type = "cairo")
-  out_png
-}
-
-
-#' Figure: DI-stratified cover-interval coverage vs nominal, per sensor (C2/C3)
-#'
-#' The methods result: on leave-site-out held-out data, the DI-stratified conformal
-#' cover intervals cover at ~ the nominal rate along the diagonal.
-#'
-#' @param cov cover_coverage_index (sensor, alpha, nominal, overall, n)
-#' @param out_png output path
-#' @return `out_png`
-make_fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover_coverage.png") {
-  d <- cov
-  d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
-                     labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
+make_fig_cover_coverage <- function(cov, site_cov = NULL, out_png = out_path("figures/figC4_cover_coverage.png")) {
+  lab <- c(wv2 = "WorldView-2", planet = "PlanetScope", s2 = "Sentinel-2")
+  d <- cov; d$sensor <- factor(lab[d$sensor], levels = lab)
+  ycol <- if ("honest" %in% names(d)) "honest" else "overall"
   base <- ggplot2::theme_minimal(base_size = 9) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
-  fig <- ggplot2::ggplot(d, ggplot2::aes(nominal, overall, colour = sensor, group = sensor)) +
-    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60") +
-    ggplot2::geom_line() + ggplot2::geom_point(size = 1.8) +
+  fig <- ggplot2::ggplot(d, ggplot2::aes(nominal, .data[[ycol]], colour = sensor, group = sensor)) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60")
+  if (!is.null(site_cov) && nrow(site_cov)) {
+    sc <- site_cov; sc$sensor <- factor(lab[sc$sensor], levels = lab); sc$nominal <- 1 - sc$alpha
+    sc$dense <- sc$site == "struizendam_4"
+    fig <- fig + ggplot2::geom_point(data = sc, ggplot2::aes(nominal, coverage, colour = sensor, shape = dense),
+                                     alpha = 0.55, size = 1.6,
+                                     position = ggplot2::position_dodge(width = 0.012)) +
+      ggplot2::scale_shape_manual(values = c(`FALSE` = 16, `TRUE` = 17), labels = c("other sites", "Struizendam 4 (dense)"), name = NULL)
+  }
+  fig <- fig + ggplot2::geom_line(linewidth = 0.8) + ggplot2::geom_point(size = 2.6) +
     ggplot2::scale_x_continuous("Nominal coverage (1 - alpha)", labels = scales::percent) +
-    ggplot2::scale_y_continuous("Empirical (leave-site-out) coverage", labels = scales::percent) +
-    ggplot2::labs(title = "DI-stratified cover intervals: coverage holds on the diagonal",
-                  colour = NULL) + base
+    ggplot2::scale_y_continuous("Empirical coverage (calibrated on the other sites)", labels = scales::percent) +
+    ggplot2::labs(title = "B  Cover-interval coverage: pooled (lines) and per survey area (points)", colour = NULL) + base
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
-  ggplot2::ggsave(out_png, fig, width = 6.5, height = 4.2, dpi = 200, bg = "white",
+  ggplot2::ggsave(out_png, fig, width = 7, height = 4.4, dpi = 200, bg = "white",
                   device = grDevices::png, type = "cairo")
   out_png
 }
@@ -663,7 +648,7 @@ make_fig_cover_coverage <- function(cov, out_png = "data-out/figures/figC4_cover
 #' @param area cover_area_index (one row per sensor)
 #' @param out_png output path
 #' @return `out_png`
-make_fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_area.png") {
+make_fig_cover_area <- function(area, out_png = out_path("figures/figC5_cover_area.png")) {
   d <- area
   d$sensor <- factor(d$sensor, levels = c("wv2", "planet", "s2"),
                      labels = c("WorldView-2", "PlanetScope", "Sentinel-2"))
@@ -672,15 +657,45 @@ make_fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_ar
   fig <- ggplot2::ggplot(d, ggplot2::aes(y = sensor)) +
     ggplot2::geom_linerange(ggplot2::aes(xmin = ppi_lo_ha, xmax = ppi_hi_ha),
                             colour = "#457B9D", linewidth = 3, alpha = 0.35) +
+    ggplot2::geom_point(ggplot2::aes(x = cover_aoa_ha), shape = 1, colour = "grey20", size = 2.8, stroke = 0.8) +
     ggplot2::geom_point(ggplot2::aes(x = ppi_ha), colour = "grey20", size = 2.6) +
     ggplot2::geom_point(ggplot2::aes(x = naive_ha), shape = 4, colour = "#E63946", size = 2.4) +
-    ggplot2::scale_x_continuous("Neltuma cover area (ha)") +
+    ggplot2::scale_x_continuous("Neltuma cover area (ha)", limits = c(0, NA)) +
     ggplot2::labs(y = NULL,
-                  title = "Sub-pixel Neltuma cover area",
-                  subtitle = "point = PPI estimate; bar = between-site 95% CI; x = naive sum-of-fractions") +
+                  title = "A  Sub-pixel Neltuma cover area",
+                  subtitle = "filled = bias-corrected estimate; open = uncorrected within-AOA sum; bar = site-bootstrap 95% CI; x = whole-scene sum") +
     base
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   ggplot2::ggsave(out_png, fig, width = 7, height = 3.6, dpi = 200, bg = "white",
+                  device = grDevices::png, type = "cairo")
+  out_png
+}
+
+
+#' Figures S10-S11: hexagon cover by distance from roads and settlements
+#'
+#' @param grad cover_gradient_index (sensor, feature, band, n, mean_cover_pct)
+#' @param out_png output path
+#' @return `out_png`
+make_fig_cover_gradient <- function(grad, out_png = out_path("figures/figS10_cover_gradient.png")) {
+  lab <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
+  d <- grad; d$sensor <- factor(lab[d$sensor], levels = lab)
+  d$feature <- factor(d$feature, levels = c("road", "settlement"),
+                      labels = c("distance from nearest road", "distance from nearest village"))
+  d$band <- factor(d$band, levels = unique(grad$band))
+  fig <- ggplot2::ggplot(d, ggplot2::aes(x = band, y = mean_cover_pct, fill = sensor)) +
+    ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.7), width = 0.65) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("n=%d", n)), position = ggplot2::position_dodge(width = 0.7),
+                       vjust = -0.4, size = 2.2, colour = "grey30") +
+    ggplot2::facet_wrap(~ feature, scales = "free_x", ncol = 1) +
+    ggplot2::scale_fill_manual(values = c("#B5179E", "#457B9D", "#2A9D8F"), name = NULL) +
+    ggplot2::scale_y_continuous("Mean predicted Neltuma cover of hexagons within the AOA (%)", expand = ggplot2::expansion(mult = c(0, 0.15))) +
+    ggplot2::labs(x = NULL) +
+    ggplot2::theme_minimal(base_size = 9) +
+    ggplot2::theme(legend.position = "bottom", panel.grid.minor = ggplot2::element_blank(),
+                   panel.grid.major.x = ggplot2::element_blank(), strip.text = ggplot2::element_text(face = "bold"))
+  dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
+  ggplot2::ggsave(out_png, fig, width = 7, height = 6.5, dpi = 200, bg = "white",
                   device = grDevices::png, type = "cairo")
   out_png
 }
@@ -705,7 +720,7 @@ make_fig_cover_area <- function(area, out_png = "data-out/figures/figC5_cover_ar
 #' @return out_png
 make_fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_objs,
                             aoi, roads_path, setts_path,
-                            out_png = "data-out/figures/fig8_cover_grain.png",
+                            out_png = out_path("figures/fig8_cover_grain.png"),
                             target_px = 430L) {
   sensors <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
   av <- terra::vect(aoi)
@@ -779,7 +794,8 @@ make_fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_obj
   pD <- pD + patchwork::inset_element(pleg, left = 0.84, bottom = 0.37, right = 0.99, top = 0.63, align_to = "full")
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
   ggplot2::ggsave(out_png, patchwork::wrap_plots(list(pA, pB, pC, pD), ncol = 1),
-                  width = 9.4, height = 18.5, dpi = 130, bg = "white", limitsize = FALSE)
+                  width = 9.4, height = 18.5, dpi = 130, bg = "white", limitsize = FALSE,
+                  device = grDevices::png, type = "cairo")   # ragg mismatches this R in crew workers
   out_png
 }
 
@@ -797,7 +813,7 @@ make_fig_cover_grain <- function(cover_paths, di_paths, thresholds, oofs, di_obj
 #' @param out_png output; @param target_px approx plotting width per panel
 #' @return out_png
 make_fig_cover_full <- function(cover_paths, aoi, roads_path, setts_path,
-                           out_png = "data-out/figures/figS13_cover_full.png",
+                           out_png = out_path("figures/figS13_cover_full.png"),
                            target_px = 460L) {
   sensors <- c(wv2 = "WorldView-2 (1.6 m)", planet = "PlanetScope (3 m)", s2 = "Sentinel-2 (10 m)")
   av <- terra::vect(aoi)
@@ -830,6 +846,7 @@ make_fig_cover_full <- function(cover_paths, aoi, roads_path, setts_path,
           panel.spacing = unit(3, "pt"), plot.margin = margin(2, 2, 2, 2),
           legend.box.spacing = unit(3, "pt"))
   dir.create(dirname(out_png), recursive = TRUE, showWarnings = FALSE)
-  ggplot2::ggsave(out_png, p, width = 9.4, height = 5.2, dpi = 150, bg = "white", limitsize = FALSE)
+  ggplot2::ggsave(out_png, p, width = 9.4, height = 5.2, dpi = 150, bg = "white", limitsize = FALSE,
+                  device = grDevices::png, type = "cairo")
   out_png
 }

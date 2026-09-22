@@ -107,7 +107,7 @@ set_vrt_band_names <- function(vrt, names) {
 #' @param out_dir where to write the VRT
 #' @return path to the written VRT
 build_cube <- function(site, tag, stacks = read_stacks(), sites = read_sites(),
-                       root = "data-in/drone", out_dir = "data-out/cubes") {
+                       root = "data-in/drone", out_dir = out_path("cubes")) {
   s <- stacks[stacks$tag == tag, , drop = FALSE]
   bands <- s$band_list[[1]]
   srcs  <- cube_sources(site, tag, stacks = stacks, root = root)

@@ -8,12 +8,11 @@ testthat::test_that("Table S8 phase thresholds: boundaries go to the lower phase
       "Expansion", "Expansion", "Dominance", "Dominance", "Dominance"))
 })
 
-testthat::test_that("phase_table reports all four phases for both surfaces, zeros included", {
-  raw    <- c("Pre-Incursion", "Expansion", "Initial Incursion", NA)
-  smooth <- c("Pre-Incursion", "Pre-Incursion", "Pre-Incursion", NA)
-  t <- phase_table(raw, smooth, c(10, 10, 10, 10))
-  testthat::expect_equal(nrow(t), 8L)
-  testthat::expect_equal(t$n_cells[t$surface == "smooth" & t$phase == "Dominance"], 0L)
-  testthat::expect_equal(t$area_ha[t$surface == "smooth" & t$phase == "Pre-Incursion"], 30)
-  testthat::expect_equal(sum(t$pct_of_area[t$surface == "raw"]), 100)
+testthat::test_that("phase_table reports all four phases, zeros included", {
+  raw <- c("Pre-Incursion", "Expansion", "Initial Incursion", NA)
+  t <- phase_table(raw, c(10, 10, 10, 10))
+  testthat::expect_equal(nrow(t), 4L)
+  testthat::expect_equal(t$n_cells[t$phase == "Dominance"], 0L)
+  testthat::expect_equal(t$area_ha[t$phase == "Pre-Incursion"], 10)
+  testthat::expect_equal(sum(t$pct_of_area), 100)
 })

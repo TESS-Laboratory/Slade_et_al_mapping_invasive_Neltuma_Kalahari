@@ -75,3 +75,7 @@ _targets_fast_v2/
 
 paper/manuscript.html
 paper/manuscript_files/
+data-out-fast/
+paper/*.docx
+paper/supplement.html
+paper/supplement_files/
